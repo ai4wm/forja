@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "crates/forja-core",
+    "crates/forja-llm",
+    "crates/forja-memory",
+    "crates/forja-channel",
+    "crates/forja-tools",
+]
+
+[package]
+name = "forja"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+forja-core = { path = "crates/forja-core" }
+forja-llm  = { path = "crates/forja-llm" }
