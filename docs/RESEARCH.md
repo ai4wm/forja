@@ -44,3 +44,29 @@
 - Moltis: https://github.com/moltis-org/moltis
 - Wails (Go 데스크톱): https://wails.io
 - Tauri v2: https://v2.tauri.app
+
+## 7. OpenClaw 기능 완전 목록 (Forja 커버 대상)
+
+### 필수 구현 (Phase 2)
+- [x] 멀티 LLM 프로바이더
+- [ ] 채널 게이트웨이 (라우팅, 세션 관리)
+- [ ] 퍼시스턴트 메모리 (MEMORY.md + 일별 로그)
+- [ ] 시맨틱 검색 (임베딩 + 벡터 DB)
+- [ ] 컨텍스트 컴팩션 (토큰 절약)
+- [ ] 메모리 자동 플러시 (컴팩션 전 저장)
+- [ ] 도구 실행 (shell, file, web fetch)
+- [ ] 스케줄링 (cron 기반 반복 작업)
+- [ ] MCP 프로토콜 지원
+
+### OpenClaw에 없는 것 (Phase 3 — Forja 차별화)
+- [ ] 네이티브 데스크톱 UI (Tauri v2)
+- [ ] 모바일 앱 (Tauri v2 iOS/Android)
+- [ ] 음성 대화 (로컬 STT/TTS)
+- [ ] 로컬 LLM 직접 실행 (llama.cpp)
+- [ ] 멀티 에이전트 협업
+- [ ] WASM 플러그인 마켓플레이스
+- [ ] 암호화 메모리
+- [ ] 자기 학습 메모리
+- [ ] 크리에이터 툴킷 (YouTube API, SNS 자동화)
+- [ ] 단일 바이너리 배포 (Node.js 불필요)
+- [ ] 라즈베리파이 / 엣지 디바이스 실행
