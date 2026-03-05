@@ -112,8 +112,6 @@ impl SearchTool {
         match self.client.post(url).header("Authorization", format!("Bearer {}", api_key)).json(&body).send().await {
             Ok(res) => {
                 let text = res.text().await.unwrap_or_default();
-                let debug_text: String = text.chars().take(500).collect();
-                println!("[SearchTool DEBUG] Grok status: {}", debug_text);
                 
                 if let Ok(json) = serde_json::from_str::<Value>(&text) {
                     if let Some(output) = json.get("output").and_then(|v| v.as_array()) {
