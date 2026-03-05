@@ -7,7 +7,7 @@ OpenClaw의 대안으로 개발되는 초경량 텍스트/음성 AI 에이전트
 ## 현재 진행 상황 (Phase 2 완료)
 - **멀티 LLM**: OpenAI, Anthropic, Gemini, DeepSeek, XAI, Moonshot, GLM 7개 메이저 프로바이더 및 로컬 Ollama 공식 지원.
 - **RAG/메모리**: BM25 단어 단위 기반의 마크다운 메모리 관리와 자동 컨텍스트 비우기 기능(`forja-memory`).
-- **Tool Use**: `FileTool`(읽기/쓰기), `WebTool`(reqwest GET), `ShellTool`(기본 명령어 자동 승인 및 대화형 사용자 확인).
+- **Tool Use**: `FileTool`(읽기/쓰기), `WebTool`(reqwest GET), `ShellTool`(로컬 시스템), `SearchTool`(DuckDuckGo, Brave, Grok 웹 검색).
 - **UX**: 토큰 단위 실시간 스트리밍 출력 및 타이핑 폴백 지원.
 - **설정 및 실행**: 터미널 기반 대화형 온보딩, `config.toml` 상태 관리, 그리고 다양한 CLI 플래그(`--setup`, `--provider`, `--model`) 지원.
 

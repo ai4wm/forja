@@ -14,7 +14,7 @@ Phase 2 목표인 'OpenClaw Parity'를 성공적으로 달성했습니다.
 ## 2. 세부 항목 체크리스트
 - [x] **A. forja-llm 프리셋 확장**: 11개 프로바이더 프리셋 및 유연한 Config 빌더 구현
 - [x] **B. forja-memory 하이브리드 검색**: BM25 기반 검색 및 마크다운 자동 저장
-- [x] **C. forja-tools 도구 구현**: Shell, File, Web 검색 도구 및 실행 파이프라인
+- [x] **C. forja-tools 도구 구현**: Shell, File, Web 문서 추출 및 다중 프로바이더 Search 도구(Grok, Brave, DDG) 파이프라인
 - [x] **D. forja-channel 입출력**: CliChannel 구현 및 스트리밍 실시간 출력 UX
 - [x] **E. 컨텍스트 관리**: 토큰 기반 Auto-Flush 및 System Prompt 주입/지속
 - [x] **F. 설정 및 온보딩**: `config.toml` 자동 관리 및 대화형 온보딩 (설정 마법사)

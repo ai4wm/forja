@@ -43,7 +43,15 @@ use serde_json::Value;
     - URL을 받아 단순히 `GET` 요청 수행
     - HTTP body 텍스트 반환 (필요시 정규식 등으로 HTML 태그를 날리는 경량화 처리)
 
-### 3.3. ShellTool (명령어 실행 및 보안 체계) ★ 핵심
+### 3.3. SearchTool (웹 검색 체계)
+웹 상의 최신 정보를 검색 엔진을 통해 수집하기 위한 도구입니다.
+- `name`: `"search_tool"`
+- **기능 분기**: `config.toml`에 명시된 프로바이더 종류(`duckduckgo`, `brave`, `grok`)에 맞추어 API 요청
+    - `duckduckgo`: DuckDuckGo Instant Answer API (무료)
+    - `brave`: Brave Search API (API 키 필요)
+    - `grok`: xAI `/v1/responses` API의 `web_search` 기능 활용 (API 키 필요)
+
+### 3.4. ShellTool (명령어 실행 및 보안 체계) ★ 핵심
 운영체제의 CLI 파이프를 이용해 명령어를 실행합니다. **엔진 폭주 방지 방어벽**이 필수적으로 갖춰져야 합니다.
 
 - `name`: `"shell_tool"`

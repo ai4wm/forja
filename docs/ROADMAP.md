@@ -15,7 +15,7 @@
 - [x] forja-llm: OpenAI, Anthropic, Gemini, DeepSeek, XAI, GLM, 로컬 Ollama 통합 지원
 - [x] forja-memory: BM25 기반 마크다운 메모리 관리 (`~/.forja/memory`) 및 자동 컨텍스트 정리
 - [x] forja-channel: `CliChannel` 구현 (CLI 환경 입력/출력 인터페이스)
-- [x] forja-tools: 시스템 파일 읽기/쓰기, 쉘 명령어 실행(화이트리스트 자동 승인 지원), 웹 페이지 수집
+- [x] forja-tools: 시스템 파일 쓰기/읽기, 쉘 명령어(자동 승인), 웹 페이지 수집 및 웹 검색(SearchTool: DuckDuckGo, Brave, Grok)
 - [x] UX 개선: 대화형 설정 온보딩, 스트리밍 타이핑 출력, `--setup` `--provider` 등 CLI 플래그 연동
 
 ## Phase 3 — OpenClaw 초월 (8주)
