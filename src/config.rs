@@ -15,12 +15,27 @@ pub struct ForjaConfig {
     pub agent: AgentSection,
     #[serde(default)]
     pub channel: ChannelSection,
+    #[serde(default)]
+    pub tools: ToolsSection,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct ActiveSection {
     pub provider: Option<String>,
     pub model: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
+pub struct ToolsSection {
+    #[serde(default)]
+    pub search: SearchToolSection,
+}
+
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
+pub struct SearchToolSection {
+    pub provider: Option<String>,
+    pub brave_api_key: Option<String>,
+    pub xai_api_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]

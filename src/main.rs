@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_stream::{Stream, StreamExt};
 use std::io::Write;
-use forja_tools::{FileTool, WebTool, ShellTool, StdinConfirmation};
+use forja_tools::{FileTool, WebTool, ShellTool, SearchTool, SearchProvider, StdinConfirmation};
 use forja_memory::MarkdownMemoryStore;
 
 // ─── 터미널 채널 ────────────────────────────────────────────────────────────
@@ -264,9 +264,23 @@ async fn main() -> Result<()> {
     let web_tool = Arc::new(WebTool::new());
     let shell_tool = Arc::new(ShellTool::new(Arc::new(StdinConfirmation::new())));
 
+    let search_provider = match forja_cfg.tools.search.provider.as_deref() {
+        Some("brave") => {
+            let key = forja_cfg.tools.search.brave_api_key.clone().unwrap_or_default();
+            SearchProvider::Brave { api_key: key }
+        }
+        Some("grok") | Some("xai") => {
+            let key = forja_cfg.tools.search.xai_api_key.clone().unwrap_or_default();
+            SearchProvider::Grok { api_key: key }
+        }
+        _ => SearchProvider::DuckDuckGo,
+    };
+    let search_tool = Arc::new(SearchTool::new(search_provider));
+
     engine.register_tool(file_tool);
     engine.register_tool(web_tool);
     engine.register_tool(shell_tool);
+    engine.register_tool(search_tool);
 
     println!("[System] Engine is ready. Press Ctrl+C to quit.\n");
 
