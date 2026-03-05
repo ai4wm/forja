@@ -114,13 +114,15 @@ impl SearchTool {
 
         match self.client.post(url).header("Authorization", format!("Bearer {}", api_key)).json(&body).send().await {
             Ok(res) => {
-                if let Ok(text) = res.text().await {
-                    if let Ok(json) = serde_json::from_str::<Value>(&text) {
-                        return Self::truncate(&serde_json::to_string_pretty(&json).unwrap_or(text));
-                    }
-                    return Self::truncate(&text);
+                let status = res.status();
+                let text = res.text().await.unwrap_or_default();
+                let debug_text: String = text.chars().take(500).collect();
+                println!("[SearchTool DEBUG] Grok status: {}, body: {}", status, debug_text);
+                
+                if let Ok(json) = serde_json::from_str::<Value>(&text) {
+                    return Self::truncate(&serde_json::to_string_pretty(&json).unwrap_or(text));
                 }
-                "Failed to read response body.".to_string()
+                Self::truncate(&text)
             }
             Err(e) => format!("Search request failed: {}", e)
         }
