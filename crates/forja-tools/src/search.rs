@@ -103,8 +103,10 @@ impl SearchTool {
             ],
             "tools": [
                 {
-                    "type": "web_search",
-                    "web_search": {}
+                    "type": "live_search",
+                    "live_search": {
+                        "sources": ["web"]
+                    }
                 }
             ]
         });
