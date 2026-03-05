@@ -106,7 +106,12 @@ impl SearchTool {
                     "type": "function",
                     "function": {
                         "name": "web_search",
-                        "description": "Search the web for information."
+                        "description": "Search the web for information.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "required": []
+                        }
                     }
                 }
             ]
