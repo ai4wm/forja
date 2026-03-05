@@ -103,16 +103,8 @@ impl SearchTool {
             ],
             "tools": [
                 {
-                    "type": "function",
-                    "function": {
-                        "name": "web_search",
-                        "description": "Search the web for information.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {},
-                            "required": []
-                        }
-                    }
+                    "type": "web_search",
+                    "web_search": {}
                 }
             ]
         });
@@ -125,7 +117,13 @@ impl SearchTool {
                 println!("[SearchTool DEBUG] Grok status: {}, body: {}", status, debug_text);
                 
                 if let Ok(json) = serde_json::from_str::<Value>(&text) {
-                    return Self::truncate(&serde_json::to_string_pretty(&json).unwrap_or(text));
+                    if let Some(content) = json.pointer("/choices/0/message/content")
+                        .and_then(|v| v.as_str()) 
+                    {
+                        if !content.is_empty() {
+                            return Self::truncate(content);
+                        }
+                    }
                 }
                 Self::truncate(&text)
             }
