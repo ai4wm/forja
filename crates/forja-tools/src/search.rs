@@ -94,36 +94,39 @@ impl SearchTool {
     }
 
     async fn search_grok(&self, query: &str, api_key: &str) -> String {
-        let url = "https://api.x.ai/v1/chat/completions";
+        // Responses API 엔드포인트
+        let url = "https://api.x.ai/v1/responses";
         
         let body = serde_json::json!({
-            "model": "grok-4-1-fast-non-reasoning",
-            "messages": [
+            "model": "grok-4-1-fast",
+            "input": [
                 { "role": "user", "content": query }
             ],
             "tools": [
                 {
-                    "type": "live_search",
-                    "live_search": {
-                        "sources": ["web"]
-                    }
+                    "type": "web_search"
                 }
             ]
         });
 
         match self.client.post(url).header("Authorization", format!("Bearer {}", api_key)).json(&body).send().await {
             Ok(res) => {
-                let status = res.status();
                 let text = res.text().await.unwrap_or_default();
                 let debug_text: String = text.chars().take(500).collect();
-                println!("[SearchTool DEBUG] Grok status: {}, body: {}", status, debug_text);
+                println!("[SearchTool DEBUG] Grok status: {}", debug_text);
                 
                 if let Ok(json) = serde_json::from_str::<Value>(&text) {
-                    if let Some(content) = json.pointer("/choices/0/message/content")
-                        .and_then(|v| v.as_str()) 
-                    {
-                        if !content.is_empty() {
-                            return Self::truncate(content);
+                    if let Some(output) = json.get("output").and_then(|v| v.as_array()) {
+                        for item in output {
+                            if item.get("type").and_then(|v| v.as_str()) == Some("message") {
+                                if let Some(content) = item.get("content").and_then(|v| v.as_array()) {
+                                    for c in content {
+                                        if let Some(text) = c.get("text").and_then(|v| v.as_str()) {
+                                            return Self::truncate(text);
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
