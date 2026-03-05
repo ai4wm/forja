@@ -2,5 +2,15 @@
 name = "forja-memory"
 version = "0.1.0"
 edition = "2024"
+description = "Memory and context storage provider for Forja framework"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ai4wm/forja"
 
 [dependencies]
+forja-core = { version = "0.1.0", path = "../forja-core" }
+tokio = { version = "1.0", features = ["fs", "io-util"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9" # YAML Frontmatter 파싱용
+unicode-segmentation = "1.11" # 단어 기반 경계 분리 (BM25 형태소 분석용)
+async-trait = "0.1"

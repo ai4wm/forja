@@ -1,14 +1,8 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+pub mod cli;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// Optional Channels
+#[cfg(feature = "telegram")]
+pub mod telegram;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+#[cfg(feature = "discord")]
+pub mod discord;

@@ -2,5 +2,22 @@
 name = "forja-llm"
 version = "0.1.0"
 edition = "2024"
+description = "Multi-provider LLM connector for Forja framework"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ai4wm/forja"
 
 [dependencies]
+forja-core = { version = "0.1.0", path = "../forja-core" }
+tokio-stream = "0.1"
+tokio = { version = "1.0", features = ["sync"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+async-trait = "0.1"
+
+reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest-eventsource = { version = "0.6", optional = true }
+async-stream = "0.3"
+
+[features]
+default = ["anthropic"]
+anthropic = ["dep:reqwest-eventsource"]

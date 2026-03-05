@@ -2,5 +2,20 @@
 name = "forja-channel"
 version = "0.1.0"
 edition = "2024"
+description = "Multi-platform asynchronous I/O channels for Forja"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ai4wm/forja"
+
+[features]
+default = []
+telegram = ["dep:teloxide"]
+discord = ["dep:serenity"]
 
 [dependencies]
+forja-core = { path = "../forja-core" }
+tokio = { version = "1.0", features = ["rt", "io-std", "io-util", "macros", "sync"] }
+async-trait = "0.1"
+
+# Feature flags: Optional dependencies
+teloxide = { version = "0.13", features = ["macros", "rustls"], optional = true }
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"], optional = true }

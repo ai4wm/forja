@@ -20,18 +20,18 @@ OpenClaw를 넘어서는 세계 최강의 AI 에이전트 엔진.
 
 ## 기능 로드맵 (OpenClaw 대비)
 
-### Phase 1 — Core (OpenClaw 30%)
-- LLM 멀티 프로바이더 (Claude, GPT, Gemini, Ollama)
-- CLI 대화 인터페이스
-- 기본 메모리 (마크다운 파일)
+### Phase 1 — Core (OpenClaw 30%) [완료]
+- [x] LLM 멀티 프로바이더 기본 통합 호환 클라이언트 아키텍처 수립
+- [x] CLI 대화 인터페이스 기본 루프 연동
+- [x] 기본 이벤트 버스 통신 
 
-### Phase 2 — Parity (OpenClaw 100%)
-- 멀티 채널 (Telegram, Discord, Slack, WhatsApp)
-- 하이브리드 메모리 검색 (벡터 + BM25 + 시간 감쇠)
-- 도구 실행 (쉘, 파일, 웹 스크래핑)
-- 스케줄러 (cron 작업)
-- 컨텍스트 압축 + 자동 메모리 플러시
-- MCP 서버/클라이언트 지원
+### Phase 2 — Parity (OpenClaw 100%) [완료]
+- [x] 멀티 LLM 네이티브 프리셋 확장 (OpenAI, Anthropic, Gemini, DeepSeek, XAI, GLM, Moonshot, Ollama 통합)
+- [x] 마크다운 파일 기반 BM25 메모리(`forja-memory`) 및 자동 컨텍스트 비우기(Auto-Flush)
+- [x] 도구 실행파이프라인 구축 (FileTool 읽기/쓰기, WebTool 스크래핑, ShellTool 화이트리스트 자동 승인)
+- [x] 사용자 경험 일체 개선 (타이핑 스트리밍 출력, CLI 플래그 기능, `config.toml` 상태 관리 온보딩)
+- [ ] 멀티 채널 확장 (Telegram, Discord) - *상용 별도 Phase*
+- [ ] MCP (Model Context Protocol) 지원 - *Phase 4로 연기*
 
 ### Phase 3 — Beyond (OpenClaw 120%+)
 - 네이티브 음성 입출력 (STT/TTS, Whisper + Piper)
@@ -46,7 +46,7 @@ OpenClaw를 넘어서는 세계 최강의 AI 에이전트 엔진.
 - 크리에이터 특화 스킬 (YouTube, SNS 자동화)
 
 ## 기술 스택
-- 언어: Rust (edition 2021)
+- 언어: Rust (edition 2024)
 - 비동기: tokio
 - HTTP: reqwest
 - DB: SQLite → SurrealDB

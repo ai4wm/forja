@@ -1,0 +1,255 @@
+warning: this `if` statement can be collapsed
+  --> crates\forja-core\src\engine.rs:59:9
+   |
+59 | /         if let Ok(content) = std::fs::read_to_string("CLAUDE.md") {
+60 | |             if !content.trim().is_empty() {
+61 | |                 self.system_prompt = format!("{}
+...  |
+69 | |         }
+   | |_________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+   = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+   |
+59 ~         if let Ok(content) = std::fs::read_to_string("CLAUDE.md")
+60 ~             && !content.trim().is_empty() {
+61 |                 self.system_prompt = format!("{}
+...
+67 |                 self.inject_system_prompt();
+68 ~             }
+   |
+
+warning: unnecessary closure used to substitute value for `Result::Err`
+   --> crates\forja-core\src\engine.rs:248:48
+    |
+248 |                           let streaming_result = self.stream_step_with_tools().await
+    |  ________________________________________________^
+249 | |                             .unwrap_or_else(|_| None);
+    | |_____________________________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#unnecessary_lazy_evaluations
+    = note: `#[warn(clippy::unnecessary_lazy_evaluations)]` on by default
+help: use `unwrap_or` instead
+    |
+249 -                             .unwrap_or_else(|_| None);
+249 +                             .unwrap_or(None);
+    |
+
+warning: `forja-core` (lib) generated 2 warnings (run `cargo clippy --fix --lib -p forja-core` to apply 2 suggestions)
+warning: this `if` statement can be collapsed
+   --> crates\forja-memory\src\storage.rs:104:13
+    |
+104 | /             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
+105 | |                 if let Ok(memory_entry) = Self::parse_file(&path).await {
+106 | |                     entries.push(memory_entry);
+107 | |                 }
+108 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+    = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+    |
+104 ~             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md")
+105 ~                 && let Ok(memory_entry) = Self::parse_file(&path).await {
+106 |                     entries.push(memory_entry);
+107 ~                 }
+    |
+
+warning: this `if` statement can be collapsed
+   --> crates\forja-memory\src\storage.rs:162:13
+    |
+162 | /             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md") {
+163 | |                 if let Ok(meta) = fs::metadata(&path).await {
+164 | |                     let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+165 | |                     session_files.push((path, mtime));
+166 | |                 }
+167 | |             }
+    | |_____________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+162 ~             if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("md")
+163 ~                 && let Ok(meta) = fs::metadata(&path).await {
+164 |                     let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
+165 |                     session_files.push((path, mtime));
+166 ~                 }
+    |
+
+warning: `forja-memory` (lib) generated 2 warnings (run `cargo clippy --fix --lib -p forja-memory` to apply 2 suggestions)
+warning: the borrowed expression implements the required traits
+  --> crates\forja-tools\src\shell.rs:36:22
+   |
+36 |             cmd.args(&["/C", cmd_line]);
+   |                      ^^^^^^^^^^^^^^^^^ help: change this to: `["/C", cmd_line]`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_borrows_for_generic_args
+   = note: `#[warn(clippy::needless_borrows_for_generic_args)]` on by default
+
+warning: the borrowed expression implements the required traits
+  --> crates\forja-tools\src\shell.rs:40:22
+   |
+40 |             cmd.args(&["-c", cmd_line]);
+   |                      ^^^^^^^^^^^^^^^^^ help: change this to: `["-c", cmd_line]`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#needless_borrows_for_generic_args
+
+warning: `forja-tools` (lib) generated 2 warnings (run `cargo clippy --fix --lib -p forja-tools` to apply 2 suggestions)
+warning: this `if` statement can be collapsed
+  --> crates\forja-llm\src\client.rs:38:13
+   |
+38 | /             if let Ok(hdr_name) = reqwest::header::HeaderName::from_bytes(k.as_bytes()) {
+39 | |                 if let Ok(hdr_val) = HeaderValue::from_str(v) {
+40 | |                     headers.insert(hdr_name, hdr_val);
+41 | |                 }
+42 | |             }
+   | |_____________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+   = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+   |
+38 ~             if let Ok(hdr_name) = reqwest::header::HeaderName::from_bytes(k.as_bytes())
+39 ~                 && let Ok(hdr_val) = HeaderValue::from_str(v) {
+40 |                     headers.insert(hdr_name, hdr_val);
+41 ~                 }
+   |
+
+warning: this `if` statement can be collapsed
+   --> crates\forja-llm\src\client.rs:172:9
+    |
+172 | /         if let Some(tool_calls) = chat_msg.tool_calls.clone() {
+173 | |             if let Some(tool_call) = tool_calls.first() {
+174 | |                 let args_json: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
+175 | |                     .unwrap_or(serde_json::json!({}));
+...   |
+184 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+172 ~         if let Some(tool_calls) = chat_msg.tool_calls.clone()
+173 ~             && let Some(tool_call) = tool_calls.first() {
+174 |                 let args_json: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
+...
+182 |                 ));
+183 ~             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> crates\forja-llm\src\client.rs:215:25
+    |
+215 | /                         if let Ok(parsed) = serde_json::from_str::<ChatCompletionResponse>(&msg.data) {
+216 | |                             if let Some(choice) = parsed.choices.into_iter().next() {
+217 | |                                 if let Some(delta) = choice.delta {
+218 | |                                     if let Some(text) = delta.content {
+...   |
+223 | |                         }
+    | |_________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+215 ~                         if let Ok(parsed) = serde_json::from_str::<ChatCompletionResponse>(&msg.data)
+216 ~                             && let Some(choice) = parsed.choices.into_iter().next() {
+217 |                                 if let Some(delta) = choice.delta {
+...
+221 |                                 }
+222 ~                             }
+    |
+
+warning: this `if` statement can be collapsed
+   --> crates\forja-llm\src\client.rs:216:29
+    |
+216 | / ...                   if let Some(choice) = parsed.choices.into_iter().next() {
+217 | | ...                       if let Some(delta) = choice.delta {
+218 | | ...                           if let Some(text) = delta.content {
+219 | | ...                               yield Ok(text);
+...   |
+222 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+216 ~                             if let Some(choice) = parsed.choices.into_iter().next()
+217 ~                                 && let Some(delta) = choice.delta {
+218 |                                     if let Some(text) = delta.content {
+219 |                                         yield Ok(text);
+220 |                                     }
+221 ~                                 }
+    |
+
+warning: this `if` statement can be collapsed
+   --> crates\forja-llm\src\client.rs:217:33
+    |
+217 | / ...                   if let Some(delta) = choice.delta {
+218 | | ...                       if let Some(text) = delta.content {
+219 | | ...                           yield Ok(text);
+220 | | ...                       }
+221 | | ...                   }
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+217 ~                                 if let Some(delta) = choice.delta
+218 ~                                     && let Some(text) = delta.content {
+219 |                                         yield Ok(text);
+220 ~                                     }
+    |
+
+warning: `forja-llm` (lib) generated 5 warnings (run `cargo clippy --fix --lib -p forja-llm` to apply 5 suggestions)
+warning: this `if` statement can be collapsed
+   --> src\config.rs:98:5
+    |
+ 98 | /     if let Ok(key) = std::env::var("FORJA_API_KEY") {
+ 99 | |         if let Some(p) = &config.active.provider {
+100 | |             config.keys.set_for(p, key);
+101 | |         }
+102 | |     }
+    | |_____^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+    = note: `#[warn(clippy::collapsible_if)]` on by default
+help: collapse nested if block
+    |
+ 98 ~     if let Ok(key) = std::env::var("FORJA_API_KEY")
+ 99 ~         && let Some(p) = &config.active.provider {
+100 |             config.keys.set_for(p, key);
+101 ~         }
+    |
+
+warning: this `if` statement can be collapsed
+   --> src\config.rs:169:9
+    |
+169 | /         if let Ok(n) = line.trim().parse::<usize>() {
+170 | |             if n >= 1 && n <= PROVIDERS.len() {
+171 | |                 break PROVIDERS[n - 1].0;
+172 | |             }
+173 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#collapsible_if
+help: collapse nested if block
+    |
+169 ~         if let Ok(n) = line.trim().parse::<usize>()
+170 ~             && n >= 1 && n <= PROVIDERS.len() {
+171 |                 break PROVIDERS[n - 1].0;
+172 ~             }
+    |
+
+warning: redundant closure
+   --> src\main.rs:210:22
+    |
+210 |             .map_err(|e| forja_core::error::ForjaError::LlmError(e))?;
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the tuple variant itself: `forja_core::error::ForjaError::LlmError`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#redundant_closure
+    = note: `#[warn(clippy::redundant_closure)]` on by default
+
+warning: `forja` (bin "forja") generated 3 warnings (run `cargo clippy --fix --bin "forja" -p forja` to apply 3 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s

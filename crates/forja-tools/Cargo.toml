@@ -2,5 +2,14 @@
 name = "forja-tools"
 version = "0.1.0"
 edition = "2024"
+description = "Tool execution and function calling toolkit for Forja framework"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ai4wm/forja"
 
 [dependencies]
+forja-core = { version = "0.1.0", path = "../forja-core" }
+tokio = { version = "1.0", features = ["fs", "io-util", "process"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", features = ["json"] }
+async-trait = "0.1"
