@@ -25,7 +25,7 @@ mod tests {
 
         assert_eq!(msg.role, Role::Assistant);
         match &msg.content {
-            Content::ToolCall { call_id, tool_name, arguments } => {
+            Content::ToolCall { call_id, tool_name, arguments, .. } => {
                 assert_eq!(call_id, "call-001");
                 assert_eq!(tool_name, "file_read");
                 assert_eq!(arguments, &args);
@@ -58,6 +58,7 @@ mod tests {
             call_id: "id1".to_string(),
             tool_name: "shell".to_string(),
             arguments: serde_json::Value::Null,
+            reasoning_content: None,
         };
         let tool_result_content = Content::ToolResult {
             call_id: "id1".to_string(),

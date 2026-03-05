@@ -18,3 +18,8 @@ Thumbs.db
 .idea/
 .vscode/settings.json
 *.swp
+
+# Logs & Outputs
+error.log
+clippy_result.txt
+*.log
