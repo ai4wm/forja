@@ -10,7 +10,8 @@ use crate::confirm::ConfirmationHandler;
 const AUTO_APPROVE_PREFIXES: &[&str] = &[
     "ls", "dir", "pwd", "cat", "echo", "whoami", 
     "cargo build", "cargo test", "cargo check", 
-    "git status", "git log", "git diff"
+    "git status", "git log", "git diff",
+    "curl",
 ];
 
 /// 시스템 명령어를 안전하게 실행하기 위한 도구.
