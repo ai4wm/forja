@@ -81,6 +81,7 @@ pub struct AgentSection {
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct ChannelSection {
+    pub default: Option<String>,
     #[serde(default)]
     pub telegram: TelegramSection,
 }

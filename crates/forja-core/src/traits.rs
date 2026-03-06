@@ -38,6 +38,12 @@ pub trait MemoryStore: Send + Sync {
 pub trait Channel: Send + Sync {
     async fn receive(&self) -> Result<Message>;
     async fn send(&self, message: Message) -> Result<()>;
+    
+    /// 현재 입력 소스가 CLI인지 여부
+    fn is_cli_source(&self) -> bool { false }
+
+    /// 타이핑 상태(스피너/인디케이터) 취소
+    async fn cancel_typing(&self) {}
 }
 
 /// 도구 (forja-tools에서 구현: Shell, File 조작 등).

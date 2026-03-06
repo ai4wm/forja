@@ -254,7 +254,10 @@ impl Engine {
                                     crate::types::Role::Assistant, &text
                                 );
                                 self.push_message(response_msg.clone());
+                                
+                                // CLI는 이미 스트리밍으로 출력됨 → 텔레그램만 send 출력, CLI는 프롬프트만 복원
                                 self.channel.send(response_msg).await?;
+                                
                                 Ok::<Option<String>, crate::error::ForjaError>(Some(text))
                             }
                             None => {
@@ -358,34 +361,76 @@ impl Engine {
     #[cfg(feature = "runtime")]
     async fn stream_step_with_tools(&self) -> Result<Option<String>> {
         use tokio_stream::StreamExt;
+        use indicatif::{ProgressBar, ProgressStyle};
+        use std::time::Duration;
 
-        // 등록된 모든 도구의 명세 수집
         let tool_defs: Vec<ToolDefinition> = self.tools.values()
             .map(|t| t.definition())
             .collect();
-        // 도구가 등록되어 있으면 스트리밍을 명시적으로 우회하고 handle_step 폴백(재귀 처리) 타도록 유도
-        if !tool_defs.is_empty() {
-            return Ok(None);
-        }
+        let tools = if tool_defs.is_empty() { None } else { Some(tool_defs.as_slice()) };
 
-        let mut stream = match self.provider.stream(&self.conversation_history, None).await {
+        // 스피너 시작
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"])
+                .template("{spinner:.cyan} {msg}")
+                .unwrap()
+        );
+        spinner.set_message("Thinking...");
+        spinner.enable_steady_tick(Duration::from_millis(80));
+
+        // 도구 명세를 포함하여 스트리밍 시도
+        let mut stream = match self.provider.stream(&self.conversation_history, tools).await {
             Ok(s) => s,
-            Err(_) => return Ok(None), // 실패 시 폴백 신호
+            Err(_) => {
+                spinner.finish_and_clear();
+                return Ok(None); // 스트리밍 미지원 시 폴백
+            }
         };
 
         let mut full_text = String::new();
+        let mut first_token = true;
 
         while let Some(chunk) = stream.next().await {
-            if let Ok(token) = chunk {
-                full_text.push_str(&token);
-            } else {
-                break; // 스트림 도중 에러 시 중단
+            match chunk {
+                Ok(token) => {
+                    // 빈 토큰 무시
+                    if token.is_empty() { continue; }
+
+                    // tool call JSON이 감지되면 스트리밍 중단 → 폴백
+                    if first_token && (token.trim_start().starts_with("{\"") || token.contains("tool_call")) {
+                        spinner.finish_and_clear();
+                        return Ok(None);
+                    }
+                    
+                    if first_token {
+                        if self.channel.is_cli_source() {
+                            spinner.finish_and_clear(); // CLI는 출력 시작하므로 스피너 제거
+                        }
+                        self.channel.cancel_typing().await; // 텔레그램 등 타이핑 인디케이터 중단
+                        first_token = false;
+                    }
+
+                    // CLI일 때만 터미널에 즉시 출력
+                    if self.channel.is_cli_source() {
+                        print!("{}", token);
+                        std::io::Write::flush(&mut std::io::stdout()).ok();
+                    }
+                    full_text.push_str(&token);
+                }
+                Err(_) => break,
             }
         }
 
         if full_text.is_empty() {
+            spinner.finish_and_clear();
             Ok(None)
         } else {
+            spinner.finish_and_clear(); // 텔레그램처럼 루프 도중 스피너가 안 지워진 경우를 위해 최종 제거
+            if self.channel.is_cli_source() {
+                println!(); // 스트리밍 완료 후 줄바꿈
+            }
             Ok(Some(full_text))
         }
     }

@@ -212,7 +212,36 @@ async fn main() -> Result<()> {
     };
 
     // ── 채널 스위칭 ──
-    let channel: Arc<dyn Channel> = if channel_arg.as_deref() == Some("telegram") {
+    let channel_mode = channel_arg
+        .or(forja_cfg.channel.default.clone())
+        .unwrap_or_else(|| "cli".to_string());
+
+    let channel: Arc<dyn Channel> = if channel_mode == "both" {
+        #[cfg(feature = "telegram")]
+        {
+            let bot_token = forja_cfg.channel.telegram.bot_token.clone()
+                .or_else(|| std::env::var("TELEGRAM_BOT_TOKEN").ok());
+            
+            if let Some(token) = bot_token {
+                let allowed = forja_cfg.channel.telegram.allowed_chat_ids.clone();
+                if allowed.is_empty() {
+                    println!("[WARN] Telegram allowed_chat_ids is empty. Anyone can talk to this bot.");
+                } else {
+                    println!("[System] MultiChannel starting with CLI + Telegram (IDs: {:?})", allowed);
+                }
+
+                Arc::new(forja_channel::multi::MultiChannel::new_both(token, allowed).await)
+            } else {
+                eprintln!("[Error] Telegram bot token not found in config(bot_token) or TELEGRAM_BOT_TOKEN.");
+                std::process::exit(1);
+            }
+        }
+        #[cfg(not(feature = "telegram"))]
+        {
+            eprintln!("[Error] Engine was not built with telegram feature. Use `cargo run --features telegram`.");
+            std::process::exit(1);
+        }
+    } else if channel_mode == "telegram" {
         #[cfg(feature = "telegram")]
         {
             let bot_token = forja_cfg.channel.telegram.bot_token.clone()
@@ -289,7 +318,9 @@ async fn main() -> Result<()> {
     engine.register_tool(shell_tool);
     engine.register_tool(search_tool);
 
-    println!("[System] Engine is ready. Press Ctrl+C to quit.\n");
+    println!("[System] Engine is ready. Press Ctrl+C to quit.");
+    print!("\n> ");
+    std::io::stdout().flush().ok();
 
     engine.run_streaming(async {
         let _ = tokio::signal::ctrl_c().await;

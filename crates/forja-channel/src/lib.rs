@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod multi;
 
 // Optional Channels
 #[cfg(feature = "telegram")]
