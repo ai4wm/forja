@@ -143,9 +143,10 @@ impl Channel for MultiChannel {
             if let Content::Text { text } = &message.content {
                 match source {
                     ChannelSource::Cli => {
+                        let t = text.clone();
                         let _ = tokio::task::spawn_blocking(move || {
-                            // 스트리밍 출력 후 줄바꿈 + 프롬프트
-                            println!();
+                            // 도구 폴백일 때 응답 출력 + 프롬프트 복원
+                            println!("● {}", t);
                             print!("> ");
                             std::io::stdout().flush().ok();
                         }).await;

@@ -255,8 +255,18 @@ impl Engine {
                                 );
                                 self.push_message(response_msg.clone());
                                 
-                                // CLI는 이미 스트리밍으로 출력됨 → 텔레그램만 send 출력, CLI는 프롬프트만 복원
-                                self.channel.send(response_msg).await?;
+                                if self.channel.is_cli_source() {
+                                    // CLI는 이미 스트리밍으로 출력됨 → 프롬프트만 복원
+                                    let _ = tokio::task::spawn_blocking(|| {
+                                        use std::io::Write;
+                                        println!();
+                                        print!("> ");
+                                        std::io::stdout().flush().ok();
+                                    }).await;
+                                } else {
+                                    // 텔레그램 등은 send()로 메시지 전송
+                                    self.channel.send(response_msg).await?;
+                                }
                                 
                                 Ok::<Option<String>, crate::error::ForjaError>(Some(text))
                             }
