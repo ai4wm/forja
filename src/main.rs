@@ -241,8 +241,15 @@ async fn main() -> Result<()> {
     };
 
     // ── System Prompt 설정 ──
-    let system_prompt = forja_cfg.agent.system_prompt
-        .unwrap_or_else(|| "You are Forja, a lightweight AI agent engine.".to_string());
+    // ── System Prompt 설정 ──
+    let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
+    let base_prompt = forja_cfg.agent.system_prompt
+        .unwrap_or_else(|| "You are Forja, a lightweight AI agent engine. 반드시 한국어로 답변하세요. 검색 도구가 실패하면 정보를 지어내지 말고, 실패했다고 솔직하게 알려주세요.".to_string());
+
+    let system_prompt = format!(
+        "{}\n\n오늘 날짜는 {}입니다. 이 날짜는 정확하며 의심하지 마세요. 검색 결과의 날짜가 오늘과 일치하면 최신 정보입니다.",
+        base_prompt, today
+    );
 
     // ── 메모리 스토어 초기화 ──
     let memory_dir = dirs_next::home_dir()
