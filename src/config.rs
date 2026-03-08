@@ -153,17 +153,16 @@ const PROVIDERS: &[(&str, &str)] = &[
 pub fn models_for(provider: &str) -> Vec<(&'static str, &'static str)> {
     match provider {
         "openai"    => vec![
-            ("gpt-5.4",       "GPT-5.4 (플래그십)"),
-            ("gpt-5.4-mini",  "GPT-5.4 Mini (경량)"),
-            ("gpt-5.3-codex", "GPT-5.3 Codex (코딩)"),
+            ("gpt-5.4",      "GPT-5.4 (플래그십)"),
+            ("gpt-5.4-mini", "GPT-5.4 Mini (경량)"),
         ],
         "anthropic" => vec![
-            ("claude-opus-4-6", "Claude Opus 4.6 (플래그십)"),
-            ("claude-sonnet-4", "Claude Sonnet 4 (경량)"),
+            ("claude-opus-4-6",  "Claude Opus 4.6 (플래그십)"),
+            ("claude-sonnet-4-6", "Claude Sonnet 4.6 (경량)"),
         ],
         "gemini"    => vec![
-            ("gemini-3.1-pro",   "Gemini 3.1 Pro (플래그십)"),
-            ("gemini-2.5-flash", "Gemini 2.5 Flash (경량)"),
+            ("gemini-3.1-pro-preview",  "Gemini 3.1 Pro (플래그십)"),
+            ("gemini-3-flash-preview",  "Gemini 3 Flash (경량)"),
         ],
         "deepseek"  => vec![
             ("deepseek-chat",     "DeepSeek V3 (기본)"),
@@ -192,24 +191,38 @@ fn mask_key(key: &str) -> String {
     format!("{}...{}", &key[..4], &key[key.len()-4..])
 }
 
+// 하위 호환용 — 단독 호출 시에만 사용 (run_setup 내부는 공유 stdin 사용)
 fn prompt_line(label: &str) -> String {
     let stdin = io::stdin();
+    let mut guard = stdin.lock();
     let mut out = io::stdout();
     print!("{}", label);
     out.flush().ok();
     let mut line = String::new();
-    stdin.lock().read_line(&mut line).ok();
+    guard.read_line(&mut line).ok();
     line.trim().to_string()
 }
 
 /// 3단계 설정 위저드 (forja setup 또는 최초 실행 시 호출)
 pub fn run_setup() -> ForjaConfig {
-    // 기존 config가 있으면 불러와서 키를 보존
     let mut config = load_from_file().unwrap_or_default();
+
+    // ── 단일 stdin 잠금 (버퍼 꼬임 방지) ──────────────────────
+    let stdin = io::stdin();
+    let mut stdin_lock = stdin.lock();
+
+    // 공유 stdin을 사용하는 프롬프트 헬퍼 클로저
+    let mut read_prompt = |label: &str| -> String {
+        print!("{}", label);
+        io::stdout().flush().ok();
+        let mut line = String::new();
+        stdin_lock.read_line(&mut line).ok();
+        line.trim().to_string()
+    };
 
     println!("\n⚒️  Forja 설정 위저드\n");
 
-    // ── Step 1: 프로바이더 선택 ──────────────────────────
+    // ── Step 1: 프로바이더 선택 ──────────────────────────────
     println!("\n【Step 1/3】 기본 프로바이더를 선택하세요:\n");
     for (i, (key, label)) in PROVIDERS.iter().enumerate() {
         let current = if config.active.provider.as_deref() == Some(key) { " ←현재" } else { "" };
@@ -217,13 +230,15 @@ pub fn run_setup() -> ForjaConfig {
     }
 
     let provider_key = loop {
-        let input = prompt_line("\n번호 입력 > ");
+        let input = read_prompt("\n번호 입력 > ");
         if input.is_empty() {
             if let Some(p) = &config.active.provider {
                 let p = p.clone();
                 println!("  → 기존 유지: {}", p);
                 break p;
             }
+            println!("  ⚠️  번호를 입력하세요.");
+            continue;
         }
         if let Ok(n) = input.parse::<usize>() {
             if n >= 1 && n <= PROVIDERS.len() {
@@ -235,7 +250,7 @@ pub fn run_setup() -> ForjaConfig {
 
     config.active.provider = Some(provider_key.clone());
 
-    // ── Step 2: 인증 (Ollama는 스킵) ──────────────────────────────
+    // ── Step 2: 인증 (Ollama는 스킵) ──────────────────────────
     if provider_key != "ollama" {
         let existing = config.keys.get_for(&provider_key);
 
@@ -243,7 +258,7 @@ pub fn run_setup() -> ForjaConfig {
         println!("  1. API 키 직접 입력");
         println!("  2. OAuth 로그인 (아직 미구현 — API 키로 대체)");
 
-        let _auth = prompt_line("\n번호 입력 (Enter = 1) > ");
+        let _auth = read_prompt("\n번호 입력 (Enter = 1) > ");
         println!("  → API 키 방식으로 진행합니다.\n");
 
         let hint = if let Some(ref k) = existing {
@@ -252,12 +267,14 @@ pub fn run_setup() -> ForjaConfig {
             String::new()
         };
         println!("  {} API 키를 입력하세요:{}", provider_key, hint);
-        let key_input = prompt_line("  키 > ");
+        let key_input = read_prompt("  키 > ");
 
         if !key_input.is_empty() {
+            // 명시적으로 새 키를 입력한 경우에만 저장
             config.keys.set_for(&provider_key, key_input);
             println!("  ✅ 키 저장됨");
         } else if existing.is_some() {
+            // 빈 Enter → 기존 키 절대 덮어쓰지 않음
             println!("  → 기존 키 유지");
         } else {
             println!("  ⚠️  키 없이 계속합니다. 나중에 `forja setup`으로 설정하세요.");
@@ -266,20 +283,19 @@ pub fn run_setup() -> ForjaConfig {
         println!("\n【Step 2/3】 Ollama는 인증이 필요하지 않습니다. ✅ (스킵)");
     }
 
-    // ── Step 3: 모델 선택 ────────────────────────────────
+    // ── Step 3: 모델 선택 ────────────────────────────────────
     let models = models_for(&provider_key);
     println!("\n【Step 3/3】 사용할 모델을 선택하세요:\n");
     for (i, (id, label)) in models.iter().enumerate() {
         let current = if config.active.model.as_deref() == Some(id) { " ←현재" } else { "" };
-        println!("  {}. {} ({}){}", i + 1, label, id, current);
+        println!("  {}. {} — {}{}", i + 1, label, id, current);
     }
 
     let model_id = loop {
-        let input = prompt_line("\n번호 입력 (Enter = 기본값) > ");
+        let input = read_prompt("\n번호 입력 (Enter = 기본값) > ");
         if input.is_empty() {
-            // 기본값 = 첫 번째 모델
             let default = models.first().map(|(id, _)| *id).unwrap_or("");
-            println!("  → 기본값 선택: {}", default);
+            println!("  → 기본값: {}", default);
             break default.to_string();
         }
         if let Ok(n) = input.parse::<usize>() {
@@ -290,9 +306,12 @@ pub fn run_setup() -> ForjaConfig {
         println!("  ⚠️  1~{} 사이의 숫자를 입력하세요.", models.len());
     };
 
+    // stdin 잠금 해제 (drop)
+    drop(stdin_lock);
+
     config.active.model = Some(model_id);
 
-    // ── 저장 ─────────────────────────────────────────────
+    // ── 저장 ─────────────────────────────────────────────────
     if let Err(e) = save_config(&config) {
         eprintln!("⚠️  저장 실패: {}", e);
     } else {
