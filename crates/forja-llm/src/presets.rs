@@ -2,12 +2,12 @@ use crate::config::LlmConfig;
 
 /// OpenAI GPT-5.2 (최신 플래그십, 2025.12~)
 pub fn openai(api_key: &str) -> LlmConfig {
-    LlmConfig::new("https://api.openai.com/v1", "gpt-5.2", api_key)
+    LlmConfig::new("https://api.openai.com/v1", "gpt-5.4", api_key)
 }
 
 /// OpenAI GPT-5 mini (경량/저비용)
 pub fn openai_mini(api_key: &str) -> LlmConfig {
-    LlmConfig::new("https://api.openai.com/v1", "gpt-5-mini", api_key)
+    LlmConfig::new("https://api.openai.com/v1", "gpt-5.4-mini", api_key)
 }
 
 /// Anthropic Claude Opus 4.6 (최신, 2026.02.05~)
@@ -73,6 +73,16 @@ pub fn glm_lite(api_key: &str) -> LlmConfig {
 /// Moonshot Kimi K2.5 (최신, 2026.01.27~)
 pub fn moonshot(api_key: &str) -> LlmConfig {
     LlmConfig::new("https://api.moonshot.cn/v1", "kimi-k2.5", api_key)
+}
+
+/// xAI Grok-3 (플래그십)
+pub fn xai(api_key: &str) -> LlmConfig {
+    LlmConfig::new("https://api.x.ai/v1", "grok-3", api_key)
+}
+
+/// xAI Grok-3 Mini (경량)
+pub fn xai_mini(api_key: &str) -> LlmConfig {
+    LlmConfig::new("https://api.x.ai/v1", "grok-3-mini", api_key)
 }
 
 /// 로컬 Ollama

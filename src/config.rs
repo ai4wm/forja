@@ -46,6 +46,7 @@ pub struct KeysSection {
     pub deepseek: Option<String>,
     pub glm: Option<String>,
     pub moonshot: Option<String>,
+    pub xai: Option<String>,
 }
 
 impl KeysSection {
@@ -57,6 +58,7 @@ impl KeysSection {
             "deepseek" | "deepseek_reasoner" => self.deepseek.clone(),
             "glm" | "glm_lite" => self.glm.clone(),
             "moonshot" => self.moonshot.clone(),
+            "xai" => self.xai.clone(),
             _ => None,
         }
     }
@@ -69,6 +71,7 @@ impl KeysSection {
             "deepseek" | "deepseek_reasoner" => self.deepseek = Some(key),
             "glm" | "glm_lite" => self.glm = Some(key),
             "moonshot" => self.moonshot = Some(key),
+            "xai" => self.xai = Some(key),
             _ => {}
         }
     }
@@ -146,6 +149,7 @@ const PROVIDERS: &[(&str, &str)] = &[
     ("deepseek",  "DeepSeek"),
     ("glm",       "GLM / Zhipu"),
     ("moonshot",  "Moonshot Kimi"),
+    ("xai",       "xAI (Grok)"),
     ("ollama",    "Ollama (로컈, API 키 불필요)"),
 ];
 
@@ -175,6 +179,10 @@ pub fn models_for(provider: &str) -> Vec<(&'static str, &'static str)> {
         ],
         "moonshot"  => vec![
             ("kimi-k2.5", "Kimi K2.5 (기본)"),
+        ],
+        "xai"       => vec![
+            ("grok-3",      "Grok-3 (플래그십)"),
+            ("grok-3-mini", "Grok-3 Mini (경량)"),
         ],
         "ollama"    => vec![
             ("qwen3.5:9b", "Qwen3.5 9B (기본)"),
@@ -262,7 +270,7 @@ pub fn run_setup() -> ForjaConfig {
                         println!("  → 기존 키 유지");
                     } else {
                         println!("  ⚠️  키 미입력 — 나중에 `forja setup`으로 다시 추가하세요.");
-                        continue;
+                        // 키 미입력이어도 모델 선택은 계속
                     }
                 }
 
@@ -327,7 +335,7 @@ pub fn run_setup() -> ForjaConfig {
             }
 
             _ => {
-                println!("  a = 추가/수정  |  m = 기본모델  |  q = 저장후종료");
+                println!("  a, m, q 중 선택하세요.");
             }
         }
     }
@@ -372,6 +380,8 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
         "glm"         => presets::glm(&api_key),
         "glm_lite"    => presets::glm_lite(&api_key),
         "moonshot"    => presets::moonshot(&api_key),
+        "xai"         => presets::xai(&api_key),
+        "xai_mini"    => presets::xai_mini(&api_key),
         "ollama"      => presets::ollama(cfg.active.model.as_deref().unwrap_or("qwen3.5:9b")),
         other         => return Err(format!("알 수 없는 프로바이더: {}", other)),
     };
