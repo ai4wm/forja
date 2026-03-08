@@ -1,4 +1,5 @@
 mod config;
+mod provider_registry;
 
 use async_trait::async_trait;
 use forja_core::error::Result;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 use tokio_stream::{Stream, StreamExt};
 use std::io::Write;
 use forja_tools::{FileTool, WebTool, ShellTool, SearchTool, SearchProvider, StdinConfirmation};
+use provider_registry::ProviderRegistry;
 // use forja_memory::MarkdownMemoryStore;
 
 // ─── Mock LLM (API 키 없이 로컬 테스트용) ────────────────────────────────────
@@ -88,8 +90,15 @@ async fn main() -> Result<()> {
         std::process::exit(0);
     }).expect("Error setting Ctrl+C handler");
 
-    // ── CLI 인수 파싱 (std::env::args) ──
+    // ── 서브커맨드 파싱 ──
     let args: Vec<String> = std::env::args().collect();
+
+    // `forja setup` 서브커맨드: 이름된 후 종료
+    if args.get(1).map(|s| s.as_str()) == Some("setup") {
+        config::run_setup();
+        return Ok(());
+    }
+
     let mut force_setup = false;
     let mut new_provider = None;
     let mut new_model = None;
@@ -159,6 +168,12 @@ async fn main() -> Result<()> {
     let info = config::provider_info(&forja_cfg);
     print_banner(&info);
 
+    // ── ProviderRegistry 초기화 ──
+    let registry = ProviderRegistry::from_config(&forja_cfg);
+
+    // ── 핸들러용 config clone (이후 forja_cfg 일부 필드가 이동되기 전에 복사) ──
+    let cfg_for_handler = forja_cfg.clone();
+
     // ── Mock 모드 or 실제 프로바이더 ──
     let use_mock = std::env::var("FORJA_USE_MOCK").is_ok();
     let provider: Arc<dyn LlmProvider> = if use_mock {
@@ -196,7 +211,6 @@ async fn main() -> Result<()> {
         }
     };
 
-    // ── System Prompt 설정 ──
     // ── System Prompt 설정 ──
     let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
     let base_prompt = forja_cfg.agent.system_prompt
@@ -245,7 +259,53 @@ async fn main() -> Result<()> {
     engine.register_tool(shell_tool);
     engine.register_tool(search_tool);
 
-    println!("[System] Engine is ready. Press Ctrl+C to quit.");
+    // ── 슬래시 핸들러: ProviderRegistry 를 캐폁한 클로저 ──
+    let registry = std::sync::Mutex::new(registry);
+    let slash_handler: forja_core::engine::SlashHandler = Arc::new(move |text: &str, provider: &mut Arc<dyn LlmProvider>| {
+        let text = text.trim();
+
+        if text == "/models" {
+            let reg = registry.lock().unwrap();
+            return Some(reg.list_display());
+        }
+
+        if text == "/model" {
+            let reg = registry.lock().unwrap();
+            let e = reg.active();
+            return Some(format!("현재 모델: **{}** ({}/{})", e.label, e.provider, e.model_id));
+        }
+
+        if let Some(target) = text.strip_prefix("/model ") {
+            let mut reg = registry.lock().unwrap();
+            match reg.resolve(target) {
+                None => return Some(format!("❌ '{}' 모델을 찾을 수 없습니다. `/models`로 목록을 확인하세요.", target)),
+                Some(idx) => {
+                    match reg.switch_to(idx, &cfg_for_handler) {
+                        Err(e) => return Some(format!("❌ 전환 실패: {}", e)),
+                        Ok(new_config) => {
+                            match forja_llm::LlmClient::new(new_config) {
+                                Err(e) => return Some(format!("❌ LlmClient 생성 실패: {}", e)),
+                                Ok(client) => {
+                                    let entry = reg.active();
+                                    *provider = Arc::new(client);
+                                    return Some(format!(
+                                        "✅ 모델 전환: **{}** ({}/{})",
+                                        entry.label, entry.provider, entry.model_id
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    });
+
+    let mut engine = engine.with_slash_handler(slash_handler);
+
+    println!("[System] Engine is ready. Type /models to list models, /model <name> to switch.");
     print!("\n> ");
     std::io::stdout().flush().ok();
 

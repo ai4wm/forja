@@ -12,6 +12,9 @@ const MAX_TOOL_DEPTH: usize = 10;
 const DEFAULT_SYSTEM_PROMPT: &str =
     "You are Forja, a lightweight AI agent engine.";
 
+/// /models, /model 슬래시 명령 처리용 콜백 타입
+pub type SlashHandler = Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>) -> Option<String> + Send + Sync>;
+
 /// Forja의 핵심 엔진 코어
 ///
 /// 채널(Channel), LLM 프로바이더(LlmProvider), 도구(Tool)를 조율하고
@@ -23,6 +26,7 @@ pub struct Engine {
     conversation_history: Vec<Message>,
     max_history: usize,
     system_prompt: String,
+    slash_handler: Option<SlashHandler>,
 
     #[cfg(feature = "memory")]
     memory: Option<Arc<dyn MemoryStore>>,
@@ -37,6 +41,7 @@ impl Engine {
             conversation_history: Vec::new(),
             max_history: 100,
             system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
+            slash_handler: None,
             #[cfg(feature = "memory")]
             memory: None,
         };
@@ -82,10 +87,30 @@ impl Engine {
         self
     }
 
+    /// /models, /model 슬래시 명령 핸들러를 등록합니다.
+    /// 콜백은 (입력 텍스트, 현재 provider mut ref) → Option<응답 텍스트> 형태입니다.
+    pub fn with_slash_handler(mut self, handler: SlashHandler) -> Self {
+        self.slash_handler = Some(handler);
+        self
+    }
+
     /// 외부에서 엔진에 도구를 등록합니다.
     pub fn register_tool(&mut self, tool: Arc<dyn Tool>) {
         self.tools.insert(tool.name().to_string(), tool);
     }
+
+    /// 런타임에 LLM 프로바이더를 교체합니다 (예: /model 명령 처리).
+    pub fn swap_provider(&mut self, new_provider: Arc<dyn LlmProvider>) {
+        self.provider = new_provider;
+    }
+
+    /// 슬래시 명령('/...') 이면 Some(응답 텍스트)를, 아니면 None을 반환합니다.
+    /// main.rs 에서 engine.run_streaming 외부 루프 대신 호출 가능.
+    pub fn slash_response(&self, text: &str) -> Option<&'static str> {
+        // 단순 감지만 수행, 실제 처리는 호출자가 담당
+        if text.trim_start().starts_with('/') { Some("") } else { None }
+    }
+
 
     /// 대화 히스토리에 새 메시지를 추가하고,
     /// 허용된 윈도우(max_history) 초과 시 System 메시지를 보존한 채로 컴팩션합니다.
@@ -238,7 +263,25 @@ impl Engine {
                 _ = &mut shutdown => { break; }
                 result = self.channel.receive() => {
                     let user_msg = result?;
-                    
+
+                    // ── 슬래시 명령 가로채기 ───────────────────────────
+                    let slash_reply = if let Content::Text { text } = &user_msg.content {
+                        if let Some(handler) = &self.slash_handler.clone() {
+                            handler(text, &mut self.provider)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some(reply) = slash_reply {
+                        let reply_msg = Message::text(Role::Assistant, &reply);
+                        let _ = self.channel.send(reply_msg).await;
+                        // 슬래시 명령은 대화 히스토리에 추가하지 않음
+                        continue;
+                    }
+
                     self.push_message(user_msg.clone());
 
                     // 스트리밍 + 폴백 전체 에러를 catch

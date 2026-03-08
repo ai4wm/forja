@@ -138,66 +138,146 @@ pub fn save_config(config: &ForjaConfig) -> std::io::Result<()> {
 
 // ─── 온보딩 ──────────────────────────────────────────────────────────────────
 
-const PROVIDERS: &[(&str, &str)] = &[
-    ("openai",     "OpenAI (gpt-5.2)"),
-    ("openai_mini","OpenAI Mini (gpt-5-mini)"),
-    ("anthropic",  "Anthropic (claude-opus-4-6)"),
-    ("gemini",     "Google Gemini (gemini-3.1-pro-preview)"),
-    ("deepseek",   "DeepSeek (deepseek-chat)"),
-    ("glm",        "GLM / Zhipu (glm-5)"),
-    ("moonshot",   "Moonshot Kimi (kimi-k2.5)"),
-    ("ollama",     "Ollama (로컬, API 키 불필요)"),
+/// 프로바이더 정의: (key, display_label, base_model)
+const PROVIDERS: &[(&str, &str, &str)] = &[
+    ("openai",     "OpenAI",         "gpt-5.2"),
+    ("anthropic",  "Anthropic",      "claude-opus-4-6"),
+    ("gemini",     "Google Gemini",  "gemini-3.1-pro-preview"),
+    ("deepseek",   "DeepSeek",       "deepseek-chat"),
+    ("glm",        "GLM / Zhipu",    "glm-5"),
+    ("moonshot",   "Moonshot Kimi",  "kimi-k2.5"),
+    ("ollama",     "Ollama (로컬)",  "qwen3.5:9b"),
 ];
 
-pub fn run_onboarding() -> ForjaConfig {
-    let stdin  = io::stdin();
-    let mut out = io::stdout();
-    let mut config = ForjaConfig::default();
-
-    println!("\n🔧 Forja 설정을 시작합니다.\n");
-    println!("각 프로바이더의 API 키를 입력하세요. 없으면 Enter로 스킵 가능합니다.");
-
-    for &(key, label) in PROVIDERS {
-        if key == "ollama" || key.contains("_mini") { continue; } // 특수 케이스 제외
-        
-        print!("  - {} API 키 > ", label);
-        out.flush().ok();
-        let mut input = String::new();
-        stdin.lock().read_line(&mut input).ok();
-        let trimmed = input.trim().to_string();
-        if !trimmed.is_empty() {
-            config.keys.set_for(key, trimmed);
-        }
+/// 프로바이더별 모델 목록: (model_id, label)
+pub fn models_for(provider: &str) -> Vec<(&'static str, &'static str)> {
+    match provider {
+        "openai"    => vec![("gpt-5.2", "GPT-5.2 (플래그십)"), ("gpt-5-mini", "GPT-5 Mini (경량)")],
+        "anthropic" => vec![("claude-opus-4-6", "Claude Opus 4.6"), ("claude-sonnet-4-6", "Claude Sonnet 4.6 (빠름)")],
+        "gemini"    => vec![("gemini-3.1-pro-preview", "Gemini 3.1 Pro"), ("gemini-3-flash-preview", "Gemini 3 Flash (경량)")],
+        "deepseek"  => vec![("deepseek-chat", "DeepSeek V3"), ("deepseek-reasoner", "DeepSeek R1 (추론)")],
+        "glm"       => vec![("glm-5", "GLM-5 (플래그십)"), ("glm-4.5v", "GLM-4.5V (비전/경량)")],
+        "moonshot"  => vec![("kimi-k2.5", "Kimi K2.5")],
+        "ollama"    => vec![("qwen3.5:9b", "Qwen3.5 9B"), ("llama3.3:8b", "Llama3.3 8B"), ("gemma3:12b", "Gemma3 12B")],
+        _           => vec![],
     }
+}
 
-    println!("\n기본 프로바이더를 선택하세요:");
-    for (i, (_, label)) in PROVIDERS.iter().enumerate() {
-        println!("  {}. {}", i + 1, label);
+fn mask_key(key: &str) -> String {
+    if key.len() <= 8 {
+        return "****".to_string();
+    }
+    format!("{}...{}", &key[..4], &key[key.len()-4..])
+}
+
+fn prompt_line(label: &str) -> String {
+    let stdin = io::stdin();
+    let mut out = io::stdout();
+    print!("{}", label);
+    out.flush().ok();
+    let mut line = String::new();
+    stdin.lock().read_line(&mut line).ok();
+    line.trim().to_string()
+}
+
+/// 3단계 설정 위저드 (forja setup 또는 최초 실행 시 호출)
+pub fn run_setup() -> ForjaConfig {
+    // 기존 config가 있으면 불러와서 키를 보존
+    let mut config = load_from_file().unwrap_or_default();
+
+    println!("\n⚒️  Forja 설정 위저드\n");
+
+    // ── Step 1: 프로바이더 선택 ──────────────────────────
+    println!("【Step 1/3】 기본 프로바이더를 선택하세요:\n");
+    for (i, (key, label, model)) in PROVIDERS.iter().enumerate() {
+        let current = if config.active.provider.as_deref() == Some(key) { " ←현재" } else { "" };
+        println!("  {}. {} — {}{}", i + 1, label, model, current);
     }
 
     let provider_key = loop {
-        print!("\n번호 입력 > ");
-        out.flush().ok();
-        let mut line = String::new();
-        stdin.lock().read_line(&mut line).ok();
-        if let Ok(n) = line.trim().parse::<usize>()
-            && n >= 1 && n <= PROVIDERS.len() {
-                break PROVIDERS[n - 1].0;
+        let input = prompt_line("\n번호 입력 > ");
+        if input.is_empty() {
+            // Enter = 현재 유지
+            if let Some(p) = &config.active.provider {
+                let p = p.clone();
+                println!("  → 기존 유지: {}", p);
+                break p;
             }
+        }
+        if let Ok(n) = input.parse::<usize>() {
+            if n >= 1 && n <= PROVIDERS.len() {
+                break PROVIDERS[n - 1].0.to_string();
+            }
+        }
         println!("  ⚠️  1~{} 사이의 숫자를 입력하세요.", PROVIDERS.len());
     };
 
-    config.active.provider = Some(provider_key.to_string());
+    config.active.provider = Some(provider_key.clone());
 
-    // 저장
+    // ── Step 2: API 키 입력 ───────────────────────────────
+    if provider_key != "ollama" {
+        let existing = config.keys.get_for(&provider_key);
+        let hint = if let Some(ref k) = existing {
+            format!(" [현재: {} | Enter로 유지]", mask_key(k))
+        } else {
+            String::new()
+        };
+
+        println!("\n【Step 2/3】 {} API 키를 입력하세요:{}", provider_key, hint);
+        let key_input = prompt_line("  키 > ");
+
+        if !key_input.is_empty() {
+            config.keys.set_for(&provider_key, key_input);
+            println!("  ✅ 키 저장됨");
+        } else if existing.is_some() {
+            println!("  → 기존 키 유지");
+        } else {
+            println!("  ⚠️  키 없이 계속합니다. 나중에 `forja setup`으로 설정 가능합니다.");
+        }
+    } else {
+        println!("\n【Step 2/3】 Ollama는 API 키가 필요하지 않습니다. ✅");
+    }
+
+    // ── Step 3: 모델 선택 ────────────────────────────────
+    let models = models_for(&provider_key);
+    println!("\n【Step 3/3】 사용할 모델을 선택하세요:\n");
+    for (i, (id, label)) in models.iter().enumerate() {
+        let current = if config.active.model.as_deref() == Some(id) { " ←현재" } else { "" };
+        println!("  {}. {} ({}){}", i + 1, label, id, current);
+    }
+
+    let model_id = loop {
+        let input = prompt_line("\n번호 입력 (Enter = 기본값) > ");
+        if input.is_empty() {
+            // 기본값 = 첫 번째 모델
+            let default = models.first().map(|(id, _)| *id).unwrap_or("");
+            println!("  → 기본값 선택: {}", default);
+            break default.to_string();
+        }
+        if let Ok(n) = input.parse::<usize>() {
+            if n >= 1 && n <= models.len() {
+                break models[n - 1].0.to_string();
+            }
+        }
+        println!("  ⚠️  1~{} 사이의 숫자를 입력하세요.", models.len());
+    };
+
+    config.active.model = Some(model_id);
+
+    // ── 저장 ─────────────────────────────────────────────
     if let Err(e) = save_config(&config) {
         eprintln!("⚠️  저장 실패: {}", e);
     } else {
         println!("\n💾 설정을 {} 에 저장했습니다.", config_path().display());
     }
-    
-    println!("✅ 완료! Forja가 {} 프로바이더로 시작됩니다.\n", provider_key);
+    println!("✅ 완료! Forja가 {} 프로바이더로 시작됩니다.\n",
+        config.active.provider.as_deref().unwrap_or("?"));
     config
+}
+
+// 하위 호환 alias
+pub fn run_onboarding() -> ForjaConfig {
+    run_setup()
 }
 
 // ─── LlmConfig 변환 ──────────────────────────────────────────────────────────
@@ -222,12 +302,14 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
         "glm"         => presets::glm(&api_key),
         "glm_lite"    => presets::glm_lite(&api_key),
         "moonshot"    => presets::moonshot(&api_key),
-        "ollama"      => presets::ollama(cfg.active.model.as_deref().unwrap_or("qwen2.5:14b")),
+        "ollama"      => presets::ollama(cfg.active.model.as_deref().unwrap_or("qwen3.5:9b")),
         other         => return Err(format!("알 수 없는 프로바이더: {}", other)),
     };
 
     if let Some(model) = &cfg.active.model {
-        lc.model = model.clone();
+        if provider != "ollama" {
+            lc.model = model.clone();
+        }
     }
 
     Ok(lc)
@@ -238,3 +320,5 @@ pub fn provider_info(cfg: &ForjaConfig) -> String {
     let model    = cfg.active.model.as_deref().unwrap_or("preset default");
     format!("[Provider: {} | Model: {}]", provider, model)
 }
+
+
