@@ -23,6 +23,35 @@ pub struct MultiChannel {
 }
 
 impl MultiChannel {
+    /// CLI 전용 (텔레그램 없음)
+    pub async fn new_cli_only() -> Self {
+        let (tx, rx) = mpsc::channel::<(ChannelSource, CoreMessage)>(100);
+
+        let tx_cli = tx.clone();
+        tokio::spawn(async move {
+            loop {
+                let line = tokio::task::spawn_blocking(|| {
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input).ok();
+                    input.trim().to_string()
+                }).await.unwrap_or_default();
+
+                if line.is_empty() { continue; }
+                let msg = CoreMessage::text(Role::User, line);
+                if tx_cli.send((ChannelSource::Cli, msg)).await.is_err() { break; }
+            }
+        });
+
+        Self {
+            receiver: Mutex::new(rx),
+            last_source: Mutex::new(Some(ChannelSource::Cli)),
+            #[cfg(feature = "telegram")]
+            telegram_bot: None,
+            #[cfg(feature = "telegram")]
+            typing_handle: Mutex::new(None),
+        }
+    }
+
     #[cfg(feature = "telegram")]
     pub async fn new_both(bot_token: String, allowed_chat_ids: Vec<i64>) -> Self {
         let (tx, rx) = mpsc::channel::<(ChannelSource, CoreMessage)>(100);

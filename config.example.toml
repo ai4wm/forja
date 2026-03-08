@@ -1,0 +1,17 @@
+[active]
+provider = "moonshot"
+
+[keys]
+moonshot = "sk-YOUR_MOONSHOT_API_KEY"
+
+[agent]
+
+[channel]
+
+[channel.telegram]
+bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
+allowed_chat_ids = [123456789]
+
+[tools.search]
+provider = "duckduckgo"
+# xai_api_key = ""

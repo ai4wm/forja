@@ -81,13 +81,12 @@ pub struct AgentSection {
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct ChannelSection {
-    pub default: Option<String>,
     #[serde(default)]
-    pub telegram: TelegramSection,
+    pub telegram: TelegramChannelConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
-pub struct TelegramSection {
+pub struct TelegramChannelConfig {
     pub bot_token: Option<String>,
     #[serde(default)]
     pub allowed_chat_ids: Vec<i64>,

@@ -7,44 +7,10 @@ use forja_core::{Channel, Content, Engine, Message, Role, ToolDefinition};
 use forja_llm::LlmClient;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio_stream::{Stream, StreamExt};
 use std::io::Write;
 use forja_tools::{FileTool, WebTool, ShellTool, SearchTool, SearchProvider, StdinConfirmation};
-use forja_memory::MarkdownMemoryStore;
-
-// ─── 터미널 채널 ────────────────────────────────────────────────────────────
-
-struct CliChannel;
-
-#[async_trait]
-impl Channel for CliChannel {
-    async fn receive(&self) -> Result<Message> {
-        let mut stdout = io::stdout();
-        stdout.write_all(b"\nUser: ").await.unwrap();
-        stdout.flush().await.unwrap();
-
-        let stdin = io::stdin();
-        let mut reader = BufReader::new(stdin);
-        let mut input = String::new();
-        reader.read_line(&mut input).await.unwrap();
-
-        let text = input.trim().to_string();
-        Ok(Message::text(Role::User, text))
-    }
-
-    async fn send(&self, message: Message) -> Result<()> {
-        if message.role == Role::Assistant {
-            let content = match &message.content {
-                Content::Text { text } => text.clone(),
-                _ => "(Unknown content)".to_string(),
-            };
-            // 스트리밍과 동일한 형식: 완료 후 줄바꿈 2번
-            println!("\n🤖 Assistant: {}\n", content);
-        }
-        Ok(())
-    }
-}
+// use forja_memory::MarkdownMemoryStore;
 
 // ─── Mock LLM (API 키 없이 로컬 테스트용) ────────────────────────────────────
 
@@ -127,7 +93,6 @@ async fn main() -> Result<()> {
     let mut force_setup = false;
     let mut new_provider = None;
     let mut new_model = None;
-    let mut channel_arg = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -142,12 +107,6 @@ async fn main() -> Result<()> {
             "--model" => {
                 if i + 1 < args.len() {
                     new_model = Some(args[i + 1].clone());
-                    i += 1;
-                }
-            }
-            "--channel" => {
-                if i + 1 < args.len() {
-                    channel_arg = Some(args[i + 1].clone());
                     i += 1;
                 }
             }
@@ -211,62 +170,30 @@ async fn main() -> Result<()> {
         Arc::new(LlmClient::new(llm_config)?)
     };
 
-    // ── 채널 스위칭 ──
-    let channel_mode = channel_arg
-        .or(forja_cfg.channel.default.clone())
-        .unwrap_or_else(|| "cli".to_string());
-
-    let channel: Arc<dyn Channel> = if channel_mode == "both" {
+    // ── 채널 설정 ──
+    let channel: Arc<dyn Channel> = {
         #[cfg(feature = "telegram")]
         {
             let bot_token = forja_cfg.channel.telegram.bot_token.clone()
                 .or_else(|| std::env::var("TELEGRAM_BOT_TOKEN").ok());
-            
+
             if let Some(token) = bot_token {
                 let allowed = forja_cfg.channel.telegram.allowed_chat_ids.clone();
                 if allowed.is_empty() {
-                    println!("[WARN] Telegram allowed_chat_ids is empty. Anyone can talk to this bot.");
+                    println!("[WARN] Telegram allowed_chat_ids is empty.");
                 } else {
                     println!("[System] MultiChannel starting with CLI + Telegram (IDs: {:?})", allowed);
                 }
-
                 Arc::new(forja_channel::multi::MultiChannel::new_both(token, allowed).await)
             } else {
-                eprintln!("[Error] Telegram bot token not found in config(bot_token) or TELEGRAM_BOT_TOKEN.");
-                std::process::exit(1);
+                println!("[System] CLI mode (Telegram not configured)");
+                Arc::new(forja_channel::multi::MultiChannel::new_cli_only().await)
             }
         }
         #[cfg(not(feature = "telegram"))]
         {
-            eprintln!("[Error] Engine was not built with telegram feature. Use `cargo run --features telegram`.");
-            std::process::exit(1);
+            Arc::new(forja_channel::multi::MultiChannel::new_cli_only().await)
         }
-    } else if channel_mode == "telegram" {
-        #[cfg(feature = "telegram")]
-        {
-            let bot_token = forja_cfg.channel.telegram.bot_token.clone()
-                .or_else(|| std::env::var("TELEGRAM_BOT_TOKEN").ok());
-            
-            if let Some(token) = bot_token {
-                let allowed = forja_cfg.channel.telegram.allowed_chat_ids.clone();
-                if allowed.is_empty() {
-                    println!("[WARN] Telegram allowed_chat_ids is empty. Anyone can talk to this bot.");
-                } else {
-                    println!("[System] Telegram Bot starting with allowed IDs: {:?}", allowed);
-                }
-                Arc::new(forja_channel::telegram::TelegramChannel::new(token, allowed).await)
-            } else {
-                eprintln!("[Error] Telegram bot token not found in config(bot_token) or TELEGRAM_BOT_TOKEN.");
-                std::process::exit(1);
-            }
-        }
-        #[cfg(not(feature = "telegram"))]
-        {
-            eprintln!("[Error] Engine was not built with telegram feature. Use `cargo run --features telegram`.");
-            std::process::exit(1);
-        }
-    } else {
-        Arc::new(CliChannel)
     };
 
     // ── System Prompt 설정 ──
@@ -280,20 +207,20 @@ async fn main() -> Result<()> {
         base_prompt, today
     );
 
-    // ── 메모리 스토어 초기화 ──
-    let memory_dir = dirs_next::home_dir()
-        .unwrap_or_default()
-        .join(".forja")
-        .join("memory");
-    let memory_store = Arc::new(
-        MarkdownMemoryStore::new(memory_dir).await
-            .expect("Failed to initialize memory store")
-    );
+    // ── 메모리 스토어 초기화 (비활성) ──
+    // let memory_dir = dirs_next::home_dir()
+    //     .unwrap_or_default()
+    //     .join(".forja")
+    //     .join("memory");
+    // let memory_store = Arc::new(
+    //     MarkdownMemoryStore::new(memory_dir).await
+    //         .expect("Failed to initialize memory store")
+    // );
 
     let mut engine = Engine::new(provider, channel)
         .with_system_prompt(system_prompt)
-        .with_claude_md()
-        .with_memory(memory_store);
+        .with_claude_md();
+        // .with_memory(memory_store)
 
     // ── 도구 등록 ──
     let file_tool = Arc::new(FileTool::new());
