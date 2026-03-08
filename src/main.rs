@@ -266,7 +266,7 @@ async fn main() -> Result<()> {
 
         if text == "/models" {
             let reg = registry.lock().unwrap();
-            return Some(reg.list_display());
+            return Some(reg.list_for_config(&cfg_for_handler));
         }
 
         if text == "/model" {

@@ -30,6 +30,7 @@ tokio-stream = "0.1"
 toml = "0.8"
 dirs-next = "2.0"
 serde = { version = "1", features = ["derive"] }
+dialoguer = "0.11"
 
 [features]
 default = ["telegram"]

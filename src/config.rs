@@ -200,150 +200,107 @@ fn mask_key(key: &str) -> String {
     format!("{}...{}", &key[..4], &key[key.len()-4..])
 }
 
-// 등록 프로바이더 목록 제천
-fn print_provider_status(config: &ForjaConfig) {
-    let active = config.active.provider.as_deref().unwrap_or("");
-    println!("");
-    for (key, label) in PROVIDERS {
-        let has_key = *key == "ollama" || config.keys.get_for(key).is_some();
-        let icon = if has_key { "✅" } else { "  " };
-        let model_tag = if *key == active {
-            format!(" — {} ★기본", config.active.model.as_deref().unwrap_or(""))
-        } else {
-            String::new()
-        };
-        println!("  [{}] {}{}", icon, label, model_tag);
-    }
-    println!("");
-    println!("  a = 프로바이더 추가/수정  |  m = 기본 모델 변경  |  q = 저장 후 종료");
-}
-
-/// 메인 메뉴 루프 설정 위저드
-/// - config.toml 없을 때도 사용 가능 (복수 프로바이더 등록 지원)
+/// ForjaConfig 설정 위저드 — dialoguer 화살표 UI 사용
+///
+/// 흐름:
+///   ① 프로바이더 등록 루프 (Select) → API 키 입력 (Input) → 등록
+///   ② "완료"  선택 → 기본 모델 Select → save_config() 한 번
 pub fn run_setup() -> ForjaConfig {
+    use dialoguer::{Input, Select, theme::ColorfulTheme};
+
     let mut config = load_from_file().unwrap_or_default();
+    let theme = ColorfulTheme::default();
 
-    let stdin = io::stdin();
-    let mut stdin_lock = stdin.lock();
-    let mut read = |label: &str| -> String {
-        print!("{}", label);
-        io::stdout().flush().ok();
-        let mut line = String::new();
-        stdin_lock.read_line(&mut line).ok();
-        line.trim().to_string()
-    };
+    println!("\n⚒️  Forja 프로바이더 설정\n");
 
-    println!("\n⛒️  Forja 프로바이더 설정");
-
+    // ── ① 프로바이더 등록 루프 ────────────────────────────────────────────────
     loop {
-        print_provider_status(&config);
-        let cmd = read("명령 > ");
+        // 목록 아이템 생성: "✅ Moonshot Kimi" / "   OpenAI" + "── 완료 후 저장 ──"
+        let active_prov = config.active.provider.as_deref().unwrap_or("");
+        let mut items: Vec<String> = PROVIDERS.iter().map(|(key, label)| {
+            let has = *key == "ollama" || config.keys.get_for(key).is_some();
+            let check = if has { "✅" } else { "  " };
+            let star  = if *key == active_prov { " ★기본" } else { "" };
+            format!("[{}] {}{}", check, label, star)
+        }).collect();
+        items.push("── 완료 후 저장 ──".to_string());
 
-        match cmd.as_str() {
-            "q" => break,
+        let sel = Select::with_theme(&theme)
+            .with_prompt("프로바이더 선택 (↑↓, Enter)")
+            .items(&items)
+            .default(0)
+            .interact_opt()
+            .unwrap_or(None);
 
-            "a" => {
-                // 프로바이더 선택
-                println!("\n추가/수정할 프로바이더:");
-                for (i, (_, label)) in PROVIDERS.iter().enumerate() {
-                    println!("  {}. {}", i + 1, label);
-                }
-                let n_str = read("번호 > ");
-                let idx = match n_str.parse::<usize>() {
-                    Ok(n) if n >= 1 && n <= PROVIDERS.len() => n - 1,
-                    _ => { println!("⚠️  잘못된 번호"); continue; }
-                };
-                let (pkey, plabel) = PROVIDERS[idx];
+        let sel = match sel {
+            None => break,        // ESC → 완료
+            Some(i) if i == PROVIDERS.len() => break,  // "완료" 선택
+            Some(i) => i,
+        };
 
-                // API 키 (옵라마 스킵)
-                if pkey != "ollama" {
-                    let existing = config.keys.get_for(pkey);
-                    let hint = if let Some(ref k) = existing {
-                        format!(" [현재: {} | Enter로 유지]", mask_key(k))
-                    } else { String::new() };
-                    println!("\n{} API 키{}:", plabel, hint);
-                    let key_in = read("  키 > ");
-                    if !key_in.is_empty() {
-                        config.keys.set_for(pkey, key_in);
-                        println!("  ✅ 키 저장됨");
-                    } else if existing.is_some() {
-                        println!("  → 기존 키 유지");
-                    } else {
-                        println!("  ⚠️  키 미입력 — 나중에 `forja setup`으로 다시 추가하세요.");
-                        // 키 미입력이어도 모델 선택은 계속
-                    }
-                }
+        let (pkey, plabel) = PROVIDERS[sel];
 
-                // 모델 선택
-                let models = models_for(pkey);
-                println!("\n모델 선택:");
-                for (i, (id, label)) in models.iter().enumerate() {
-                    println!("  {}. {} — {}", i + 1, label, id);
-                }
-                let m_str = read("번호 (Enter = 기본) > ");
-                let model_id = m_str.parse::<usize>()
-                    .ok()
-                    .filter(|&n| n >= 1 && n <= models.len())
-                    .map(|n| models[n - 1].0.to_string())
-                    .unwrap_or_else(|| models[0].0.to_string());
+        // API 키 입력 (Ollama 스킵)
+        if pkey == "ollama" {
+            println!("  ✅ {} 등록 완료 (API 키 불필요)", plabel);
+        } else {
+            let existing = config.keys.get_for(pkey);
+            let hint = if let Some(ref k) = existing {
+                format!("현재: {} — 빈 Enter로 유지", mask_key(k))
+            } else {
+                format!("{} API 키를 입력하세요", plabel)
+            };
 
-                println!("  ✅ {} / {} 등록 완료", plabel, model_id);
+            let key_in: String = Input::with_theme(&theme)
+                .with_prompt(hint)
+                .allow_empty(true)
+                .interact_text()
+                .unwrap_or_default();
 
-                // 기본으로 설정?
-                let set_def = read("기본 모델로 설정할까요? (y/N) > ");
-                if set_def.eq_ignore_ascii_case("y") {
-                    config.active.provider = Some(pkey.to_string());
-                    config.active.model    = Some(model_id);
-                    println!("  ★ 기본 모델 설정 완료");
-                }
-            }
-
-            "m" => {
-                // 키가 있는 프로바이더만
-                let available: Vec<(&str, &str)> = PROVIDERS.iter()
-                    .filter(|(k, _)| *k == "ollama" || config.keys.get_for(k).is_some())
-                    .map(|(k, l)| (*k, *l))
-                    .collect();
-                if available.is_empty() {
-                    println!("⚠️  등록된 프로바이더가 없습니다. 먼저 `a`로 추가하세요.");
-                    continue;
-                }
-                println!("\n기본 모델 변경 — 프로바이더 선택:");
-                for (i, (_, label)) in available.iter().enumerate() {
-                    println!("  {}. {}", i + 1, label);
-                }
-                let n_str = read("번호 > ");
-                let idx = match n_str.parse::<usize>() {
-                    Ok(n) if n >= 1 && n <= available.len() => n - 1,
-                    _ => { println!("⚠️  잘못된 번호"); continue; }
-                };
-                let (pkey, _) = available[idx];
-                let models = models_for(pkey);
-                println!("\n모델 선택:");
-                for (i, (id, label)) in models.iter().enumerate() {
-                    println!("  {}. {} — {}", i + 1, label, id);
-                }
-                let m_str = read("번호 (Enter = 기본) > ");
-                let model_id = m_str.parse::<usize>()
-                    .ok()
-                    .filter(|&n| n >= 1 && n <= models.len())
-                    .map(|n| models[n - 1].0.to_string())
-                    .unwrap_or_else(|| models[0].0.to_string());
-                config.active.provider = Some(pkey.to_string());
-                config.active.model    = Some(model_id);
-                println!("  ★ 기본 모델 변경 완료");
-            }
-
-            _ => {
-                println!("  a, m, q 중 선택하세요.");
+            if !key_in.is_empty() {
+                config.keys.set_for(pkey, key_in);
+                println!("  ✅ {} 키 저장됨", plabel);
+            } else if existing.is_some() {
+                println!("  → {} 기존 키 유지", plabel);
+            } else {
+                println!("  ⚠️  키 미입력 — 나중에 `forja setup`으로 추가 가능");
             }
         }
     }
 
-    drop(stdin_lock);
+    // ── ② 기본 모델 선택 ─────────────────────────────────────────────────────
+    // 등록된 프로바이더의 모델만 수집
+    let registered_models: Vec<(&str, &str, &str)> = PROVIDERS.iter()
+        .filter(|(k, _)| *k == "ollama" || config.keys.get_for(k).is_some())
+        .flat_map(|(k, _)| models_for(k).into_iter().map(|(id, label)| (*k, id, label)).collect::<Vec<_>>())
+        .collect();
 
+    if registered_models.is_empty() {
+        println!("\n⚠️  등록된 프로바이더가 없습니다. 기본 모델을 설정하지 않고 저장합니다.");
+    } else {
+        let model_items: Vec<String> = registered_models.iter().map(|(prov, id, label)| {
+            format!("[{}] {} — {}", prov, label, id)
+        }).collect();
+
+        println!();
+        let sel = Select::with_theme(&theme)
+            .with_prompt("기본 모델 선택 (↑↓, Enter)")
+            .items(&model_items)
+            .default(0)
+            .interact_opt()
+            .unwrap_or(None);
+
+        if let Some(i) = sel {
+            let (prov, model_id, label) = registered_models[i];
+            config.active.provider = Some(prov.to_string());
+            config.active.model    = Some(model_id.to_string());
+            println!("  ★ 기본 모델: {} — {}", label, model_id);
+        }
+    }
+
+    // ── ③ 저장 (한 번만) ─────────────────────────────────────────────────────
     if let Err(e) = save_config(&config) {
-        eprintln!("⚠️  저장 실패: {}", e);
+        eprintln!("\n⚠️  저장 실패: {}", e);
     } else {
         println!("\n💾 저장 완료: {}", config_path().display());
     }
@@ -351,6 +308,7 @@ pub fn run_setup() -> ForjaConfig {
         config.active.provider.as_deref().unwrap_or("미설정"));
     config
 }
+
 
 
 // 하위 호환 alias

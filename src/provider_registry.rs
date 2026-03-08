@@ -6,23 +6,29 @@ use crate::config::{ForjaConfig, llm_config_from};
 pub struct ModelEntry {
     pub provider: &'static str,
     pub model_id: &'static str,
-    pub label: &'static str,
-    pub aliases: &'static [&'static str],
+    pub label:    &'static str,
+    pub aliases:  &'static [&'static str],
 }
 
-/// 전체 등록 모델 테이블
+/// 전체 등록 모델 테이블 (최신 모델 ID 기준)
 pub static MODEL_TABLE: &[ModelEntry] = &[
-    ModelEntry { provider: "openai",    model_id: "gpt-5.2",                  label: "GPT-5.2 (플래그십)",        aliases: &["smart", "gpt5"] },
-    ModelEntry { provider: "openai",    model_id: "gpt-5-mini",               label: "GPT-5 Mini (경량)",          aliases: &["mini"] },
-    ModelEntry { provider: "anthropic", model_id: "claude-opus-4-6",          label: "Claude Opus 4.6",            aliases: &["opus"] },
-    ModelEntry { provider: "anthropic", model_id: "claude-sonnet-4-6",        label: "Claude Sonnet 4.6 (빠름)",   aliases: &["sonnet"] },
-    ModelEntry { provider: "gemini",    model_id: "gemini-3.1-pro-preview",   label: "Gemini 3.1 Pro",             aliases: &["gemini"] },
-    ModelEntry { provider: "gemini",    model_id: "gemini-3-flash-preview",   label: "Gemini 3 Flash (경량)",      aliases: &["flash"] },
-    ModelEntry { provider: "deepseek",  model_id: "deepseek-chat",            label: "DeepSeek V3",                aliases: &["ds"] },
-    ModelEntry { provider: "deepseek",  model_id: "deepseek-reasoner",        label: "DeepSeek R1 (추론)",         aliases: &["r1"] },
-    ModelEntry { provider: "glm",       model_id: "glm-5",                    label: "GLM-5",                      aliases: &["glm"] },
-    ModelEntry { provider: "moonshot",  model_id: "kimi-k2.5",                label: "Kimi K2.5",                  aliases: &["kimi", "fast"] },
-    ModelEntry { provider: "ollama",    model_id: "qwen3.5:9b",               label: "Ollama qwen3.5:9b (로컬)",   aliases: &["local", "ollama"] },
+    ModelEntry { provider: "openai",    model_id: "gpt-5.4",                  label: "GPT-5.4 (플래그십)",           aliases: &["smart", "gpt5"] },
+    ModelEntry { provider: "openai",    model_id: "gpt-5.4-mini",             label: "GPT-5.4 Mini (경량)",           aliases: &["mini"] },
+    ModelEntry { provider: "openai",    model_id: "gpt-5.3-codex",            label: "GPT-5.3 Codex (코딩)",          aliases: &["codex"] },
+    ModelEntry { provider: "anthropic", model_id: "claude-opus-4-6",          label: "Claude Opus 4.6 (플래그십)",    aliases: &["opus"] },
+    ModelEntry { provider: "anthropic", model_id: "claude-sonnet-4-6",        label: "Claude Sonnet 4.6 (경량)",      aliases: &["sonnet"] },
+    ModelEntry { provider: "gemini",    model_id: "gemini-3.1-pro-preview",   label: "Gemini 3.1 Pro (플래그십)",     aliases: &["gemini"] },
+    ModelEntry { provider: "gemini",    model_id: "gemini-3-flash-preview",   label: "Gemini 3 Flash (경량)",         aliases: &["flash"] },
+    ModelEntry { provider: "deepseek",  model_id: "deepseek-chat",            label: "DeepSeek V3 (기본)",            aliases: &["ds"] },
+    ModelEntry { provider: "deepseek",  model_id: "deepseek-reasoner",        label: "DeepSeek R1 (추론)",            aliases: &["r1"] },
+    ModelEntry { provider: "glm",       model_id: "glm-5",                    label: "GLM-5 (플래그십)",              aliases: &["glm"] },
+    ModelEntry { provider: "glm",       model_id: "glm-4.5v",                 label: "GLM-4.5V (경량)",               aliases: &["glm-lite"] },
+    ModelEntry { provider: "moonshot",  model_id: "kimi-k2.5",                label: "Kimi K2.5",                     aliases: &["kimi", "fast"] },
+    ModelEntry { provider: "xai",       model_id: "grok-3",                   label: "Grok-3 (플래그십)",             aliases: &["grok"] },
+    ModelEntry { provider: "xai",       model_id: "grok-3-mini",              label: "Grok-3 Mini (경량)",            aliases: &["grok-mini"] },
+    ModelEntry { provider: "ollama",    model_id: "qwen3.5:9b",               label: "Ollama Qwen3.5 9B (로컬)",      aliases: &["local", "ollama"] },
+    ModelEntry { provider: "ollama",    model_id: "llama3:8b",                label: "Ollama Llama3 8B (로컬)",       aliases: &["llama"] },
+    ModelEntry { provider: "ollama",    model_id: "mistral:7b",               label: "Ollama Mistral 7B (로컬)",      aliases: &["mistral"] },
 ];
 
 // ─── ProviderRegistry ─────────────────────────────────────────────────────────
@@ -40,7 +46,6 @@ impl ProviderRegistry {
         let idx = MODEL_TABLE.iter().position(|e| {
             e.provider == provider && e.model_id == model
         }).or_else(|| {
-            // 프로바이더만 일치해도 첫 번째
             MODEL_TABLE.iter().position(|e| e.provider == provider)
         }).unwrap_or(0);
 
@@ -52,26 +57,43 @@ impl ProviderRegistry {
         &MODEL_TABLE[self.active_idx]
     }
 
-    /// `/models` 에 출력할 번호 목록 문자열
-    pub fn list_display(&self) -> String {
-        let mut s = String::from("📋 사용 가능한 모델:\n");
+    /// `/models` 출력: config에 등록된 프로바이더의 모델만 표시
+    pub fn list_for_config(&self, cfg: &ForjaConfig) -> String {
+        let mut s = String::from("📋 사용 가능한 모델 (등록된 프로바이더):\n");
+        let mut display_idx = 1usize;
         for (i, e) in MODEL_TABLE.iter().enumerate() {
+            let has_key = e.provider == "ollama"
+                || cfg.keys.get_for(e.provider).is_some();
+            if !has_key { continue; }
             let cur = if i == self.active_idx { " ◀ 현재" } else { "" };
             s.push_str(&format!(
-                "  {:2}. [{}] {} — {}{}\n",
-                i + 1, e.provider, e.label, e.model_id, cur
+                "  {:2}. [{}] {} — {}{}\\n",
+                display_idx, e.provider, e.label, e.model_id, cur
             ));
+            display_idx += 1;
         }
-        s.push_str("\n별칭: smart=GPT-5.2, mini=GPT-5-mini, opus=Claude, sonnet=Sonnet, gemini=Gemini, flash=Gemini Flash, ds=DeepSeek, r1=R1, glm=GLM-5, kimi/fast=Kimi, local/ollama=Ollama");
+        s.push_str("\n→ `/model <번호>` 또는 `/model <이름/별칭>`으로 전환");
         s
     }
 
-    /// `/model <input>` → 인덱스 검색
-    /// input: 번호(1-based) | model_id 부분 문자열 | alias
+    /// `/models` 전체 목록 (등록 여부 무관)
+    pub fn list_display(&self) -> String {
+        let mut s = String::from("📋 전체 모델 목록:\n");
+        for (i, e) in MODEL_TABLE.iter().enumerate() {
+            let cur = if i == self.active_idx { " ◀ 현재" } else { "" };
+            s.push_str(&format!(
+                "  {:2}. [{}] {} — {}{}\\n",
+                i + 1, e.provider, e.label, e.model_id, cur
+            ));
+        }
+        s.push_str("\n→ `/model <번호>` 또는 `/model <이름/별칭>`으로 전환");
+        s
+    }
+
+    /// `/model <input>` → 인덱스 검색 (번호 | model_id | alias | 부분문자열)
     pub fn resolve(&self, input: &str) -> Option<usize> {
         let input = input.trim().to_lowercase();
 
-        // 번호
         #[allow(clippy::collapsible_if)]
         if let Ok(n) = input.parse::<usize>() {
             if n >= 1 && n <= MODEL_TABLE.len() {
@@ -79,29 +101,27 @@ impl ProviderRegistry {
             }
         }
 
-        // 정확한 model_id
         if let Some(idx) = MODEL_TABLE.iter().position(|e| e.model_id == input) {
             return Some(idx);
         }
 
-        // alias
         if let Some(idx) = MODEL_TABLE.iter().position(|e| e.aliases.contains(&input.as_str())) {
             return Some(idx);
         }
 
-        // model_id 부분 포함
         MODEL_TABLE.iter().position(|e| e.model_id.contains(input.as_str()))
     }
 
     /// 스위칭 실행, 새 LlmConfig 반환
     pub fn switch_to(&mut self, idx: usize, cfg: &ForjaConfig) -> Result<LlmConfig, String> {
         let entry = &MODEL_TABLE[idx];
-        // 임시 cfg로 변환
         let mut tmp = cfg.clone();
         tmp.active.provider = Some(entry.provider.to_string());
-        tmp.active.model = Some(entry.model_id.to_string());
+        tmp.active.model    = Some(entry.model_id.to_string());
         let lc = llm_config_from(&tmp)?;
         self.active_idx = idx;
         Ok(lc)
     }
 }
+
+
