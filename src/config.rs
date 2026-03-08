@@ -138,28 +138,50 @@ pub fn save_config(config: &ForjaConfig) -> std::io::Result<()> {
 
 // ─── 온보딩 ──────────────────────────────────────────────────────────────────
 
-/// 프로바이더 정의: (key, display_label, base_model)
-const PROVIDERS: &[(&str, &str, &str)] = &[
-    ("openai",     "OpenAI",         "gpt-5.2"),
-    ("anthropic",  "Anthropic",      "claude-opus-4-6"),
-    ("gemini",     "Google Gemini",  "gemini-3.1-pro-preview"),
-    ("deepseek",   "DeepSeek",       "deepseek-chat"),
-    ("glm",        "GLM / Zhipu",    "glm-5"),
-    ("moonshot",   "Moonshot Kimi",  "kimi-k2.5"),
-    ("ollama",     "Ollama (로컬)",  "qwen3.5:9b"),
+/// 프로바이더 정의: (key, 회사명)  — 모델명은 Step 3에서 별도 표시
+const PROVIDERS: &[(&str, &str)] = &[
+    ("openai",    "OpenAI"),
+    ("anthropic", "Anthropic"),
+    ("gemini",    "Google Gemini"),
+    ("deepseek",  "DeepSeek"),
+    ("glm",       "GLM / Zhipu"),
+    ("moonshot",  "Moonshot Kimi"),
+    ("ollama",    "Ollama (로컈, API 키 불필요)"),
 ];
 
 /// 프로바이더별 모델 목록: (model_id, label)
 pub fn models_for(provider: &str) -> Vec<(&'static str, &'static str)> {
     match provider {
-        "openai"    => vec![("gpt-5.2", "GPT-5.2 (플래그십)"), ("gpt-5-mini", "GPT-5 Mini (경량)")],
-        "anthropic" => vec![("claude-opus-4-6", "Claude Opus 4.6"), ("claude-sonnet-4-6", "Claude Sonnet 4.6 (빠름)")],
-        "gemini"    => vec![("gemini-3.1-pro-preview", "Gemini 3.1 Pro"), ("gemini-3-flash-preview", "Gemini 3 Flash (경량)")],
-        "deepseek"  => vec![("deepseek-chat", "DeepSeek V3"), ("deepseek-reasoner", "DeepSeek R1 (추론)")],
-        "glm"       => vec![("glm-5", "GLM-5 (플래그십)"), ("glm-4.5v", "GLM-4.5V (비전/경량)")],
-        "moonshot"  => vec![("kimi-k2.5", "Kimi K2.5")],
-        "ollama"    => vec![("qwen3.5:9b", "Qwen3.5 9B"), ("llama3.3:8b", "Llama3.3 8B"), ("gemma3:12b", "Gemma3 12B")],
-        _           => vec![],
+        "openai"    => vec![
+            ("gpt-5.4",       "GPT-5.4 (플래그십)"),
+            ("gpt-5.4-mini",  "GPT-5.4 Mini (경량)"),
+            ("gpt-5.3-codex", "GPT-5.3 Codex (코딩)"),
+        ],
+        "anthropic" => vec![
+            ("claude-opus-4-6", "Claude Opus 4.6 (플래그십)"),
+            ("claude-sonnet-4", "Claude Sonnet 4 (경량)"),
+        ],
+        "gemini"    => vec![
+            ("gemini-3.1-pro",   "Gemini 3.1 Pro (플래그십)"),
+            ("gemini-2.5-flash", "Gemini 2.5 Flash (경량)"),
+        ],
+        "deepseek"  => vec![
+            ("deepseek-chat",     "DeepSeek V3 (기본)"),
+            ("deepseek-reasoner", "DeepSeek R1 (추론)"),
+        ],
+        "glm"       => vec![
+            ("glm-5",    "GLM-5 (플래그십)"),
+            ("glm-4.5v", "GLM-4.5V (경량)"),
+        ],
+        "moonshot"  => vec![
+            ("kimi-k2.5", "Kimi K2.5 (기본)"),
+        ],
+        "ollama"    => vec![
+            ("qwen3.5:9b", "Qwen3.5 9B (기본)"),
+            ("llama3:8b",  "Llama3 8B"),
+            ("mistral:7b", "Mistral 7B"),
+        ],
+        _ => vec![],
     }
 }
 
@@ -188,16 +210,15 @@ pub fn run_setup() -> ForjaConfig {
     println!("\n⚒️  Forja 설정 위저드\n");
 
     // ── Step 1: 프로바이더 선택 ──────────────────────────
-    println!("【Step 1/3】 기본 프로바이더를 선택하세요:\n");
-    for (i, (key, label, model)) in PROVIDERS.iter().enumerate() {
+    println!("\n【Step 1/3】 기본 프로바이더를 선택하세요:\n");
+    for (i, (key, label)) in PROVIDERS.iter().enumerate() {
         let current = if config.active.provider.as_deref() == Some(key) { " ←현재" } else { "" };
-        println!("  {}. {} — {}{}", i + 1, label, model, current);
+        println!("  {}. {}{}", i + 1, label, current);
     }
 
     let provider_key = loop {
         let input = prompt_line("\n번호 입력 > ");
         if input.is_empty() {
-            // Enter = 현재 유지
             if let Some(p) = &config.active.provider {
                 let p = p.clone();
                 println!("  → 기존 유지: {}", p);
@@ -214,16 +235,23 @@ pub fn run_setup() -> ForjaConfig {
 
     config.active.provider = Some(provider_key.clone());
 
-    // ── Step 2: API 키 입력 ───────────────────────────────
+    // ── Step 2: 인증 (Ollama는 스킵) ──────────────────────────────
     if provider_key != "ollama" {
         let existing = config.keys.get_for(&provider_key);
+
+        println!("\n【Step 2/3】 {} 인증 방식을 선택하세요:\n", provider_key);
+        println!("  1. API 키 직접 입력");
+        println!("  2. OAuth 로그인 (아직 미구현 — API 키로 대체)");
+
+        let _auth = prompt_line("\n번호 입력 (Enter = 1) > ");
+        println!("  → API 키 방식으로 진행합니다.\n");
+
         let hint = if let Some(ref k) = existing {
             format!(" [현재: {} | Enter로 유지]", mask_key(k))
         } else {
             String::new()
         };
-
-        println!("\n【Step 2/3】 {} API 키를 입력하세요:{}", provider_key, hint);
+        println!("  {} API 키를 입력하세요:{}", provider_key, hint);
         let key_input = prompt_line("  키 > ");
 
         if !key_input.is_empty() {
@@ -232,10 +260,10 @@ pub fn run_setup() -> ForjaConfig {
         } else if existing.is_some() {
             println!("  → 기존 키 유지");
         } else {
-            println!("  ⚠️  키 없이 계속합니다. 나중에 `forja setup`으로 설정 가능합니다.");
+            println!("  ⚠️  키 없이 계속합니다. 나중에 `forja setup`으로 설정하세요.");
         }
     } else {
-        println!("\n【Step 2/3】 Ollama는 API 키가 필요하지 않습니다. ✅");
+        println!("\n【Step 2/3】 Ollama는 인증이 필요하지 않습니다. ✅ (스킵)");
     }
 
     // ── Step 3: 모델 선택 ────────────────────────────────
