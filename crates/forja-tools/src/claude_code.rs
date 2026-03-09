@@ -13,6 +13,12 @@ const TIMEOUT_SECS: u64 = 600; // 10 minutes
 
 pub struct ClaudeCodeTool;
 
+impl Default for ClaudeCodeTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClaudeCodeTool {
     pub fn new() -> Self {
         Self

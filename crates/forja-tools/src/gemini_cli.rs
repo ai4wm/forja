@@ -13,6 +13,12 @@ const TIMEOUT_SECS: u64 = 600; // 10 minutes
 
 pub struct GeminiCliTool;
 
+impl Default for GeminiCliTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GeminiCliTool {
     pub fn new() -> Self {
         Self

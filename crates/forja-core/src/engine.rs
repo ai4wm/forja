@@ -31,7 +31,8 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(provider: Arc<dyn LlmProvider>, channel: Arc<dyn Channel>) -> Self {
-        let engine = Self {
+        
+        Self {
             provider: provider.clone(),
             channel,
             tools: HashMap::new(),
@@ -41,8 +42,7 @@ impl Engine {
             slash_handler: None,
             #[cfg(feature = "memory")]
             memory: None,
-        };
-        engine
+        }
     }
 
     /// 커스텀 System Prompt를 설정합니다. (history 주입은 메시지 수신 시 처리)
@@ -168,12 +168,11 @@ impl Engine {
                     let user_msg = result?;
                     
                     // 히스토리가 비어있으면 System 프롬프트 주입
-                    if self.conversation_history.is_empty() {
-                        if let Some(prompt) = &self.system_prompt {
+                    if self.conversation_history.is_empty()
+                        && let Some(prompt) = &self.system_prompt {
                             let sys_msg = Message::text(Role::System, prompt);
                             self.push_message(sys_msg);
                         }
-                    }
 
                     self.push_message(user_msg.clone());
 
@@ -263,12 +262,11 @@ impl Engine {
                     }
 
                     // 히스토리가 비어있으면 System 프롬프트 주입
-                    if self.conversation_history.is_empty() {
-                        if let Some(prompt) = &self.system_prompt {
+                    if self.conversation_history.is_empty()
+                        && let Some(prompt) = &self.system_prompt {
                             let sys_msg = Message::text(Role::System, prompt);
                             self.push_message(sys_msg);
                         }
-                    }
 
                     self.push_message(user_msg.clone());
 

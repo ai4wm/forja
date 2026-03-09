@@ -13,6 +13,12 @@ const TIMEOUT_SECS: u64 = 600; // 10 minutes
 
 pub struct CodexTool;
 
+impl Default for CodexTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CodexTool {
     pub fn new() -> Self {
         Self

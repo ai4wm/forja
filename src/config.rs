@@ -313,11 +313,10 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
         other         => return Err(format!("알 수 없는 프로바이더: {}", other)),
     };
 
-    if let Some(model) = &cfg.active.model {
-        if provider != "ollama" {
+    if let Some(model) = &cfg.active.model
+        && provider != "ollama" {
             lc.model = model.clone();
         }
-    }
 
     Ok(lc)
 }

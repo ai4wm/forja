@@ -87,11 +87,10 @@ fn print_banner(provider_info: &str) {
 fn load_project_prompt() -> Option<(String, String)> {
     let candidates = ["CLAUDE.md", "FORJA.md", "AGENTS.md"];
     for file in candidates.iter() {
-        if let Ok(content) = std::fs::read_to_string(file) {
-            if !content.trim().is_empty() {
+        if let Ok(content) = std::fs::read_to_string(file)
+            && !content.trim().is_empty() {
                 return Some((file.to_string(), content.trim().to_string()));
             }
-        }
     }
     None
 }

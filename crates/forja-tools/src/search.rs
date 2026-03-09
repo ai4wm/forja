@@ -32,16 +32,15 @@ impl SearchTool {
         
         match self.client.get(&url).send().await {
             Ok(res) => {
-                if let Ok(text) = res.text().await {
-                    if let Ok(json) = serde_json::from_str::<Value>(&text) {
+                if let Ok(text) = res.text().await
+                    && let Ok(json) = serde_json::from_str::<Value>(&text) {
                         let mut result = String::new();
                         
                         // Extract AbstractText
-                        if let Some(abstract_text) = json.get("AbstractText").and_then(|v| v.as_str()) {
-                            if !abstract_text.is_empty() {
+                        if let Some(abstract_text) = json.get("AbstractText").and_then(|v| v.as_str())
+                            && !abstract_text.is_empty() {
                                 result.push_str(&format!("Abstract:\n{}\n\n", abstract_text));
                             }
-                        }
 
                         // Extract RelatedTopics
                         if let Some(topics) = json.get("RelatedTopics").and_then(|v| v.as_array()) {
@@ -58,7 +57,6 @@ impl SearchTool {
                         
                         return Self::truncate(&result);
                     }
-                }
                 "Failed to parse search results.".to_string()
             }
             Err(e) => format!("Search request failed: {}", e)
@@ -70,9 +68,9 @@ impl SearchTool {
         
         match self.client.get(&url).header("X-Subscription-Token", api_key).send().await {
             Ok(res) => {
-                if let Ok(text) = res.text().await {
-                    if let Ok(json) = serde_json::from_str::<Value>(&text) {
-                        if let Some(results) = json.get("web").and_then(|w| w.get("results")).and_then(|w| w.as_array()) {
+                if let Ok(text) = res.text().await
+                    && let Ok(json) = serde_json::from_str::<Value>(&text)
+                        && let Some(results) = json.get("web").and_then(|w| w.get("results")).and_then(|w| w.as_array()) {
                             let mut out = String::new();
                             for item in results {
                                 let title = item.get("title").and_then(|v| v.as_str()).unwrap_or("No title");
@@ -85,8 +83,6 @@ impl SearchTool {
                             }
                             return Self::truncate(&out);
                         }
-                    }
-                }
                 "Failed to parse search results.".to_string()
             }
             Err(e) => format!("Search request failed: {}", e)
@@ -113,21 +109,19 @@ impl SearchTool {
             Ok(res) => {
                 let text = res.text().await.unwrap_or_default();
                 
-                if let Ok(json) = serde_json::from_str::<Value>(&text) {
-                    if let Some(output) = json.get("output").and_then(|v| v.as_array()) {
+                if let Ok(json) = serde_json::from_str::<Value>(&text)
+                    && let Some(output) = json.get("output").and_then(|v| v.as_array()) {
                         for item in output {
-                            if item.get("type").and_then(|v| v.as_str()) == Some("message") {
-                                if let Some(content) = item.get("content").and_then(|v| v.as_array()) {
+                            if item.get("type").and_then(|v| v.as_str()) == Some("message")
+                                && let Some(content) = item.get("content").and_then(|v| v.as_array()) {
                                     for c in content {
                                         if let Some(text) = c.get("text").and_then(|v| v.as_str()) {
                                             return Self::truncate(text);
                                         }
                                     }
                                 }
-                            }
                         }
                     }
-                }
                 Self::truncate(&text)
             }
             Err(e) => format!("Search request failed: {}", e)
