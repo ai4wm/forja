@@ -162,22 +162,17 @@ impl LlmClient {
                     }
                     Content::ToolCall { call_id, tool_name, arguments, .. } => {
                         Some(serde_json::json!({
-                            "role": "assistant",
-                            "tool_calls": [{
-                                "id": call_id,
-                                "type": "function",
-                                "function": {
-                                    "name": tool_name,
-                                    "arguments": arguments.to_string(),
-                                }
-                            }]
+                            "type": "function_call",
+                            "call_id": call_id,
+                            "name": tool_name,
+                            "arguments": arguments.to_string(),
                         }))
                     }
                     Content::ToolResult { call_id, result } => {
                         Some(serde_json::json!({
-                            "role": "tool",
-                            "tool_call_id": call_id,
-                            "content": result.to_string(),
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": result.to_string(),
                         }))
                     }
                 }
@@ -245,14 +240,52 @@ impl LlmProvider for LlmClient {
             
 
             let mut collected_text = String::new();
+            let mut last_item_id = String::new();
+            let mut last_tool_name = String::new();
+
+            // 디버그: 도구 관련 SSE 이벤트 raw 데이터 확인
+            for line in raw.lines() {
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(t) = ev["type"].as_str() {
+                            if t.contains("function_call") || t.contains("output_item") {
+                            }
+                        }
+                    }
+                }
+            }
+
             for line in raw.lines() {
                 if let Some(data) = line.strip_prefix("data: ") {
                     if let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) {
                         match ev["type"].as_str() {
+                            Some("response.output_item.added") => {
+                                if let Some(id) = ev["item"]["id"].as_str() {
+                                    last_item_id = id.to_string();
+                                }
+                                // 도구 이름이 여기에 포함되어 있을 수 있음
+                                if let Some(name) = ev["item"]["name"].as_str() {
+                                    last_tool_name = name.to_string();
+                                }
+                            }
                             Some("response.output_text.delta") => {
                                 if let Some(d) = ev["delta"].as_str() {
                                     collected_text.push_str(d);
                                 }
+                            }
+                            Some("response.function_call_arguments.done") => {
+                                let call_id = ev["call_id"].as_str()
+                                    .or_else(|| ev["item_id"].as_str())
+                                    .unwrap_or(&last_item_id)
+                                    .to_string();
+                                let name = ev["name"].as_str()
+                                    .map(|s| s.to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .unwrap_or_else(|| last_tool_name.clone());
+                                
+                                let args_str = ev["arguments"].as_str().unwrap_or("{}");
+                                let args = serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
+                                return Ok(Message::tool_call(&call_id, &name, args));
                             }
                             Some("response.completed") | Some("response.failed") => break,
                             _ => {}
