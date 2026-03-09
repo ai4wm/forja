@@ -23,3 +23,5 @@ Thumbs.db
 error.log
 clippy_result.txt
 *.log
+
+build_errors.txt
