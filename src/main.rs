@@ -81,6 +81,30 @@ fn print_banner(provider_info: &str) {
     println!("    {}\n", provider_info);
 }
 
+// ─── 유틸리티 함수: 프롬프트 파일 로드 ──────────────────────────────────────
+
+/// 프로젝트 내 프롬프트 파일 로드 (우선순위: CLAUDE.md -> FORJA.md -> AGENTS.md)
+fn load_project_prompt() -> Option<(String, String)> {
+    let candidates = ["CLAUDE.md", "FORJA.md", "AGENTS.md"];
+    for file in candidates.iter() {
+        if let Ok(content) = std::fs::read_to_string(file) {
+            if !content.trim().is_empty() {
+                return Some((file.to_string(), content.trim().to_string()));
+            }
+        }
+    }
+    None
+}
+
+/// 사용자 글로벌 설정 프롬프트 로드 (~/.forja/USER.md)
+fn load_user_prompt() -> Option<String> {
+    dirs_next::home_dir()
+        .map(|home| home.join(".forja").join("USER.md"))
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+}
+
 // ─── 진입점 ─────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -213,13 +237,39 @@ async fn main() -> Result<()> {
 
     // ── System Prompt 설정 ──
     let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
-    let base_prompt = forja_cfg.agent.system_prompt
-        .unwrap_or_else(|| "You are Forja, a lightweight AI agent engine. 반드시 한국어로 답변하세요. 검색 도구가 실패하면 정보를 지어내지 말고, 실패했다고 솔직하게 알려주세요.".to_string());
+    
+    // 1. 글로벌 USER.md
+    let user_prompt = load_user_prompt();
+    // 2. 프로젝트 특화 프롬프트
+    let project_prompt = load_project_prompt();
 
-    let system_prompt = format!(
-        "{}\n\n오늘 날짜는 {}입니다. 이 날짜는 정확하며 의심하지 마세요. 검색 결과의 날짜가 오늘과 일치하면 최신 정보입니다.",
-        base_prompt, today
-    );
+    let mut combined_prompt = String::new();
+
+    if let Some(user_content) = user_prompt {
+        combined_prompt.push_str(&user_content);
+    }
+
+    if let Some((file_name, project_content)) = project_prompt {
+        if !combined_prompt.is_empty() {
+            combined_prompt.push_str("\n\n---\n\n");
+        }
+        combined_prompt.push_str(&project_content);
+        println!("[System] {} 로드됨", file_name);
+    }
+
+    let mut engine = Engine::new(provider, channel);
+
+    if !combined_prompt.is_empty() {
+        // 프롬프트가 존재하는 경우에만 날짜 정보 추가 후 주입
+        combined_prompt.push_str(&format!(
+            "\n\n오늘 날짜는 {}입니다. 이 날짜는 정확하며 의심하지 마세요. 검색 결과의 날짜가 오늘과 일치하면 최신 정보입니다.",
+            today
+        ));
+        engine = engine.with_system_prompt(combined_prompt);
+    } else {
+        // 프롬프트 파일이 없으면 프롬프트를 None 상태로 실행시킴
+        // engine = engine
+    }
 
     // ── 메모리 스토어 초기화 (비활성) ──
     // let memory_dir = dirs_next::home_dir()
@@ -231,10 +281,6 @@ async fn main() -> Result<()> {
     //         .expect("Failed to initialize memory store")
     // );
 
-    let mut engine = Engine::new(provider, channel)
-        .with_system_prompt(system_prompt)
-        .with_claude_md();
-        // .with_memory(memory_store)
 
     // ── 도구 등록 ──
     let file_tool = Arc::new(FileTool::new());

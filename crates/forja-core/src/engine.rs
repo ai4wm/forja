@@ -9,9 +9,6 @@ use crate::traits::MemoryStore;
 
 const MAX_TOOL_DEPTH: usize = 10;
 
-const DEFAULT_SYSTEM_PROMPT: &str =
-    "You are Forja, a lightweight AI agent engine.";
-
 /// /models, /model 슬래시 명령 처리용 콜백 타입
 pub type SlashHandler = Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>) -> Option<String> + Send + Sync>;
 
@@ -25,7 +22,7 @@ pub struct Engine {
     tools: HashMap<String, Arc<dyn Tool>>,
     conversation_history: Vec<Message>,
     max_history: usize,
-    system_prompt: String,
+    system_prompt: Option<String>,
     slash_handler: Option<SlashHandler>,
 
     #[cfg(feature = "memory")]
@@ -40,44 +37,18 @@ impl Engine {
             tools: HashMap::new(),
             conversation_history: Vec::new(),
             max_history: 100,
-            system_prompt: DEFAULT_SYSTEM_PROMPT.to_string(),
+            system_prompt: None,
             slash_handler: None,
             #[cfg(feature = "memory")]
             memory: None,
         };
-        // 기본 System 프롬프트를 대화 기록에 삽입
-        engine.inject_system_prompt();
         engine
     }
 
-    /// 커스텀 System Prompt를 설정하고 대화록을 리셋합니다.
-    pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.system_prompt = prompt.into();
-        // 기존 System 메시지 제거 후 재삽입
-        self.conversation_history.retain(|m| m.role != Role::System);
-        self.inject_system_prompt();
+    /// 커스텀 System Prompt를 설정합니다. (history 주입은 메시지 수신 시 처리)
+    pub fn with_system_prompt(mut self, prompt: String) -> Self {
+        self.system_prompt = Some(prompt);
         self
-    }
-
-    /// CLAUDE.md 파일이 현재 디렉토리에 있으면 내용을 System Prompt에 append합니다.
-    pub fn with_claude_md(mut self) -> Self {
-        if let Ok(content) = std::fs::read_to_string("CLAUDE.md")
-            && !content.trim().is_empty() {
-                self.system_prompt = format!("{}
-
----
-{}", self.system_prompt, content.trim());
-                // 기존 System 메시지 제거 후 재삽입
-                self.conversation_history.retain(|m| m.role != Role::System);
-                self.inject_system_prompt();
-            }
-        self
-    }
-
-    /// 현재 `system_prompt` 필드값으로 System 메시지를 history에 삽입.
-    fn inject_system_prompt(&mut self) {
-        let sys_msg = Message::text(Role::System, &self.system_prompt);
-        self.conversation_history.insert(0, sys_msg);
     }
 
     /// (선택) 메모리 저장소 연동 확장 메서드
@@ -195,6 +166,15 @@ impl Engine {
                 // 채널 입력을 무한정 수신 대기
                 result = self.channel.receive() => {
                     let user_msg = result?;
+                    
+                    // 히스토리가 비어있으면 System 프롬프트 주입
+                    if self.conversation_history.is_empty() {
+                        if let Some(prompt) = &self.system_prompt {
+                            let sys_msg = Message::text(Role::System, prompt);
+                            self.push_message(sys_msg);
+                        }
+                    }
+
                     self.push_message(user_msg.clone());
 
                     // LLM 프로바이더로 전달하여 한 턴 평가 (handle_step 내부에서 도구 명세 수집함)
@@ -280,6 +260,14 @@ impl Engine {
                         let _ = self.channel.send(reply_msg).await;
                         // 슬래시 명령은 대화 히스토리에 추가하지 않음
                         continue;
+                    }
+
+                    // 히스토리가 비어있으면 System 프롬프트 주입
+                    if self.conversation_history.is_empty() {
+                        if let Some(prompt) = &self.system_prompt {
+                            let sys_msg = Message::text(Role::System, prompt);
+                            self.push_message(sys_msg);
+                        }
                     }
 
                     self.push_message(user_msg.clone());
