@@ -111,7 +111,7 @@ fn load_user_prompt() -> Option<String> {
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() >= 3 && args[1] == "login" {
-        oauth::handle_login(&args[2]).await;
+        oauth::run_login(&args[2]).await;
         std::process::exit(0);
     } else if args.len() == 2 && args[1] == "login" {
         println!("사용법: forja login <provider>");

@@ -144,8 +144,10 @@ pub fn save_config(config: &ForjaConfig) -> std::io::Result<()> {
 /// 프로바이더 정의: (key, 회사명)  — 모델명은 Step 3에서 별도 표시
 const PROVIDERS: &[(&str, &str)] = &[
     ("openai",    "OpenAI"),
+    ("openai_oauth", "OpenAI (OAuth 구독)"),
     ("anthropic", "Anthropic"),
     ("gemini",    "Google Gemini"),
+    ("gemini_oauth", "Google Gemini (OAuth CLI)"),
     ("deepseek",  "DeepSeek"),
     ("glm",       "GLM / Zhipu"),
     ("moonshot",  "Moonshot Kimi"),
@@ -209,38 +211,68 @@ pub fn run_setup() -> ForjaConfig {
 
         let (pkey, plabel) = PROVIDERS[sel];
 
-        // API 키 입력 (Ollama 스킵)
+        // 인증 방식 선택 (Ollama 스킵)
         if pkey == "ollama" {
             println!("  ✅ {} 등록 완료 (API 키 불필요)", plabel);
         } else {
-            let existing = config.keys.get_for(pkey);
-            let hint = if let Some(ref k) = existing {
-                format!("현재: {} — 빈 Enter로 유지", mask_key(k))
-            } else {
-                format!("{} API 키를 입력하세요", plabel)
-            };
+            let auth_methods = vec![
+                format!("API 키 입력"),
+                format!("OAuth 로그인 (브라우저)"),
+            ];
+            let auth_sel = Select::with_theme(&theme)
+                .with_prompt(format!("{} 인증 방식", plabel))
+                .items(&auth_methods)
+                .default(0)
+                .interact()
+                .unwrap();
 
-            let key_in: String = Input::with_theme(&theme)
-                .with_prompt(hint)
-                .allow_empty(true)
-                .interact_text()
-                .unwrap_or_default();
+            if auth_sel == 0 {
+                // API 키 입력 (기존 로직)
+                let existing = config.keys.get_for(pkey);
+                let hint = if let Some(ref k) = existing {
+                    format!("현재: {} — 빈 Enter로 유지", mask_key(k))
+                } else {
+                    format!("{} API 키를 입력하세요", plabel)
+                };
 
-            if !key_in.is_empty() {
-                config.keys.set_for(pkey, key_in);
-                println!("  ✅ {} 키 저장됨", plabel);
-            } else if existing.is_some() {
-                println!("  → {} 기존 키 유지", plabel);
+                let key_in: String = Input::with_theme(&theme)
+                    .with_prompt(hint)
+                    .allow_empty(true)
+                    .interact_text()
+                    .unwrap();
+
+                if !key_in.is_empty() {
+                    config.keys.set_for(pkey, key_in);
+                    println!("  ✅ {} 키 저장됨", plabel);
+                } else if existing.is_some() {
+                    println!("  → {} 기존 키 유지", plabel);
+                } else {
+                    println!("  ⚠️  키 미입력 — 나중에 `forja setup`으로 추가 가능");
+                }
             } else {
-                println!("  ⚠️  키 미입력 — 나중에 `forja setup`으로 추가 가능");
+                // OAuth 로그인
+                println!("  🌐 {} OAuth 로그인 시작...", plabel);
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(crate::oauth::run_login(pkey))
+                });
+                println!("  ✅ {} OAuth 로그인 완료", plabel);
             }
         }
     }
 
     // ── ② 기본 모델 선택 ─────────────────────────────────────────────────────
-    // 등록된 프로바이더의 모델만 수집
+    let auth_data = crate::oauth::AuthData::load();
     let registered_models: Vec<(&str, &str, &str)> = PROVIDERS.iter()
-        .filter(|(k, _)| *k == "ollama" || config.keys.get_for(k).is_some())
+        .filter(|(k, _)| {
+            *k == "ollama"
+            || config.keys.get_for(k).is_some()
+            || match *k {
+                "openai" => auth_data.openai.is_some(),
+                "gemini" => auth_data.gemini.is_some(),
+                "anthropic" => auth_data.anthropic.is_some(),
+                _ => false,
+            }
+        })
         .flat_map(|(k, _)| models_for(k).into_iter().map(|(id, label)| (*k, id, label)).collect::<Vec<_>>())
         .collect();
 
@@ -294,8 +326,8 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
     if api_key.is_empty() && provider != "ollama" {
         let auth = crate::oauth::AuthData::load();
         let oauth_key = match provider {
-            "openai" | "openai_mini" => auth.openai.map(|t| t.access_token),
-            "gemini" | "gemini_flash" => auth.gemini.map(|t| t.access_token),
+            "openai" | "openai_mini" | "openai_oauth" => auth.openai.map(|t| t.access_token),
+            "gemini" | "gemini_flash" | "gemini_oauth" => auth.gemini.map(|t| t.access_token),
             "anthropic" | "anthropic_sonnet" => auth.anthropic.map(|t| t.access_token),
             _ => None,
         };
@@ -310,10 +342,12 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
     let mut lc = match provider {
         "openai"      => presets::openai(&api_key),
         "openai_mini" => presets::openai_mini(&api_key),
+        "openai_oauth" => presets::openai_oauth(&api_key),
         "anthropic"   => presets::anthropic(&api_key),
         "anthropic_sonnet" => presets::anthropic_sonnet(&api_key),
         "gemini"      => presets::gemini(&api_key),
         "gemini_flash"=> presets::gemini_flash(&api_key),
+        "gemini_oauth" => presets::gemini_oauth(&api_key),
         "deepseek"    => presets::deepseek(&api_key),
         "deepseek_reasoner" => presets::deepseek_reasoner(&api_key),
         "glm"         => presets::glm(&api_key),

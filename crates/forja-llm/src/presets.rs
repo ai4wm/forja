@@ -85,6 +85,16 @@ pub fn xai_mini(api_key: &str) -> LlmConfig {
     LlmConfig::new("https://api.x.ai/v1", "grok-3-mini", api_key)
 }
 
+/// OAuth 전용: OpenAI (Codex 구독)
+pub fn openai_oauth(token: &str) -> LlmConfig {
+    LlmConfig::new("https://api.openai.com/v1", "gpt-5-codex", token)
+}
+
+/// OAuth 전용: Gemini (CLI 구독, 내부 엔드포인트)
+pub fn gemini_oauth(token: &str) -> LlmConfig {
+    LlmConfig::new("https://cloudcode-pa.googleapis.com/v1internal", "gemini-2.5-pro", token)
+}
+
 /// 로컬 Ollama
 pub fn ollama(model: &str) -> LlmConfig {
     LlmConfig::new("http://localhost:11434/v1", model, "ollama")

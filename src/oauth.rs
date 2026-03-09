@@ -55,7 +55,7 @@ impl AuthData {
     }
 }
 
-pub async fn handle_login(provider: &str) {
+pub async fn run_login(provider: &str) {
     let provider = provider.to_lowercase();
     match provider.as_str() {
         "openai" => login_openai().await,
