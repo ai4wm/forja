@@ -51,7 +51,7 @@ impl TelegramChannel {
                     }
 
                     if let Some(text) = msg.text() {
-                        let core_msg = CoreMessage::text(Role::User, text.to_string());
+                        let core_msg = CoreMessage::text(Role::User, text.to_string(), None);
                         
                         // 송신 실패 (채널 파괴 등) 시도 캐치 (현재는 무시)
                         let _ = tx.send((chat_id, core_msg)).await;
@@ -109,7 +109,7 @@ impl Channel for TelegramChannel {
             *self.typing_handle.lock().await = Some(handle);
 
             // 터미널에 수신 로그 출력
-            if let Content::Text { ref text } = msg.content {
+            if let Content::Text { ref text, .. } = msg.content {
                 print!("\r\x1b[K");
                 println!("[TG] {}", text);
             }
@@ -130,7 +130,7 @@ impl Channel for TelegramChannel {
         let last_id = *self.last_chat_id.lock().await;
 
         if let Some(chat_id) = last_id {
-            if let Content::Text { text } = &message.content {
+            if let Content::Text { text, .. } = &message.content {
                 let send_res = self.bot
                     .send_message(teloxide::types::ChatId(chat_id), text.to_string())
                     .parse_mode(teloxide::types::ParseMode::Markdown)

@@ -25,7 +25,12 @@ pub enum Role {
 #[serde(tag = "type")]
 pub enum Content {
     /// 일반 텍스트 메시지.
-    Text { text: String },
+    Text { 
+        text: String,
+        /// Gemini 3 모델의 응답에 포함될 수 있는 thoughtSignature. 다음 요청시 반환 권장.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thought_signature: Option<String>,
+    },
 
     /// LLM이 도구 호출을 요청할 때.
     ToolCall {
@@ -38,6 +43,9 @@ pub enum Content {
         /// (선택적) 모델이 도구 호출 전 추론한 내용 (최신 모델 지원).
         #[serde(skip_serializing_if = "Option::is_none")]
         reasoning_content: Option<String>,
+        /// Gemini 3 모델의 functionCall에 포함되는 서명. 다음 요청시 반드시 그대로 반환해야 함.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thought_signature: Option<String>,
     },
 
     /// 도구 실행 결과를 LLM에게 반환할 때.
@@ -63,11 +71,14 @@ pub struct Message {
 
 impl Message {
     /// 텍스트 메시지 생성 헬퍼.
-    pub fn text(role: Role, text: impl Into<String>) -> Self {
+    pub fn text(role: Role, text: impl Into<String>, thought_signature: Option<String>) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             role,
-            content: Content::Text { text: text.into() },
+            content: Content::Text { 
+                text: text.into(),
+                thought_signature,
+            },
             timestamp: now(),
             metadata: HashMap::new(),
         }
@@ -78,16 +89,18 @@ impl Message {
         call_id: impl Into<String>,
         tool_name: impl Into<String>,
         arguments: serde_json::Value,
+        thought_signature: Option<String>,
     ) -> Self {
-        Self::tool_call_with_reasoning(call_id, tool_name, arguments, None)
+        Self::tool_call_with_reasoning(call_id, tool_name, arguments, None, thought_signature)
     }
 
-    /// (확장용) 추론 내용(reasoning_content)을 포함한 도구 호출 생성 헬퍼.
+    /// (확장용) 추론 내용(reasoning_content) 및 서명(thought_signature)을 포함한 도구 호출 생성 헬퍼.
     pub fn tool_call_with_reasoning(
         call_id: impl Into<String>,
         tool_name: impl Into<String>,
         arguments: serde_json::Value,
         reasoning_content: Option<String>,
+        thought_signature: Option<String>,
     ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -97,6 +110,7 @@ impl Message {
                 tool_name: tool_name.into(),
                 arguments,
                 reasoning_content,
+                thought_signature,
             },
             timestamp: now(),
             metadata: HashMap::new(),
@@ -126,7 +140,7 @@ impl Message {
     /// 내부 컨텐츠의 대략적인 문자열 길이를 반환하는 헬퍼 메서드 (토큰 수 추정용)
     pub fn content_text_len(&self) -> usize {
         match &self.content {
-            Content::Text { text } => text.len(),
+            Content::Text { text, .. } => text.len(),
             Content::ToolCall { tool_name, arguments, .. } => {
                 tool_name.len() + arguments.to_string().len()
             }

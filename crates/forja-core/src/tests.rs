@@ -7,13 +7,13 @@ mod tests {
 
     #[test]
     fn test_message_text_creation() {
-        let msg = Message::text(Role::User, "안녕하세요");
+        let msg = Message::text(Role::User, "안녕하세요", None);
         assert_eq!(msg.role, Role::User);
         assert!(!msg.id.is_empty());
         assert!(msg.timestamp > 0);
 
         match msg.content {
-            Content::Text { text } => assert_eq!(text, "안녕하세요"),
+            Content::Text { text, .. } => assert_eq!(text, "안녕하세요"),
             _ => panic!("Expected Text content"),
         }
     }
@@ -21,7 +21,7 @@ mod tests {
     #[test]
     fn test_message_tool_call_creation() {
         let args = serde_json::json!({ "path": "/tmp/test.txt" });
-        let msg = Message::tool_call("call-001", "file_read", args.clone());
+        let msg = Message::tool_call("call-001", "file_read", args.clone(), None);
 
         assert_eq!(msg.role, Role::Assistant);
         match &msg.content {
@@ -53,12 +53,13 @@ mod tests {
 
     #[test]
     fn test_content_enum_variants() {
-        let text_content = Content::Text { text: "hi".to_string() };
+        let text_content = Content::Text { text: "hi".to_string(), thought_signature: None };
         let tool_call_content = Content::ToolCall {
             call_id: "id1".to_string(),
             tool_name: "shell".to_string(),
             arguments: serde_json::Value::Null,
             reasoning_content: None,
+            thought_signature: None,
         };
         let tool_result_content = Content::ToolResult {
             call_id: "id1".to_string(),
@@ -74,7 +75,7 @@ mod tests {
 
     #[test]
     fn test_content_text_len_text() {
-        let msg = Message::text(Role::User, "Hello World");
+        let msg = Message::text(Role::User, "Hello World", None);
         // "Hello World" = 11바이트
         assert_eq!(msg.content_text_len(), 11);
     }
@@ -82,7 +83,7 @@ mod tests {
     #[test]
     fn test_content_text_len_tool_call() {
         let args = serde_json::json!({ "cmd": "ls" });
-        let msg = Message::tool_call("id", "shell", args.clone());
+        let msg = Message::tool_call("id", "shell", args.clone(), None);
 
         // tool_name.len() + serialized_args.len()
         let expected = "shell".len() + args.to_string().len();
@@ -100,7 +101,7 @@ mod tests {
 
     #[test]
     fn test_content_text_len_empty() {
-        let msg = Message::text(Role::User, "");
+        let msg = Message::text(Role::User, "", None);
         assert_eq!(msg.content_text_len(), 0);
     }
 
@@ -117,7 +118,7 @@ mod tests {
 
     #[test]
     fn test_message_with_metadata() {
-        let msg = Message::text(Role::User, "test")
+        let msg = Message::text(Role::User, "test", None)
             .with_metadata("model", serde_json::json!("gpt-5.2"))
             .with_metadata("tokens", serde_json::json!(42));
 

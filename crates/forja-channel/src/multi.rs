@@ -37,7 +37,7 @@ impl MultiChannel {
                 }).await.unwrap_or_default();
 
                 if line.is_empty() { continue; }
-                let msg = CoreMessage::text(Role::User, line);
+                let msg = CoreMessage::text(Role::User, line, None);
                 if tx_cli.send((ChannelSource::Cli, msg)).await.is_err() { break; }
             }
         });
@@ -71,7 +71,7 @@ impl MultiChannel {
                         return Ok::<(), teloxide::RequestError>(());
                     }
                     if let Some(text) = msg.text() {
-                        let core_msg = CoreMessage::text(Role::User, text.to_string());
+                        let core_msg = CoreMessage::text(Role::User, text.to_string(), None);
                         let _ = tx_tg.send((ChannelSource::Telegram { chat_id }, core_msg)).await;
                     }
                     Ok::<(), teloxide::RequestError>(())
@@ -105,7 +105,7 @@ impl MultiChannel {
                     continue;
                 }
                 
-                let core_msg = CoreMessage::text(Role::User, line);
+                let core_msg = CoreMessage::text(Role::User, line, None);
                 if tx_cli.send((ChannelSource::Cli, core_msg)).await.is_err() {
                     break;
                 }
@@ -148,7 +148,7 @@ impl Channel for MultiChannel {
                     *self.typing_handle.lock().await = Some(handle);
                 }
 
-                if let Content::Text { ref text } = msg.content {
+                if let Content::Text { ref text, .. } = msg.content {
                     // 현재 줄(프롬프트 "> ") 지우고 출력
                     print!("\r\x1b[K");
                     println!("[TG] {}", text);
@@ -169,7 +169,7 @@ impl Channel for MultiChannel {
         let last_src = self.last_source.lock().await.clone();
 
         if let Some(source) = last_src {
-            if let Content::Text { text } = &message.content {
+            if let Content::Text { text, .. } = &message.content {
                 match source {
                     ChannelSource::Cli => {
                         let t = text.clone();

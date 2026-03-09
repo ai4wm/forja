@@ -25,7 +25,7 @@ impl LlmProvider for MockLlmProvider {
         let last = messages.iter().rev()
             .find(|m| m.role == Role::User)
             .map(|m| match &m.content {
-                Content::Text { text } => text.clone(),
+                Content::Text { text, .. } => text.clone(),
                 _ => "(no text)".to_string(),
             })
             .unwrap_or_default();
@@ -35,7 +35,8 @@ impl LlmProvider for MockLlmProvider {
             format!(
                 "[MockLLM] 메시지를 받았습니다: '{}' (실제 API 키를 설정하면 진짜 응답을 받을 수 있습니다.)",
                 last
-            )
+            ),
+            None
         ))
     }
 
@@ -47,7 +48,7 @@ impl LlmProvider for MockLlmProvider {
         let last = messages.iter().rev()
             .find(|m| m.role == Role::User)
             .map(|m| match &m.content {
-                Content::Text { text } => text.clone(),
+                Content::Text { text, .. } => text.clone(),
                 _ => "(no text)".to_string(),
             })
             .unwrap_or_default();

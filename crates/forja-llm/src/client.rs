@@ -63,7 +63,7 @@ impl LlmClient {
             .iter()
             .map(|m| {
                 match &m.content {
-                    Content::Text { text } => {
+                    Content::Text { text, thought_signature: _ } => {
                         let role = match m.role {
                             Role::System => "system",
                             Role::User => "user",
@@ -78,7 +78,7 @@ impl LlmClient {
                             tool_call_id: None,
                         }
                     }
-                    Content::ToolCall { call_id, tool_name, arguments, reasoning_content } => {
+                    Content::ToolCall { call_id, tool_name, arguments, reasoning_content, thought_signature: _ } => {
                         ChatCompletionMessage {
                             role: "assistant".to_string(),
                             content: None, // 일반 응답 내용 (비원시적 모델은 추론을 여기에 담을 수 있음, 우선 None 유지)
@@ -141,14 +141,14 @@ impl LlmClient {
             .iter()
             .filter_map(|m| {
                 match &m.content {
-                    Content::Text { text } if m.role == Role::System => {
+                    Content::Text { text, thought_signature: _ } if m.role == Role::System => {
                         if !instructions.is_empty() {
                             instructions.push('\n');
                         }
                         instructions.push_str(text);
                         None
                     }
-                    Content::Text { text } => {
+                    Content::Text { text, thought_signature: _ } => {
                         let role = match m.role {
                             Role::User => "user",
                             Role::Assistant => "assistant",
@@ -223,31 +223,39 @@ impl LlmClient {
         
         for m in messages {
             match (&m.role, &m.content) {
-                (Role::System, Content::Text { text }) => {
+                (Role::System, Content::Text { text, .. }) => {
                     system_parts.push(serde_json::json!({"text": text}));
                 }
-                (Role::User, Content::Text { text }) => {
+                (Role::User, Content::Text { text, .. }) => {
                     contents.push(serde_json::json!({
                         "role": "user",
                         "parts": [{"text": text}]
                     }));
                 }
-                (Role::Assistant, Content::Text { text }) => {
+                (Role::Assistant, Content::Text { text, thought_signature }) => {
+                    let mut part = serde_json::json!({"text": text});
+                    if let Some(ts) = thought_signature {
+                        part["thoughtSignature"] = serde_json::json!(ts);
+                    }
                     contents.push(serde_json::json!({
                         "role": "model",
-                        "parts": [{"text": text}]
+                        "parts": [part]
                     }));
                 }
-                (Role::Assistant, Content::ToolCall { call_id, tool_name, arguments, .. }) => {
+                (Role::Assistant, Content::ToolCall { call_id, tool_name, arguments, thought_signature, .. }) => {
+                    let mut part = serde_json::json!({
+                        "functionCall": {
+                            "id": call_id,
+                            "name": tool_name,
+                            "args": arguments
+                        }
+                    });
+                    if let Some(ts) = thought_signature {
+                        part["thoughtSignature"] = serde_json::json!(ts);
+                    }
                     contents.push(serde_json::json!({
                         "role": "model",
-                        "parts": [{
-                            "functionCall": {
-                                "id": call_id,
-                                "name": tool_name,
-                                "args": arguments
-                            }
-                        }]
+                        "parts": [part]
                     }));
                 }
                 (Role::Tool, Content::ToolResult { call_id, result }) => {
@@ -305,7 +313,7 @@ impl LlmProvider for LlmClient {
         if self.config.use_gemini_native_api {
             let inner = self.prepare_gemini_native_payload(messages, tools);
             let project = std::env::var("FORJA_GEMINI_PROJECT")
-                .unwrap_or_else(|_| "outstanding-sanctum-knhr3".to_string());
+                .map_err(|_| ForjaError::LlmError("Project ID missing... please run forja login gemini again".to_string()))?;
             let payload = serde_json::json!({
                 "request": inner,
                 "model": self.config.model,
@@ -317,7 +325,7 @@ impl LlmProvider for LlmClient {
             );
 
 
-            let response = self
+            let mut response = self
                 .client
                 .post(&endpoint)
                 .json(&payload)
@@ -329,13 +337,25 @@ impl LlmProvider for LlmClient {
             if !response.status().is_success() {
                 let status = response.status();
                 let text = response.text().await.unwrap_or_default();
+                eprintln!("[GEMINI-ERROR] Http {}: {}", status, &text[..text.len().min(300)]);
                 return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
             }
 
-            let raw = response.text().await
-                .map_err(|e| ForjaError::LlmError(e.to_string()))?;
-
+                        let mut raw = String::new();
+            while let Some(chunk) = response.chunk().await
+                .map_err(|e| ForjaError::LlmError(e.to_string()))? 
+            {
+                let chunk_str = String::from_utf8_lossy(&chunk);
+                raw.push_str(&chunk_str);
+                
+                // finishReason이 포함되면 응답 완료
+                if raw.contains("\"finishReason\"") {
+                    break;
+                }
+            }
+                        let mut collected_text = String::new();
             let mut collected_text = String::new();
+            let mut last_thought_signature: Option<String> = None;
             for line in raw.lines() {
                 if let Some(data) = line.strip_prefix("data: ") {
                     if let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) {
@@ -366,12 +386,22 @@ impl LlmProvider for LlmClient {
                                             let args = fc.get("args")
                                                 .cloned()
                                                 .unwrap_or(serde_json::json!({}));
-                                            return Ok(Message::tool_call(&call_id, &name, args));
+                                                
+                                            let ts = part.get("thoughtSignature")
+                                                .and_then(|v| v.as_str())
+                                                .map(|s| s.to_string());
+                                                
+                                            return Ok(Message::tool_call_with_reasoning(
+                                                &call_id, &name, args, None, ts,
+                                            ));
                                         }
 
                                         // 텍스트 확인 (생각 중인 부분 건너뜀)
                                         if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) {
                                             continue;
+                                        }
+                                        if let Some(ts) = part.get("thoughtSignature").and_then(|t| t.as_str()) {
+                                            last_thought_signature = Some(ts.to_string());
                                         }
                                         if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
                                             collected_text.push_str(text);
@@ -383,7 +413,7 @@ impl LlmProvider for LlmClient {
                     }
                 }
             }
-            return Ok(Message::text(Role::Assistant, collected_text));
+            return Ok(Message::text(Role::Assistant, collected_text, last_thought_signature));
         }
 
         if self.config.use_responses_api {
@@ -403,11 +433,12 @@ impl LlmProvider for LlmClient {
             if !response.status().is_success() {
                 let status = response.status();
                 let text = response.text().await.unwrap_or_default();
+                eprintln!("[GEMINI-ERROR] Http {}: {}", status, &text[..text.len().min(300)]);
                 return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
             }
 
             // SSE 텍스트를 통째로 받아서 파싱
-            let raw = response.text().await
+                        let raw = response.text().await
                 .map_err(|e| ForjaError::LlmError(e.to_string()))?;
 
             
@@ -458,7 +489,7 @@ impl LlmProvider for LlmClient {
                                 
                                 let args_str = ev["arguments"].as_str().unwrap_or("{}");
                                 let args = serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
-                                return Ok(Message::tool_call(&call_id, &name, args));
+                                return Ok(Message::tool_call_with_reasoning(&call_id, &name, args, None, None));
                             }
                             Some("response.completed") | Some("response.failed") => break,
                             _ => {}
@@ -467,7 +498,7 @@ impl LlmProvider for LlmClient {
                 }
             }
 
-            return Ok(Message::text(Role::Assistant, collected_text));
+            return Ok(Message::text(Role::Assistant, collected_text, None));
         }
 
         let payload = self.prepare_payload(messages, tools, false);
@@ -483,9 +514,10 @@ impl LlmProvider for LlmClient {
             .map_err(|e| ForjaError::LlmError(e.to_string()))?;
 
         if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                eprintln!("[GEMINI-ERROR] Http {}: {}", status, &text[..text.len().min(300)]);
+                return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
         }
 
         let response_text = response.text().await
@@ -515,12 +547,13 @@ impl LlmProvider for LlmClient {
                     &tool_call.function.name,
                     args_json,
                     chat_msg.reasoning_content,
+                    None,
                 ));
             }
 
         // 2. 없으면 일반 텍스트
         let content = chat_msg.content.unwrap_or_default();
-        Ok(Message::text(Role::Assistant, content))
+        Ok(Message::text(Role::Assistant, content, None))
     }
 
     #[cfg(feature = "anthropic")] // TODO: 향후 sse 혹은 stream 피쳐로 이름을 변경하는 것이 의미상 적절함. 현재는 plan.md대로 anthropic 사용

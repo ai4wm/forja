@@ -337,6 +337,18 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
 
     if api_key.is_empty() && provider != "ollama" {
         let auth = crate::oauth::AuthData::load();
+        
+        // Handle OAuth specific data (like project_id for Gemini)
+        if matches!(provider, "gemini_oauth" | "gemini_flash" | "gemini") {
+            if let Some(gemini_token) = &auth.gemini {
+                if let Some(proj) = &gemini_token.project_id {
+                    unsafe {
+                        std::env::set_var("FORJA_GEMINI_PROJECT", proj);
+                    }
+                }
+            }
+        }
+        
         let oauth_key = match provider {
             "openai" | "openai_mini" | "openai_oauth" => auth.openai.map(|t| t.access_token),
             "gemini" | "gemini_flash" | "gemini_oauth" => auth.gemini.map(|t| t.access_token),

@@ -121,6 +121,7 @@ impl Engine {
                 tool_name,
                 arguments,
                 reasoning_content: _,
+                thought_signature: _,
             } => {
                 // LLM의 ToolCall 요청을 히스토리에 먼저 push
                 self.push_message(response_msg.clone());
@@ -170,7 +171,7 @@ impl Engine {
                     // 히스토리가 비어있으면 System 프롬프트 주입
                     if self.conversation_history.is_empty()
                         && let Some(prompt) = &self.system_prompt {
-                            let sys_msg = Message::text(Role::System, prompt);
+                            let sys_msg = Message::text(Role::System, prompt, None);
                             self.push_message(sys_msg);
                         }
 
@@ -192,7 +193,7 @@ impl Engine {
                             .unwrap_or_default()
                             .as_secs();
 
-                        if let Content::Text { text } = &user_msg.content {
+                        if let Content::Text { text, .. } = &user_msg.content {
                             let entry = MemoryEntry {
                                 id: format!("user_{}", now),
                                 timestamp: now,
@@ -204,7 +205,7 @@ impl Engine {
                             let _ = mem.save(&entry).await;
                         }
 
-                        if let Content::Text { text } = &response.content {
+                        if let Content::Text { text, .. } = &response.content {
                             let entry = MemoryEntry {
                                 id: format!("assistant_{}", now + 1),
                                 timestamp: now + 1,
@@ -244,7 +245,7 @@ impl Engine {
                     let user_msg = result?;
 
                     // ── 슬래시 명령 가로채기 ───────────────────────────
-                    let slash_reply = if let Content::Text { text } = &user_msg.content {
+                    let slash_reply = if let Content::Text { text, .. } = &user_msg.content {
                         if let Some(handler) = &self.slash_handler.clone() {
                             handler(text, &mut self.provider)
                         } else {
@@ -255,7 +256,7 @@ impl Engine {
                     };
 
                     if let Some(reply) = slash_reply {
-                        let reply_msg = Message::text(Role::Assistant, &reply);
+                        let reply_msg = Message::text(Role::Assistant, &reply, None);
                         let _ = self.channel.send(reply_msg).await;
                         // 슬래시 명령은 대화 히스토리에 추가하지 않음
                         continue;
@@ -264,7 +265,7 @@ impl Engine {
                     // 히스토리가 비어있으면 System 프롬프트 주입
                     if self.conversation_history.is_empty()
                         && let Some(prompt) = &self.system_prompt {
-                            let sys_msg = Message::text(Role::System, prompt);
+                            let sys_msg = Message::text(Role::System, prompt, None);
                             self.push_message(sys_msg);
                         }
 
@@ -280,7 +281,7 @@ impl Engine {
                             Some(text) => {
                                 // 텍스트 스트리밍 성공
                                 let response_msg = crate::types::Message::text(
-                                    crate::types::Role::Assistant, &text
+                                    crate::types::Role::Assistant, &text, None
                                 );
                                 self.push_message(response_msg.clone());
                                 
@@ -323,7 +324,7 @@ impl Engine {
                                 self.channel.send(final_msg.clone()).await?;
                                 
                                 Ok::<Option<String>, crate::error::ForjaError>(
-                                    if let Content::Text { text } = &final_msg.content {
+                                    if let Content::Text { text, .. } = &final_msg.content {
                                         Some(text.clone())
                                     } else {
                                         None
@@ -346,7 +347,7 @@ impl Engine {
                             }
                             
                             // 텔레그램 등 채널로 에러 전송
-                            let _ = self.channel.send(crate::types::Message::text(crate::types::Role::Assistant, err_text)).await;
+                            let _ = self.channel.send(crate::types::Message::text(crate::types::Role::Assistant, err_text, None)).await;
                             None
                         }
                     };
@@ -361,7 +362,7 @@ impl Engine {
                             .unwrap_or_default()
                             .as_secs();
 
-                        if let Content::Text { text } = &user_msg.content {
+                        if let Content::Text { text, .. } = &user_msg.content {
                             let entry = MemoryEntry {
                                 id: format!("user_{}", now),
                                 timestamp: now,

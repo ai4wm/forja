@@ -1,0 +1,258 @@
+    Checking forja-llm v0.1.0 (F:\1.Project\forja\crates\forja-llm)
+warning: use of deprecated unit variant `teloxide::types::ParseMode::Markdown`: This is a legacy mode, retained for backward compatibility. Use `MarkdownV2` instead.
+   --> crates\forja-channel\src\multi.rs:188:56
+    |
+188 | ...                   .parse_mode(ParseMode::Markdown)
+    |                                              ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated unit variant `teloxide::types::ParseMode::Markdown`: This is a legacy mode, retained for backward compatibility. Use `MarkdownV2` instead.
+   --> crates\forja-channel\src\telegram.rs:136:61
+    |
+136 |                     .parse_mode(teloxide::types::ParseMode::Markdown)
+    |                                                             ^^^^^^^^
+
+warning: `forja-channel` (lib) generated 2 warnings
+error[E0027]: pattern does not mention field `thought_signature`
+  --> crates\forja-llm\src\client.rs:66:21
+   |
+66 |                     Content::Text { text } => {
+   |                     ^^^^^^^^^^^^^^^^^^^^^^ missing field `thought_signature`
+   |
+help: include the missing field in the pattern
+   |
+66 |                     Content::Text { text, thought_signature } => {
+   |                                         +++++++++++++++++++
+help: if you don't care about this missing field, you can explicitly ignore it
+   |
+66 |                     Content::Text { text, thought_signature: _ } => {
+   |                                         ++++++++++++++++++++++
+help: or always ignore missing fields here
+   |
+66 |                     Content::Text { text, .. } => {
+   |                                         ++++
+
+error[E0027]: pattern does not mention field `thought_signature`
+  --> crates\forja-llm\src\client.rs:81:21
+   |
+81 |                     Content::ToolCall { call_id, tool_name, arguments, reasoning_content } => {
+   |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing field `thought_signature`
+   |
+help: include the missing field in the pattern
+   |
+81 |                     Content::ToolCall { call_id, tool_name, arguments, reasoning_content, thought_signature } => {
+   |                                                                                         +++++++++++++++++++
+help: if you don't care about this missing field, you can explicitly ignore it
+   |
+81 |                     Content::ToolCall { call_id, tool_name, arguments, reasoning_content, thought_signature: _ } => {
+   |                                                                                         ++++++++++++++++++++++
+help: or always ignore missing fields here
+   |
+81 |                     Content::ToolCall { call_id, tool_name, arguments, reasoning_content, .. } => {
+   |                                                                                         ++++
+
+error[E0027]: pattern does not mention field `thought_signature`
+   --> crates\forja-llm\src\client.rs:144:21
+    |
+144 |                     Content::Text { text } if m.role == Role::System => {
+    |                     ^^^^^^^^^^^^^^^^^^^^^^ missing field `thought_signature`
+    |
+help: include the missing field in the pattern
+    |
+144 |                     Content::Text { text, thought_signature } if m.role == Role::System => {
+    |                                         +++++++++++++++++++
+help: if you don't care about this missing field, you can explicitly ignore it
+    |
+144 |                     Content::Text { text, thought_signature: _ } if m.role == Role::System => {
+    |                                         ++++++++++++++++++++++
+help: or always ignore missing fields here
+    |
+144 |                     Content::Text { text, .. } if m.role == Role::System => {
+    |                                         ++++
+
+error[E0027]: pattern does not mention field `thought_signature`
+   --> crates\forja-llm\src\client.rs:151:21
+    |
+151 |                     Content::Text { text } => {
+    |                     ^^^^^^^^^^^^^^^^^^^^^^ missing field `thought_signature`
+    |
+help: include the missing field in the pattern
+    |
+151 |                     Content::Text { text, thought_signature } => {
+    |                                         +++++++++++++++++++
+help: if you don't care about this missing field, you can explicitly ignore it
+    |
+151 |                     Content::Text { text, thought_signature: _ } => {
+    |                                         ++++++++++++++++++++++
+help: or always ignore missing fields here
+    |
+151 |                     Content::Text { text, .. } => {
+    |                                         ++++
+
+error[E0027]: pattern does not mention field `thought_signature`
+   --> crates\forja-llm\src\client.rs:226:32
+    |
+226 |                 (Role::System, Content::Text { text }) => {
+    |                                ^^^^^^^^^^^^^^^^^^^^^^ missing field `thought_signature`
+    |
+help: include the missing field in the pattern
+    |
+226 |                 (Role::System, Content::Text { text, thought_signature }) => {
+    |                                                    +++++++++++++++++++
+help: if you don't care about this missing field, you can explicitly ignore it
+    |
+226 |                 (Role::System, Content::Text { text, thought_signature: _ }) => {
+    |                                                    ++++++++++++++++++++++
+help: or always ignore missing fields here
+    |
+226 |                 (Role::System, Content::Text { text, .. }) => {
+    |                                                    ++++
+
+error[E0027]: pattern does not mention field `thought_signature`
+   --> crates\forja-llm\src\client.rs:229:30
+    |
+229 |                 (Role::User, Content::Text { text }) => {
+    |                              ^^^^^^^^^^^^^^^^^^^^^^ missing field `thought_signature`
+    |
+help: include the missing field in the pattern
+    |
+229 |                 (Role::User, Content::Text { text, thought_signature }) => {
+    |                                                  +++++++++++++++++++
+help: if you don't care about this missing field, you can explicitly ignore it
+    |
+229 |                 (Role::User, Content::Text { text, thought_signature: _ }) => {
+    |                                                  ++++++++++++++++++++++
+help: or always ignore missing fields here
+    |
+229 |                 (Role::User, Content::Text { text, .. }) => {
+    |                                                  ++++
+
+error[E0027]: pattern does not mention field `thought_signature`
+   --> crates\forja-llm\src\client.rs:235:35
+    |
+235 |                 (Role::Assistant, Content::Text { text }) => {
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^ missing field `thought_signature`
+    |
+help: include the missing field in the pattern
+    |
+235 |                 (Role::Assistant, Content::Text { text, thought_signature }) => {
+    |                                                       +++++++++++++++++++
+help: if you don't care about this missing field, you can explicitly ignore it
+    |
+235 |                 (Role::Assistant, Content::Text { text, thought_signature: _ }) => {
+    |                                                       ++++++++++++++++++++++
+help: or always ignore missing fields here
+    |
+235 |                 (Role::Assistant, Content::Text { text, .. }) => {
+    |                                                       ++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\forja-llm\src\client.rs:381:55
+    |
+381 | ...                   return Ok(Message::tool_call(&call_id, &name, args));
+    |                                 ^^^^^^^^^^^^^^^^^^----------------------- argument #4 of type `std::option::Option<std::string::String>` is missing
+    |
+note: associated function defined here
+   --> F:\1.Project\forja\crates\forja-core\src\types.rs:88:12
+    |
+ 88 |     pub fn tool_call(
+    |            ^^^^^^^^^
+help: provide the argument
+    |
+381 |                                             return Ok(Message::tool_call(&call_id, &name, args, /* std::option::Option<std::string::String> */));
+    |                                                                                               ++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+   --> crates\forja-llm\src\client.rs:398:23
+    |
+398 |             return Ok(Message::text(Role::Assistant, collected_text));
+    |                       ^^^^^^^^^^^^^--------------------------------- argument #3 of type `std::option::Option<std::string::String>` is missing
+    |
+note: associated function defined here
+   --> F:\1.Project\forja\crates\forja-core\src\types.rs:74:12
+    |
+ 74 |     pub fn text(role: Role, text: impl Into<String>, thought_signature: Option<String>) -> Self {
+    |            ^^^^
+help: provide the argument
+    |
+398 |             return Ok(Message::text(Role::Assistant, collected_text, /* std::option::Option<std::string::String> */));
+    |                                                                    ++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+   --> crates\forja-llm\src\client.rs:473:43
+    |
+473 | ...                   return Ok(Message::tool_call(&call_id, &name, args));
+    |                                 ^^^^^^^^^^^^^^^^^^----------------------- argument #4 of type `std::option::Option<std::string::String>` is missing
+    |
+note: associated function defined here
+   --> F:\1.Project\forja\crates\forja-core\src\types.rs:88:12
+    |
+ 88 |     pub fn tool_call(
+    |            ^^^^^^^^^
+help: provide the argument
+    |
+473 |                                 return Ok(Message::tool_call(&call_id, &name, args, /* std::option::Option<std::string::String> */));
+    |                                                                                   ++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+   --> crates\forja-llm\src\client.rs:482:23
+    |
+482 |             return Ok(Message::text(Role::Assistant, collected_text));
+    |                       ^^^^^^^^^^^^^--------------------------------- argument #3 of type `std::option::Option<std::string::String>` is missing
+    |
+note: associated function defined here
+   --> F:\1.Project\forja\crates\forja-core\src\types.rs:74:12
+    |
+ 74 |     pub fn text(role: Role, text: impl Into<String>, thought_signature: Option<String>) -> Self {
+    |            ^^^^
+help: provide the argument
+    |
+482 |             return Ok(Message::text(Role::Assistant, collected_text, /* std::option::Option<std::string::String> */));
+    |                                                                    ++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0061]: this function takes 5 arguments but 4 arguments were supplied
+   --> crates\forja-llm\src\client.rs:525:27
+    |
+525 |                   return Ok(Message::tool_call_with_reasoning(
+    |  ___________________________^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-
+526 | |                     &tool_call.id,
+527 | |                     &tool_call.function.name,
+528 | |                     args_json,
+529 | |                     chat_msg.reasoning_content,
+530 | |                 ));
+    | |_________________- argument #5 of type `std::option::Option<std::string::String>` is missing
+    |
+note: associated function defined here
+   --> F:\1.Project\forja\crates\forja-core\src\types.rs:98:12
+    |
+ 98 |     pub fn tool_call_with_reasoning(
+    |            ^^^^^^^^^^^^^^^^^^^^^^^^
+help: provide the argument
+    |
+525 |                 return Ok(Message::tool_call_with_reasoning(
+...
+529 |                     chat_msg.reasoning_content,
+530 ~                     /* std::option::Option<std::string::String> */,
+531 ~                 ));
+    |
+
+error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+   --> crates\forja-llm\src\client.rs:535:12
+    |
+535 |         Ok(Message::text(Role::Assistant, content))
+    |            ^^^^^^^^^^^^^-------------------------- argument #3 of type `std::option::Option<std::string::String>` is missing
+    |
+note: associated function defined here
+   --> F:\1.Project\forja\crates\forja-core\src\types.rs:74:12
+    |
+ 74 |     pub fn text(role: Role, text: impl Into<String>, thought_signature: Option<String>) -> Self {
+    |            ^^^^
+help: provide the argument
+    |
+535 |         Ok(Message::text(Role::Assistant, content, /* std::option::Option<std::string::String> */))
+    |                                                  ++++++++++++++++++++++++++++++++++++++++++++++++
+
+Some errors have detailed explanations: E0027, E0061.
+For more information about an error, try `rustc --explain E0027`.
+error: could not compile `forja-llm` (lib) due to 13 previous errors

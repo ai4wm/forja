@@ -21,6 +21,7 @@ pub struct ProviderToken {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub expires_at: Option<i64>,
+    pub project_id: Option<String>,
 }
 
 pub fn auth_file_path() -> PathBuf {
@@ -85,31 +86,45 @@ async fn wait_for_callback() -> Option<String> {
     println!("Waiting for callback on http://localhost:1455/auth/callback ...");
     let listener = TcpListener::bind("127.0.0.1:1455").await.expect("Failed to bind port 1455");
     
-    if let Ok((mut socket, _)) = listener.accept().await {
-        let mut buf = [0; 1024];
-        if let Ok(n) = socket.read(&mut buf).await {
-            let request = String::from_utf8_lossy(&buf[..n]);
-            let lines: Vec<&str> = request.lines().collect();
-            if !lines.is_empty() {
-                let first_line = lines[0];
-                if first_line.starts_with("GET /auth/callback")
-                    && let Some(query) = first_line.split_whitespace().nth(1) {
-                        let parsed_url = url::Url::parse(&format!("http://localhost{}", query)).unwrap();
-                        let mut code = None;
-                        for (k, v) in parsed_url.query_pairs() {
-                            if k == "code" {
-                                code = Some(v.into_owned());
+    let result = tokio::time::timeout(std::time::Duration::from_secs(120), async {
+        loop {
+            if let Ok((mut socket, _)) = listener.accept().await {
+                let mut buf = [0; 4096];
+                if let Ok(n) = socket.read(&mut buf).await {
+                    let request = String::from_utf8_lossy(&buf[..n]);
+                    let lines: Vec<&str> = request.lines().collect();
+                    if !lines.is_empty() {
+                        let first_line = lines[0];
+                        if first_line.starts_with("GET /auth/callback")
+                            && let Some(query) = first_line.split_whitespace().nth(1) {
+                                let parsed_url = url::Url::parse(&format!("http://localhost{}", query)).unwrap_or_else(|_| url::Url::parse("http://localhost").unwrap());
+                                let mut code = None;
+                                for (k, v) in parsed_url.query_pairs() {
+                                    if k == "code" {
+                                        code = Some(v.into_owned());
+                                    }
+                                }
+                                
+                                let response = "HTTP/1.1 200 OK\r\n\r\n<html><body><h1>Login Successful!</h1><p>You can close this window now.</p></body></html>";
+                                let _ = socket.write_all(response.as_bytes()).await;
+                                return code;
                             }
-                        }
-                        
-                        let response = "HTTP/1.1 200 OK\r\n\r\n<html><body><h1>Login Successful!</h1><p>You can close this window now.</p></body></html>";
-                        let _ = socket.write_all(response.as_bytes()).await;
-                        return code;
                     }
+                    // /auth/callback이 아닌 요청은 404 처리하고 계속 대기
+                    let response = "HTTP/1.1 404 Not Found\r\n\r\n";
+                    let _ = socket.write_all(response.as_bytes()).await;
+                }
             }
         }
+    }).await;
+
+    match result {
+        Ok(code_opt) => code_opt,
+        Err(_) => {
+            println!("콜백 대기 시간(120초)이 초과되었습니다.");
+            None
+        }
     }
-    None
 }
 
 async fn exchange_code(
@@ -197,6 +212,7 @@ async fn login_openai() {
                     access_token,
                     refresh_token,
                     expires_at: Some(expires_at),
+                    project_id: None,
                 };
                 
                 let mut auth = AuthData::load();
@@ -253,10 +269,54 @@ async fn login_gemini() {
                     .unwrap()
                     .as_secs() as i64 + expires_in as i64;
                 
+                // 동적으로 cloudaicompanionProject 값 가져오기
+                let mut project_id = None;
+                let client = Client::new();
+                let assist_req = client.post("https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
+                    .header("Authorization", format!("Bearer {}", access_token))
+                    .header("Content-Type", "application/json")
+                    .header("user-agent", "GeminiCLI/v22.12.0 (windows; x86_64)")
+                    .json(&serde_json::json!({
+                        "metadata": {
+                            "ideType": "ANTIGRAVITY",
+                            "pluginType": "GEMINI"
+                        }
+                    }))
+                    .send()
+                    .await;
+
+                match assist_req {
+                    Ok(resp) => {
+                        let status = resp.status();
+                        if status.is_success() {
+                            let text = resp.text().await.unwrap_or_default();
+                            // 에러 추적을 위한 출력
+                            // println!("CodeAssist Response: {}", text);
+                            
+                            if let Ok(resp_json) = serde_json::from_str::<serde_json::Value>(&text) {
+                                if let Some(proj) = resp_json.get("cloudaicompanionProject").and_then(|v| v.as_str()) {
+                                    project_id = Some(proj.to_string());
+                                } else {
+                                    println!("⚠️ cloudaicompanionProject 필드가 응답에 없습니다. 응답: {}", text);
+                                }
+                            } else {
+                                println!("⚠️ 응답을 JSON으로 파싱할 수 없습니다. 응답: {}", text);
+                            }
+                        } else {
+                            let text = resp.text().await.unwrap_or_default();
+                            println!("⚠️ loadCodeAssist 요청 실패! 상태 코드: {}, 응답: {}", status, text);
+                        }
+                    }
+                    Err(e) => {
+                        println!("⚠️ loadCodeAssist 요청 자체가 실패했습니다: {:?}", e);
+                    }
+                }
+
                 let token = ProviderToken {
                     access_token,
                     refresh_token,
                     expires_at: Some(expires_at),
+                    project_id,
                 };
                 
                 let mut auth = AuthData::load();
@@ -284,6 +344,7 @@ async fn login_anthropic() {
         access_token: token,
         refresh_token: None,
         expires_at: None,
+        project_id: None,
     };
 
     let mut auth = AuthData::load();

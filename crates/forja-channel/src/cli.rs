@@ -46,7 +46,7 @@ impl Channel for CliChannel {
         
         // 빈 입력은 무시하고 에러를 뱉기보단 다시 재귀호출 또는 래핑할 수 있으나,
         // 여기서는 엔진이 바로 재시도할 수 있도록 빈 메시지를 리턴합니다.
-        Ok(Message::text(Role::User, trimmed))
+        Ok(Message::text(Role::User, trimmed, None))
     }
 
     /// 엔진이 생성한 메시지(Assistant 또는 System)를 채널(터미널)에 시각적으로 출력합니다.
@@ -54,12 +54,12 @@ impl Channel for CliChannel {
         match msg.role {
             Role::Assistant => {
                 // Assistant의 순수 텍스트 결과만 출력 (ToolCall은 보통 내부 처리됨)
-                if let Content::Text { text } = msg.content {
+                if let Content::Text { text, .. } = msg.content {
                     println!("\n🤖 Assistant: {}\n", text);
                 }
             }
             Role::System => {
-                if let Content::Text { text } = msg.content {
+                if let Content::Text { text, .. } = msg.content {
                     println!("⚙️ System: {}", text);
                 }
             }
