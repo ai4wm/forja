@@ -289,10 +289,22 @@ pub fn run_onboarding() -> ForjaConfig {
 
 pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
     let provider = cfg.active.provider.as_deref().unwrap_or("moonshot");
-    let api_key = cfg.keys.get_for(provider).unwrap_or_default();
+    let mut api_key = cfg.keys.get_for(provider).unwrap_or_default();
 
     if api_key.is_empty() && provider != "ollama" {
-        return Err(format!("'{}' 프로바이더의 API 키가 설정되지 않았습니다.", provider));
+        let auth = crate::oauth::AuthData::load();
+        let oauth_key = match provider {
+            "openai" | "openai_mini" => auth.openai.map(|t| t.access_token),
+            "gemini" | "gemini_flash" => auth.gemini.map(|t| t.access_token),
+            "anthropic" | "anthropic_sonnet" => auth.anthropic.map(|t| t.access_token),
+            _ => None,
+        };
+        
+        if let Some(token) = oauth_key {
+            api_key = token;
+        } else {
+            return Err(format!("'{}' 프로바이더의 API 키가 설정되지 않았습니다.", provider));
+        }
     }
 
     let mut lc = match provider {

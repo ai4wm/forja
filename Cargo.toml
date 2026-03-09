@@ -31,6 +31,13 @@ toml = "0.8"
 dirs-next = "2.0"
 serde = { version = "1", features = ["derive"] }
 dialoguer = "0.11"
+base64 = "0.22.1"
+open = "5.3.3"
+rand = "0.8"
+reqwest = "0.13.2"
+url = "2.5.8"
+sha2 = "0.10.9"
+serde_json = "1.0.149"
 
 [features]
 default = ["telegram"]

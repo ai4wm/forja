@@ -1,5 +1,6 @@
 mod config;
 mod provider_registry;
+mod oauth;
 
 use async_trait::async_trait;
 use forja_core::error::Result;
@@ -107,14 +108,26 @@ fn load_user_prompt() -> Option<String> {
 // ─── 진입점 ─────────────────────────────────────────────────────────────────
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() >= 3 && args[1] == "login" {
+        oauth::handle_login(&args[2]).await;
+        std::process::exit(0);
+    } else if args.len() == 2 && args[1] == "login" {
+        println!("사용법: forja login <provider>");
+        println!("<provider> 가능한 옵션: openai, gemini, anthropic");
+        std::process::exit(1);
+    }
+
+    let _auth_data = oauth::AuthData::load_and_refresh().await;
+
     ctrlc::set_handler(move || {
         println!("\n[System] Exiting...");
         std::process::exit(0);
     }).expect("Error setting Ctrl+C handler");
 
     // ── 서브커맨드 파싱 ──
-    let args: Vec<String> = std::env::args().collect();
+    // let args: Vec<String> = std::env::args().collect(); // Already collected above
 
     // `forja setup` 서브커맨드: 이름된 후 종료
     if args.get(1).map(|s| s.as_str()) == Some("setup") {
