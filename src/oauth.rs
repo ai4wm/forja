@@ -214,7 +214,9 @@ async fn login_openai() {
 }
 
 async fn login_gemini() {
-    let client_id = "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"; // Placeholder
+    let client_id = std::env::var("FORJA_GOOGLE_CLIENT_ID")
+        .unwrap_or_else(|_| "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com".into());
+    let client_id = client_id.as_str();
     let redirect_uri = "http://localhost:1455/auth/callback";
     let (verifier, challenge) = generate_pkce_challenge();
 
@@ -231,13 +233,16 @@ async fn login_gemini() {
     if let Some(code) = wait_for_callback().await {
         println!("Received code. Exchanging for token...");
         
+        let google_secret = std::env::var("FORJA_GOOGLE_CLIENT_SECRET")
+            .unwrap_or_else(|_| "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".into());
+
         match exchange_code(
             "https://oauth2.googleapis.com/token",
             client_id,
             &code,
             redirect_uri,
             &verifier,
-            Some("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"),
+            Some(google_secret.as_str()),
         ).await {
             Ok(token_json) => {
                 let access_token = token_json["access_token"].as_str().unwrap_or_default().to_string();
