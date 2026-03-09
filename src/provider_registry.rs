@@ -28,14 +28,17 @@ pub static MODEL_TABLE: &[ModelEntry] = &[
     ModelEntry { provider: "anthropic",    model_id: "claude-sonnet-4-6",    label: "Claude Sonnet 4.6 (API 유료)", aliases: &["sonnet"] },
 
     // Gemini API
-    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (API 유료)",  aliases: &["gemini"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-flash",       label: "Gemini 3.1 Flash (무료)",    aliases: &["flash31"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (API 유료 ★)",  aliases: &["gemini", "pro31"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-3-flash-preview", label: "Gemini 3 Flash (무료)",      aliases: &["flash", "flash3"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash-Lite (무료)", aliases: &["lite"] },
     ModelEntry { provider: "gemini",       model_id: "gemini-2.5-pro",         label: "Gemini 2.5 Pro (무료)",      aliases: &["gemini25"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (무료 ★)",  aliases: &["flash", "flash25"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (무료)",    aliases: &["flash25"] },
 
     // Gemini OAuth (CLI 구독)
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-pro",         label: "Gemini 2.5 Pro (CLI 구독)",  aliases: &["gempro"] },
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (CLI 구독)", aliases: &["gemflash"] },
+    ModelEntry { provider: "gemini_oauth", model_id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (CLI 구독 ★)",  aliases: &["gempro31"] },
+    ModelEntry { provider: "gemini_oauth", model_id: "gemini-3-flash-preview", label: "Gemini 3 Flash (CLI 구독)",    aliases: &["gemflash3"] },
+    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-pro",         label: "Gemini 2.5 Pro (CLI 구독)",   aliases: &["gempro"] },
+    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (CLI 구독)",  aliases: &["gemflash"] },
 
     // DeepSeek
     ModelEntry { provider: "deepseek",     model_id: "deepseek-chat",          label: "DeepSeek V3.2 (API 유료)",   aliases: &["ds"] },

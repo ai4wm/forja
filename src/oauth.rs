@@ -221,7 +221,7 @@ async fn login_gemini() {
     let (verifier, challenge) = generate_pkce_challenge();
 
     let auth_url = format!(
-        "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={}&redirect_uri={}&code_challenge={}&code_challenge_method=S256&scope=openid https://www.googleapis.com/auth/cloud-platform",
+        "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={}&redirect_uri={}&code_challenge={}&code_challenge_method=S256&scope=openid%20https://www.googleapis.com/auth/cloud-platform%20https://www.googleapis.com/auth/userinfo.email%20https://www.googleapis.com/auth/userinfo.profile&access_type=offline&prompt=consent",
         client_id, redirect_uri, challenge
     );
 

@@ -10,6 +10,7 @@ pub struct LlmConfig {
     pub max_tokens: u32,
     pub extra_headers: HashMap<String, String>,
     pub use_responses_api: bool,
+    pub use_gemini_native_api: bool,
 }
 
 impl LlmConfig {
@@ -24,6 +25,7 @@ impl LlmConfig {
             max_tokens: 4096,
             extra_headers: HashMap::new(),
             use_responses_api: false,
+            use_gemini_native_api: false,
         }
     }
 
@@ -51,6 +53,12 @@ impl LlmConfig {
     /// Responses API (/v1/responses) 사용 여부를 설정하는 빌더 메서드
     pub fn with_responses_api(mut self) -> Self {
         self.use_responses_api = true;
+        self
+    }
+
+    /// Gemini Native API 사용 여부를 설정하는 빌더 메서드
+    pub fn with_gemini_native_api(mut self) -> Self {
+        self.use_gemini_native_api = true;
         self
     }
 }

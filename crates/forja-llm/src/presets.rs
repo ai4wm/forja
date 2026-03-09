@@ -93,7 +93,9 @@ pub fn openai_oauth(token: &str) -> LlmConfig {
 
 /// OAuth 전용: Gemini (CLI 구독, 내부 엔드포인트)
 pub fn gemini_oauth(token: &str) -> LlmConfig {
-    LlmConfig::new("https://cloudcode-pa.googleapis.com/v1internal", "gemini-2.5-pro", token)
+    LlmConfig::new("https://cloudcode-pa.googleapis.com", "gemini-3-flash-preview", token)
+        .with_gemini_native_api()
+        .with_header("user-agent", "GeminiCLI/v22.12.0 (windows; x86_64)")
 }
 
 /// 로컬 Ollama

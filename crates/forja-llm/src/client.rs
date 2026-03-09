@@ -208,11 +208,184 @@ impl LlmClient {
 
         payload
     }
+
+    /// Gemini Native API (v1internal:streamGenerateContent) 전용 페이로드 생성
+    fn prepare_gemini_native_payload(
+        &self,
+        messages: &[Message],
+        tools: Option<&[ToolDefinition]>,
+    ) -> serde_json::Value {
+        // 1. system_instruction 추출
+        let mut system_parts: Vec<serde_json::Value> = Vec::new();
+        
+        // 2. 메시지 변환 (Gemini Native "contents" 포맷)
+        let mut contents: Vec<serde_json::Value> = Vec::new();
+        
+        for m in messages {
+            match (&m.role, &m.content) {
+                (Role::System, Content::Text { text }) => {
+                    system_parts.push(serde_json::json!({"text": text}));
+                }
+                (Role::User, Content::Text { text }) => {
+                    contents.push(serde_json::json!({
+                        "role": "user",
+                        "parts": [{"text": text}]
+                    }));
+                }
+                (Role::Assistant, Content::Text { text }) => {
+                    contents.push(serde_json::json!({
+                        "role": "model",
+                        "parts": [{"text": text}]
+                    }));
+                }
+                (Role::Assistant, Content::ToolCall { call_id, tool_name, arguments, .. }) => {
+                    contents.push(serde_json::json!({
+                        "role": "model",
+                        "parts": [{
+                            "functionCall": {
+                                "id": call_id,
+                                "name": tool_name,
+                                "args": arguments
+                            }
+                        }]
+                    }));
+                }
+                (Role::Tool, Content::ToolResult { call_id, result }) => {
+                    // Gemini는 툴 결과를 유저 역할의 functionResponse 파트로 전달
+                    contents.push(serde_json::json!({
+                        "role": "user",
+                        "parts": [{
+                            "functionResponse": {
+                                "name": call_id,
+                                "response": {"result": result.to_string()}
+                            }
+                        }]
+                    }));
+                }
+                _ => {}
+            }
+        }
+        
+        // 3. 도구 정의 변환 (Gemini functionDeclarations 포맷)
+        let gemini_tools: Option<Vec<serde_json::Value>> = tools.map(|ts| {
+            let decls: Vec<serde_json::Value> = ts.iter().map(|t| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters
+                })
+            }).collect();
+            vec![serde_json::json!({"functionDeclarations": decls})]
+        });
+        
+        // 4. 최종 페이로드 구성
+        let mut payload = serde_json::json!({
+            "contents": contents,
+            "generationConfig": {},
+            "systemInstruction": {
+                "parts": if system_parts.is_empty() {
+                    vec![serde_json::json!({"text": "You are a helpful assistant."})]
+                } else {
+                    system_parts
+                }
+            }
+        });
+        
+        if let Some(t) = gemini_tools {
+            payload["tools"] = serde_json::json!(t);
+        }
+        
+        payload
+    }
 }
 
 #[async_trait]
 impl LlmProvider for LlmClient {
     async fn chat(&self, messages: &[Message], tools: Option<&[ToolDefinition]>) -> Result<Message> {
+        if self.config.use_gemini_native_api {
+            let inner = self.prepare_gemini_native_payload(messages, tools);
+            let project = std::env::var("FORJA_GEMINI_PROJECT")
+                .unwrap_or_else(|_| "outstanding-sanctum-knhr3".to_string());
+            let payload = serde_json::json!({
+                "request": inner,
+                "model": self.config.model,
+                "project": project,
+            });
+            let endpoint = format!(
+                "{}/v1internal:streamGenerateContent?alt=sse",
+                self.config.base_url
+            );
+
+
+            let response = self
+                .client
+                .post(&endpoint)
+                .json(&payload)
+                .header("Accept", "text/event-stream")
+                .send()
+                .await
+                .map_err(|e| ForjaError::LlmError(e.to_string()))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
+            }
+
+            let raw = response.text().await
+                .map_err(|e| ForjaError::LlmError(e.to_string()))?;
+
+            let mut collected_text = String::new();
+            for line in raw.lines() {
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) {
+                        let candidates = ev.get("response")
+                            .and_then(|r| r.get("candidates"))
+                            .or_else(|| ev.get("candidates"));
+
+                        if let Some(candidates) = candidates.and_then(|c| c.as_array()) {
+                            if let Some(candidate) = candidates.first() {
+                                let parts = candidate
+                                    .get("content")
+                                    .and_then(|c| c.get("parts"))
+                                    .and_then(|p| p.as_array());
+
+                                if let Some(parts) = parts {
+                                    for part in parts {
+                                        // 도구 호출 확인
+                                        if let Some(fc) = part.get("functionCall") {
+                                            let call_id = fc.get("id")
+                                                .or_else(|| fc.get("name"))
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or_default()
+                                                .to_string();
+                                            let name = fc.get("name")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or_default()
+                                                .to_string();
+                                            let args = fc.get("args")
+                                                .cloned()
+                                                .unwrap_or(serde_json::json!({}));
+                                            return Ok(Message::tool_call(&call_id, &name, args));
+                                        }
+
+                                        // 텍스트 확인 (생각 중인 부분 건너뜀)
+                                        if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) {
+                                            continue;
+                                        }
+                                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                            collected_text.push_str(text);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return Ok(Message::text(Role::Assistant, collected_text));
+        }
+
         if self.config.use_responses_api {
             // Force stream=true (Codex backend-api requirement)
             let payload = self.prepare_responses_payload(messages, tools, true);
@@ -356,6 +529,70 @@ impl LlmProvider for LlmClient {
         messages: &[Message],
         tools: Option<&[ToolDefinition]>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
+        if self.config.use_gemini_native_api {
+            let inner = self.prepare_gemini_native_payload(messages, tools);
+            let project = std::env::var("FORJA_GEMINI_PROJECT")
+                .unwrap_or_else(|_| "outstanding-sanctum-knhr3".to_string());
+            let payload = serde_json::json!({
+                "request": inner,
+                "model": self.config.model,
+                "project": project,
+            });
+            let endpoint = format!(
+                "{}/v1internal:streamGenerateContent?alt=sse",
+                self.config.base_url
+            );
+
+            let request_builder = self.client.post(&endpoint).json(&payload).header("Accept", "text/event-stream");
+
+            let mut event_source = EventSource::new(request_builder)
+                .map_err(|e| ForjaError::LlmError(e.to_string()))?;
+
+            let stream = async_stream::stream! {
+                while let Some(event_res) = tokio_stream::StreamExt::next(&mut event_source).await {
+                    match event_res {
+                        Ok(Event::Message(msg)) => {
+                            if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&msg.data) {
+                                let candidates = ev.get("response")
+                                    .and_then(|r| r.get("candidates"))
+                                    .or_else(|| ev.get("candidates"));
+
+                                if let Some(candidates) = candidates.and_then(|c| c.as_array()) {
+                                    if let Some(candidate) = candidates.first() {
+                                        // 종료 여부 확인
+                                        if candidate.get("finishReason").is_some() {
+                                            break;
+                                        }
+                                        let parts = candidate
+                                            .get("content")
+                                            .and_then(|c| c.get("parts"))
+                                            .and_then(|p| p.as_array());
+                                        if let Some(parts) = parts {
+                                            for part in parts {
+                                                if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) {
+                                                    continue;
+                                                }
+                                                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                                    yield Ok(text.to_string());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Ok(Event::Open) => continue,
+                        Err(e) => {
+                            yield Err(ForjaError::LlmError(format!("Stream error: {}", e)));
+                            break;
+                        }
+                    }
+                }
+            };
+
+            return Ok(Box::pin(stream));
+        }
+
         if self.config.use_responses_api {
             let payload = self.prepare_responses_payload(messages, tools, true);
             let endpoint = format!("{}/codex/responses", self.config.base_url);

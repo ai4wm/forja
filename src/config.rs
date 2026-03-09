@@ -54,7 +54,7 @@ impl KeysSection {
         match provider {
             "openai" | "openai_mini" | "openai_oauth" => self.openai.clone(),
             "anthropic" | "anthropic_sonnet" => self.anthropic.clone(),
-            "gemini" | "gemini_flash" | "gemini_oauth" => self.gemini.clone(),
+            "gemini" | "gemini_flash" => self.gemini.clone(),
             "deepseek" | "deepseek_reasoner" => self.deepseek.clone(),
             "glm" | "glm_lite" => self.glm.clone(),
             "moonshot" => self.moonshot.clone(),
@@ -67,7 +67,7 @@ impl KeysSection {
         match provider {
             "openai" | "openai_mini" | "openai_oauth" => self.openai = Some(key),
             "anthropic" | "anthropic_sonnet" => self.anthropic = Some(key),
-            "gemini" | "gemini_flash" | "gemini_oauth" => self.gemini = Some(key),
+            "gemini" | "gemini_flash" => self.gemini = Some(key),
             "deepseek" | "deepseek_reasoner" => self.deepseek = Some(key),
             "glm" | "glm_lite" => self.glm = Some(key),
             "moonshot" => self.moonshot = Some(key),
