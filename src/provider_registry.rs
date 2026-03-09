@@ -12,28 +12,50 @@ pub struct ModelEntry {
 
 /// 전체 등록 모델 테이블 (최신 모델 ID 기준)
 pub static MODEL_TABLE: &[ModelEntry] = &[
-    ModelEntry { provider: "openai",    model_id: "gpt-5.4",                  label: "GPT-5.4 (플래그십)",           aliases: &["smart", "gpt5"] },
-    ModelEntry { provider: "openai",    model_id: "gpt-5.4-mini",             label: "GPT-5.4 Mini (경량)",           aliases: &["mini"] },
-    ModelEntry { provider: "openai_oauth", model_id: "gpt-5-codex",   label: "GPT-5 Codex (구독)",          aliases: &["codex5"] },
-    ModelEntry { provider: "openai_oauth", model_id: "o3-pro",        label: "o3-Pro (구독)",               aliases: &["o3pro"] },
-    ModelEntry { provider: "anthropic", model_id: "claude-opus-4-6",          label: "Claude Opus 4.6 (플래그십)",    aliases: &["opus"] },
-    ModelEntry { provider: "anthropic", model_id: "claude-sonnet-4-6",        label: "Claude Sonnet 4.6 (경량)",      aliases: &["sonnet"] },
-    ModelEntry { provider: "gemini",    model_id: "gemini-3.1-pro-preview",   label: "Gemini 3.1 Pro (유료)",         aliases: &["gemini"] },
-    ModelEntry { provider: "gemini",    model_id: "gemini-3.1-flash",         label: "Gemini 3.1 Flash (무료)",       aliases: &["flash31"] },
-    ModelEntry { provider: "gemini",    model_id: "gemini-2.5-pro",           label: "Gemini 2.5 Pro (무료)",         aliases: &["gemini25"] },
-    ModelEntry { provider: "gemini",    model_id: "gemini-2.5-flash",         label: "Gemini 2.5 Flash (무료, 추천)",  aliases: &["flash", "flash25"] },
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-pro",        label: "Gemini 2.5 Pro (CLI 구독)",   aliases: &["gempro"] },
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-flash",      label: "Gemini 2.5 Flash (CLI 구독)", aliases: &["gemflash"] },
-    ModelEntry { provider: "deepseek",  model_id: "deepseek-chat",            label: "DeepSeek V3 (기본)",            aliases: &["ds"] },
-    ModelEntry { provider: "deepseek",  model_id: "deepseek-reasoner",        label: "DeepSeek R1 (추론)",            aliases: &["r1"] },
-    ModelEntry { provider: "glm",       model_id: "glm-5",                    label: "GLM-5 (플래그십)",              aliases: &["glm"] },
-    ModelEntry { provider: "glm",       model_id: "glm-4.5v",                 label: "GLM-4.5V (경량)",               aliases: &["glm-lite"] },
-    ModelEntry { provider: "moonshot",  model_id: "kimi-k2.5",                label: "Kimi K2.5",                     aliases: &["kimi", "fast"] },
-    ModelEntry { provider: "xai",       model_id: "grok-3",                   label: "Grok-3 (플래그십)",             aliases: &["grok"] },
-    ModelEntry { provider: "xai",       model_id: "grok-3-mini",              label: "Grok-3 Mini (경량)",            aliases: &["grok-mini"] },
-    ModelEntry { provider: "ollama",    model_id: "qwen3.5:9b",               label: "Ollama Qwen3.5 9B (로컬)",      aliases: &["local", "ollama"] },
-    ModelEntry { provider: "ollama",    model_id: "llama3:8b",                label: "Ollama Llama3 8B (로컬)",       aliases: &["llama"] },
-    ModelEntry { provider: "ollama",    model_id: "mistral:7b",               label: "Ollama Mistral 7B (로컬)",      aliases: &["mistral"] },
+    // OpenAI API
+    ModelEntry { provider: "openai",       model_id: "gpt-5.4",              label: "GPT-5.4 (API 유료)",           aliases: &["smart", "gpt5"] },
+    ModelEntry { provider: "openai",       model_id: "gpt-5.4-mini",         label: "GPT-5.4 Mini (API 유료)",      aliases: &["mini"] },
+    ModelEntry { provider: "openai",       model_id: "gpt-5.3-codex",        label: "GPT-5.3 Codex (API 유료)",     aliases: &["codex"] },
+
+    // OpenAI OAuth (구독)
+    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.4",              label: "GPT-5.4 (구독 ★)",           aliases: &["smart5"] },
+    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.3-codex",       label: "GPT-5.3 Codex (구독)",        aliases: &["codex53"] },
+    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark (구독, 초고속)", aliases: &["spark"] },
+    ModelEntry { provider: "openai_oauth", model_id: "o3-pro",              label: "o3-Pro (구독)",                aliases: &["o3pro"] },
+
+    // Anthropic
+    ModelEntry { provider: "anthropic",    model_id: "claude-opus-4-6",      label: "Claude Opus 4.6 (API 유료)",   aliases: &["opus"] },
+    ModelEntry { provider: "anthropic",    model_id: "claude-sonnet-4-6",    label: "Claude Sonnet 4.6 (API 유료)", aliases: &["sonnet"] },
+
+    // Gemini API
+    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (API 유료)",  aliases: &["gemini"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-flash",       label: "Gemini 3.1 Flash (무료)",    aliases: &["flash31"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-2.5-pro",         label: "Gemini 2.5 Pro (무료)",      aliases: &["gemini25"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (무료 ★)",  aliases: &["flash", "flash25"] },
+
+    // Gemini OAuth (CLI 구독)
+    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-pro",         label: "Gemini 2.5 Pro (CLI 구독)",  aliases: &["gempro"] },
+    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (CLI 구독)", aliases: &["gemflash"] },
+
+    // DeepSeek
+    ModelEntry { provider: "deepseek",     model_id: "deepseek-chat",          label: "DeepSeek V3.2 (API 유료)",   aliases: &["ds"] },
+    ModelEntry { provider: "deepseek",     model_id: "deepseek-reasoner",      label: "DeepSeek R1 (API 유료)",     aliases: &["dsr"] },
+
+    // GLM
+    ModelEntry { provider: "glm",          model_id: "glm-5",                  label: "GLM-5 (API 유료)",           aliases: &["glm"] },
+    ModelEntry { provider: "glm",          model_id: "glm-4.5v",               label: "GLM-4.5V (API 유료)",        aliases: &["glmv"] },
+
+    // Moonshot
+    ModelEntry { provider: "moonshot",     model_id: "kimi-k2.5",              label: "Kimi K2.5 (API 유료)",       aliases: &["kimi", "fast"] },
+
+    // xAI
+    ModelEntry { provider: "xai",          model_id: "grok-3",                 label: "Grok-3 (API 유료)",          aliases: &["grok"] },
+    ModelEntry { provider: "xai",          model_id: "grok-3-mini",            label: "Grok-3 Mini (API 유료)",     aliases: &["grokmini"] },
+
+    // Ollama
+    ModelEntry { provider: "ollama",       model_id: "qwen3.5:9b",             label: "Qwen3.5 9B (로컬)",         aliases: &["local", "ollama"] },
+    ModelEntry { provider: "ollama",       model_id: "llama3:8b",               label: "Llama3 8B (로컬)",          aliases: &["llama"] },
+    ModelEntry { provider: "ollama",       model_id: "mistral:7b",              label: "Mistral 7B (로컬)",         aliases: &["mistral"] },
 ];
 
 // ─── ProviderRegistry ─────────────────────────────────────────────────────────

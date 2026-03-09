@@ -52,9 +52,9 @@ pub struct KeysSection {
 impl KeysSection {
     pub fn get_for(&self, provider: &str) -> Option<String> {
         match provider {
-            "openai" | "openai_mini" => self.openai.clone(),
+            "openai" | "openai_mini" | "openai_oauth" => self.openai.clone(),
             "anthropic" | "anthropic_sonnet" => self.anthropic.clone(),
-            "gemini" | "gemini_flash" => self.gemini.clone(),
+            "gemini" | "gemini_flash" | "gemini_oauth" => self.gemini.clone(),
             "deepseek" | "deepseek_reasoner" => self.deepseek.clone(),
             "glm" | "glm_lite" => self.glm.clone(),
             "moonshot" => self.moonshot.clone(),
@@ -65,9 +65,9 @@ impl KeysSection {
 
     pub fn set_for(&mut self, provider: &str, key: String) {
         match provider {
-            "openai" | "openai_mini" => self.openai = Some(key),
+            "openai" | "openai_mini" | "openai_oauth" => self.openai = Some(key),
             "anthropic" | "anthropic_sonnet" => self.anthropic = Some(key),
-            "gemini" | "gemini_flash" => self.gemini = Some(key),
+            "gemini" | "gemini_flash" | "gemini_oauth" => self.gemini = Some(key),
             "deepseek" | "deepseek_reasoner" => self.deepseek = Some(key),
             "glm" | "glm_lite" => self.glm = Some(key),
             "moonshot" => self.moonshot = Some(key),
@@ -143,16 +143,16 @@ pub fn save_config(config: &ForjaConfig) -> std::io::Result<()> {
 
 /// 프로바이더 정의: (key, 회사명)  — 모델명은 Step 3에서 별도 표시
 const PROVIDERS: &[(&str, &str)] = &[
-    ("openai",    "OpenAI"),
-    ("openai_oauth", "OpenAI (OAuth 구독)"),
-    ("anthropic", "Anthropic"),
-    ("gemini",    "Google Gemini"),
-    ("gemini_oauth", "Google Gemini (OAuth CLI)"),
-    ("deepseek",  "DeepSeek"),
-    ("glm",       "GLM / Zhipu"),
-    ("moonshot",  "Moonshot Kimi"),
-    ("xai",       "xAI (Grok)"),
-    ("ollama",    "Ollama (로컈, API 키 불필요)"),
+    ("openai",       "OpenAI (API 키)"),
+    ("openai_oauth", "OpenAI Codex (구독 OAuth)"),
+    ("anthropic",    "Anthropic (API 키)"),
+    ("gemini",       "Google Gemini (API 키)"),
+    ("gemini_oauth", "Google Gemini CLI (구독 OAuth)"),
+    ("deepseek",     "DeepSeek"),
+    ("glm",          "GLM (Zhipu)"),
+    ("moonshot",     "Moonshot (Kimi)"),
+    ("xai",          "xAI (Grok)"),
+    ("ollama",       "Ollama (로컬, API 키 불필요)"),
 ];
 
 /// 프로바이더별 모델 목록: (model_id, label)
@@ -214,6 +214,18 @@ pub fn run_setup() -> ForjaConfig {
         // 인증 방식 선택 (Ollama 스킵)
         if pkey == "ollama" {
             println!("  ✅ {} 등록 완료 (API 키 불필요)", plabel);
+        } else if pkey == "openai_oauth" || pkey == "gemini_oauth" {
+            // OAuth 전용 — 바로 브라우저 로그인
+            let login_provider = match pkey {
+                "openai_oauth" => "openai",
+                "gemini_oauth" => "gemini",
+                _ => pkey,
+            };
+            println!("  🌐 {} OAuth 로그인 시작...", plabel);
+            tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(crate::oauth::run_login(login_provider))
+            });
+            println!("  ✅ {} OAuth 로그인 완료", plabel);
         } else {
             let auth_methods = vec![
                 format!("API 키 입력"),
@@ -267,8 +279,8 @@ pub fn run_setup() -> ForjaConfig {
             *k == "ollama"
             || config.keys.get_for(k).is_some()
             || match *k {
-                "openai" => auth_data.openai.is_some(),
-                "gemini" => auth_data.gemini.is_some(),
+                "openai" | "openai_oauth" => auth_data.openai.is_some(),
+                "gemini" | "gemini_oauth" => auth_data.gemini.is_some(),
                 "anthropic" => auth_data.anthropic.is_some(),
                 _ => false,
             }

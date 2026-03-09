@@ -87,7 +87,7 @@ pub fn xai_mini(api_key: &str) -> LlmConfig {
 
 /// OAuth 전용: OpenAI (Codex 구독)
 pub fn openai_oauth(token: &str) -> LlmConfig {
-    LlmConfig::new("https://api.openai.com/v1", "gpt-5-codex", token)
+    LlmConfig::new("https://api.openai.com/v1", "gpt-5.4", token)
 }
 
 /// OAuth 전용: Gemini (CLI 구독, 내부 엔드포인트)
