@@ -61,11 +61,11 @@ impl Tool for ClaudeCodeTool {
 
         if !Self::is_installed().await {
             return Ok(serde_json::json!({
-                "error": "Claude Code CLI is not installed or not available in the system PATH."
+                "error": "claude CLI가 설치되어 있지 않습니다"
             }));
         }
 
-        let mut child = Command::new("claude")
+        let child = Command::new("claude")
             .arg("--print")
             .arg("--json")
             .arg(prompt)

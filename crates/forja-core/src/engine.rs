@@ -31,8 +31,8 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(provider: Arc<dyn LlmProvider>, channel: Arc<dyn Channel>) -> Self {
-        let mut engine = Self {
-            provider,
+        let engine = Self {
+            provider: provider.clone(),
             channel,
             tools: HashMap::new(),
             conversation_history: Vec::new(),

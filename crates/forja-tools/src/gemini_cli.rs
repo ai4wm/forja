@@ -61,11 +61,11 @@ impl Tool for GeminiCliTool {
 
         if !Self::is_installed().await {
             return Ok(serde_json::json!({
-                "error": "Gemini CLI is not installed or not available in the system PATH."
+                "error": "gemini CLI가 설치되어 있지 않습니다"
             }));
         }
 
-        let mut child = Command::new("gemini")
+        let child = Command::new("gemini")
             .arg("--print")
             .arg(prompt)
             .stdout(Stdio::piped())

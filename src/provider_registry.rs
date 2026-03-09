@@ -79,6 +79,7 @@ impl ProviderRegistry {
     }
 
     /// `/models` 전체 목록 (등록 여부 무관)
+    #[allow(dead_code)]
     pub fn list_display(&self) -> String {
         let mut s = String::from("📋 전체 모델 목록:\n");
         for (i, e) in MODEL_TABLE.iter().enumerate() {

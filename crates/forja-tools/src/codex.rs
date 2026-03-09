@@ -61,11 +61,11 @@ impl Tool for CodexTool {
 
         if !Self::is_installed().await {
             return Ok(serde_json::json!({
-                "error": "Codex CLI is not installed or not available in the system PATH."
+                "error": "codex CLI가 설치되어 있지 않습니다"
             }));
         }
 
-        let mut child = Command::new("codex")
+        let child = Command::new("codex")
             .arg("--print")
             .arg(prompt)
             .stdout(Stdio::piped())

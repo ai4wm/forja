@@ -1,7 +1,6 @@
 use forja_llm::{presets, LlmConfig};
 use crate::provider_registry::MODEL_TABLE;
 use serde::{Deserialize, Serialize};
-use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
 // ─── 구조체 ──────────────────────────────────────────────────────────────────
