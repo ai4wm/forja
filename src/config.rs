@@ -1,4 +1,5 @@
 use forja_llm::{presets, LlmConfig};
+use crate::provider_registry::MODEL_TABLE;
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
@@ -155,42 +156,11 @@ const PROVIDERS: &[(&str, &str)] = &[
 
 /// 프로바이더별 모델 목록: (model_id, label)
 pub fn models_for(provider: &str) -> Vec<(&'static str, &'static str)> {
-    match provider {
-        "openai"    => vec![
-            ("gpt-5.4",       "GPT-5.4 (플래그십)"),
-            ("gpt-5.4-mini",  "GPT-5.4 Mini (경량)"),
-            ("gpt-5.3-codex", "GPT-5.3 Codex (코딩)"),
-        ],
-        "anthropic" => vec![
-            ("claude-opus-4-6",  "Claude Opus 4.6 (플래그십)"),
-            ("claude-sonnet-4-6", "Claude Sonnet 4.6 (경량)"),
-        ],
-        "gemini"    => vec![
-            ("gemini-3.1-pro-preview",  "Gemini 3.1 Pro (플래그십)"),
-            ("gemini-3-flash-preview",  "Gemini 3 Flash (경량)"),
-        ],
-        "deepseek"  => vec![
-            ("deepseek-chat",     "DeepSeek V3 (기본)"),
-            ("deepseek-reasoner", "DeepSeek R1 (추론)"),
-        ],
-        "glm"       => vec![
-            ("glm-5",    "GLM-5 (플래그십)"),
-            ("glm-4.5v", "GLM-4.5V (경량)"),
-        ],
-        "moonshot"  => vec![
-            ("kimi-k2.5", "Kimi K2.5 (기본)"),
-        ],
-        "xai"       => vec![
-            ("grok-3",      "Grok-3 (플래그십)"),
-            ("grok-3-mini", "Grok-3 Mini (경량)"),
-        ],
-        "ollama"    => vec![
-            ("qwen3.5:9b", "Qwen3.5 9B (기본)"),
-            ("llama3:8b",  "Llama3 8B"),
-            ("mistral:7b", "Mistral 7B"),
-        ],
-        _ => vec![],
-    }
+    MODEL_TABLE
+        .iter()
+        .filter(|e| e.provider == provider)
+        .map(|e| (e.model_id, e.label))
+        .collect()
 }
 
 fn mask_key(key: &str) -> String {
