@@ -9,6 +9,7 @@ pub struct LlmConfig {
     pub model: String,
     pub max_tokens: u32,
     pub extra_headers: HashMap<String, String>,
+    pub use_responses_api: bool,
 }
 
 impl LlmConfig {
@@ -22,6 +23,7 @@ impl LlmConfig {
             model: model.to_string(),
             max_tokens: 4096,
             extra_headers: HashMap::new(),
+            use_responses_api: false,
         }
     }
 
@@ -43,6 +45,12 @@ impl LlmConfig {
     pub fn with_header(mut self, key: &str, value: &str) -> Self {
         self.extra_headers
             .insert(key.to_string(), value.to_string());
+        self
+    }
+
+    /// Responses API (/v1/responses) 사용 여부를 설정하는 빌더 메서드
+    pub fn with_responses_api(mut self) -> Self {
+        self.use_responses_api = true;
         self
     }
 }

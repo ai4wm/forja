@@ -128,11 +128,142 @@ impl LlmClient {
             tools: api_tools,
         }
     }
+
+    /// Responses API (/v1/responses) 전용 페이로드 생성
+    fn prepare_responses_payload(
+        &self,
+        messages: &[Message],
+        tools: Option<&[ToolDefinition]>,
+        stream: bool,
+    ) -> serde_json::Value {
+        let mut instructions = String::new();
+        let input: Vec<serde_json::Value> = messages
+            .iter()
+            .filter_map(|m| {
+                match &m.content {
+                    Content::Text { text } if m.role == Role::System => {
+                        if !instructions.is_empty() {
+                            instructions.push('\n');
+                        }
+                        instructions.push_str(text);
+                        None
+                    }
+                    Content::Text { text } => {
+                        let role = match m.role {
+                            Role::User => "user",
+                            Role::Assistant => "assistant",
+                            Role::Tool => "tool",
+                            Role::System => unreachable!(), // Filtered out above
+                        };
+                        Some(serde_json::json!({
+                            "role": role,
+                            "content": text,
+                        }))
+                    }
+                    Content::ToolCall { call_id, tool_name, arguments, .. } => {
+                        Some(serde_json::json!({
+                            "role": "assistant",
+                            "tool_calls": [{
+                                "id": call_id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": arguments.to_string(),
+                                }
+                            }]
+                        }))
+                    }
+                    Content::ToolResult { call_id, result } => {
+                        Some(serde_json::json!({
+                            "role": "tool",
+                            "tool_call_id": call_id,
+                            "content": result.to_string(),
+                        }))
+                    }
+                }
+            })
+            .collect();
+
+        let api_tools: Option<Vec<serde_json::Value>> = tools.map(|ts| {
+            ts.iter().map(|t| {
+                serde_json::json!({
+                    "type": "function",
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                })
+            }).collect()
+        });
+
+        let mut payload = serde_json::json!({
+            "model": self.config.model,
+            "instructions": if instructions.is_empty() {
+                "You are a helpful assistant.".to_string()
+            } else {
+                instructions
+            },
+            "input": input,
+            "stream": stream,
+            "store": false,
+        });
+
+        if let Some(t) = api_tools {
+            payload["tools"] = serde_json::json!(t);
+        }
+
+        payload
+    }
 }
 
 #[async_trait]
 impl LlmProvider for LlmClient {
     async fn chat(&self, messages: &[Message], tools: Option<&[ToolDefinition]>) -> Result<Message> {
+        if self.config.use_responses_api {
+            // Force stream=true (Codex backend-api requirement)
+            let payload = self.prepare_responses_payload(messages, tools, true);
+            let endpoint = format!("{}/codex/responses", self.config.base_url);
+
+            let response = self
+                .client
+                .post(&endpoint)
+                .json(&payload)
+                .header("Accept", "text/event-stream")
+                .send()
+                .await
+                .map_err(|e| ForjaError::LlmError(e.to_string()))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
+            }
+
+            // SSE 텍스트를 통째로 받아서 파싱
+            let raw = response.text().await
+                .map_err(|e| ForjaError::LlmError(e.to_string()))?;
+
+            
+
+            let mut collected_text = String::new();
+            for line in raw.lines() {
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) {
+                        match ev["type"].as_str() {
+                            Some("response.output_text.delta") => {
+                                if let Some(d) = ev["delta"].as_str() {
+                                    collected_text.push_str(d);
+                                }
+                            }
+                            Some("response.completed") | Some("response.failed") => break,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            return Ok(Message::text(Role::Assistant, collected_text));
+        }
+
         let payload = self.prepare_payload(messages, tools, false);
         
         let endpoint = format!("{}/chat/completions", self.config.base_url);
@@ -192,6 +323,45 @@ impl LlmProvider for LlmClient {
         messages: &[Message],
         tools: Option<&[ToolDefinition]>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
+        if self.config.use_responses_api {
+            let payload = self.prepare_responses_payload(messages, tools, true);
+            let endpoint = format!("{}/codex/responses", self.config.base_url);
+
+            let request_builder = self.client.post(&endpoint).json(&payload);
+
+            let mut event_source = EventSource::new(request_builder)
+                .map_err(|e| ForjaError::LlmError(e.to_string()))?;
+
+            let stream = async_stream::stream! {
+                while let Some(event_res) = tokio_stream::StreamExt::next(&mut event_source).await {
+                    match event_res {
+                        Ok(Event::Message(msg)) => {
+                            if let Ok(event_json) = serde_json::from_str::<serde_json::Value>(&msg.data) {
+                                match event_json["type"].as_str() {
+                                    Some("response.output_text.delta") => {
+                                        if let Some(delta) = event_json["delta"].as_str() {
+                                            yield Ok(delta.to_string());
+                                        }
+                                    }
+                                    Some("response.completed") | Some("response.failed") => {
+                                        break;
+                                    }
+                                    _ => {} // Ignore other event types
+                                }
+                            }
+                        }
+                        Ok(Event::Open) => continue,
+                        Err(e) => {
+                            yield Err(ForjaError::LlmError(format!("Stream error: {}", e)));
+                            break;
+                        }
+                    }
+                }
+            };
+
+            return Ok(Box::pin(stream));
+        }
+
         let payload = self.prepare_payload(messages, tools, true);
         let endpoint = format!("{}/chat/completions", self.config.base_url);
 
