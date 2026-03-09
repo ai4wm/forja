@@ -118,15 +118,19 @@ async fn exchange_code(
     code: &str,
     redirect_uri: &str,
     code_verifier: &str,
+    client_secret: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     let client = Client::new();
-    let params = [
+    let mut params = vec![
         ("grant_type", "authorization_code"),
         ("client_id", client_id),
         ("code", code),
         ("redirect_uri", redirect_uri),
         ("code_verifier", code_verifier),
     ];
+    if let Some(secret) = client_secret {
+        params.push(("client_secret", secret));
+    }
 
     let resp = client
         .post(token_url)
@@ -178,6 +182,7 @@ async fn login_openai() {
             &code,
             redirect_uri,
             &verifier,
+            None,
         ).await {
             Ok(token_json) => {
                 let access_token = token_json["access_token"].as_str().unwrap_or_default().to_string();
@@ -232,6 +237,7 @@ async fn login_gemini() {
             &code,
             redirect_uri,
             &verifier,
+            Some("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"),
         ).await {
             Ok(token_json) => {
                 let access_token = token_json["access_token"].as_str().unwrap_or_default().to_string();
