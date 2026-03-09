@@ -10,7 +10,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio_stream::{Stream, StreamExt};
 use std::io::Write;
-use forja_tools::{FileTool, WebTool, ShellTool, SearchTool, SearchProvider, StdinConfirmation};
+use forja_tools::{FileTool, WebTool, ShellTool, SearchTool, SearchProvider, StdinConfirmation, ClaudeCodeTool, CodexTool, GeminiCliTool};
 use provider_registry::ProviderRegistry;
 // use forja_memory::MarkdownMemoryStore;
 
@@ -304,6 +304,19 @@ async fn main() -> Result<()> {
     engine.register_tool(web_tool);
     engine.register_tool(shell_tool);
     engine.register_tool(search_tool);
+
+    if ClaudeCodeTool::is_installed().await {
+        engine.register_tool(Arc::new(ClaudeCodeTool::new()));
+        println!("[System] Claude Code tool registered.");
+    }
+    if CodexTool::is_installed().await {
+        engine.register_tool(Arc::new(CodexTool::new()));
+        println!("[System] Codex tool registered.");
+    }
+    if GeminiCliTool::is_installed().await {
+        engine.register_tool(Arc::new(GeminiCliTool::new()));
+        println!("[System] Gemini CLI tool registered.");
+    }
 
     // ── 슬래시 핸들러: ProviderRegistry 를 캐폁한 클로저 ──
     let registry = std::sync::Mutex::new(registry);

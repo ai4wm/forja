@@ -1,0 +1,117 @@
+warning: variable does not need to be mutable
+  --> crates\forja-core\src\engine.rs:34:13
+   |
+34 |         let mut engine = Self {
+   |             ----^^^^^^
+   |             |
+   |             help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `forja-core` (lib) generated 1 warning (run `cargo fix --lib -p forja-core` to apply 1 suggestion)
+    Checking forja-tools v0.1.0 (F:\1.Project\forja\crates\forja-tools)
+warning: use of deprecated unit variant `teloxide::types::ParseMode::Markdown`: This is a legacy mode, retained for backward compatibility. Use `MarkdownV2` instead.
+   --> crates\forja-channel\src\multi.rs:188:56
+    |
+188 | ...                   .parse_mode(ParseMode::Markdown)
+    |                                              ^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated unit variant `teloxide::types::ParseMode::Markdown`: This is a legacy mode, retained for backward compatibility. Use `MarkdownV2` instead.
+   --> crates\forja-channel\src\telegram.rs:136:61
+    |
+136 |                     .parse_mode(teloxide::types::ParseMode::Markdown)
+    |                                                             ^^^^^^^^
+
+warning: `forja-channel` (lib) generated 2 warnings
+error[E0432]: unresolved import `forja_core::types::Type`
+ --> crates\forja-tools\src\claude_code.rs:5:29
+  |
+5 |     types::{ToolDefinition, Type},
+  |                             ^^^^ no `Type` in `types`
+
+error[E0432]: unresolved import `forja_core::types::Type`
+ --> crates\forja-tools\src\codex.rs:5:29
+  |
+5 |     types::{ToolDefinition, Type},
+  |                             ^^^^ no `Type` in `types`
+
+error[E0432]: unresolved import `forja_core::types::Type`
+ --> crates\forja-tools\src\gemini_cli.rs:5:29
+  |
+5 |     types::{ToolDefinition, Type},
+  |                             ^^^^ no `Type` in `types`
+
+error[E0407]: method `description` is not a member of trait `Tool`
+  --> crates\forja-tools\src\claude_code.rs:39:5
+   |
+39 | /     fn description(&self) -> &'static str {
+40 | |         "Executes Claude Code CLI for complex coding tasks. Highly capable for deep repository modifications. Takes up to 10 minutes."
+41 | |     }
+   | |_____^ not a member of trait `Tool`
+
+error[E0407]: method `description` is not a member of trait `Tool`
+  --> crates\forja-tools\src\codex.rs:39:5
+   |
+39 | /     fn description(&self) -> &'static str {
+40 | |         "Executes Codex CLI for specialized code intelligence tasks. Best for targeted coding assistance."
+41 | |     }
+   | |_____^ not a member of trait `Tool`
+
+error[E0407]: method `description` is not a member of trait `Tool`
+  --> crates\forja-tools\src\gemini_cli.rs:39:5
+   |
+39 | /     fn description(&self) -> &'static str {
+40 | |         "Executes Gemini CLI for multimodal and general AI tasks."
+41 | |     }
+   | |_____^ not a member of trait `Tool`
+
+error[E0599]: no method named `description` found for reference `&ClaudeCodeTool` in the current scope
+  --> crates\forja-tools\src\claude_code.rs:46:31
+   |
+46 |             description: self.description().to_string(),
+   |                               ^^^^^^^^^^^ method not found in `&ClaudeCodeTool`
+   |
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the trait `std::error::Error` defines an item `description`, but is explicitly unimplemented
+
+error[E0599]: no variant or associated item named `InvalidToolArgs` found for enum `ForjaError` in the current scope
+  --> crates\forja-tools\src\claude_code.rs:64:40
+   |
+64 |             .ok_or_else(|| ForjaError::InvalidToolArgs("Missing 'prompt' argument".to_string()))?;
+   |                                        ^^^^^^^^^^^^^^^ variant or associated item not found in `ForjaError`
+
+error[E0599]: no method named `description` found for reference `&CodexTool` in the current scope
+  --> crates\forja-tools\src\codex.rs:46:31
+   |
+46 |             description: self.description().to_string(),
+   |                               ^^^^^^^^^^^ method not found in `&CodexTool`
+   |
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the trait `std::error::Error` defines an item `description`, but is explicitly unimplemented
+
+error[E0599]: no variant or associated item named `InvalidToolArgs` found for enum `ForjaError` in the current scope
+  --> crates\forja-tools\src\codex.rs:64:40
+   |
+64 |             .ok_or_else(|| ForjaError::InvalidToolArgs("Missing 'prompt' argument".to_string()))?;
+   |                                        ^^^^^^^^^^^^^^^ variant or associated item not found in `ForjaError`
+
+error[E0599]: no method named `description` found for reference `&GeminiCliTool` in the current scope
+  --> crates\forja-tools\src\gemini_cli.rs:46:31
+   |
+46 |             description: self.description().to_string(),
+   |                               ^^^^^^^^^^^ method not found in `&GeminiCliTool`
+   |
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the trait `std::error::Error` defines an item `description`, but is explicitly unimplemented
+
+error[E0599]: no variant or associated item named `InvalidToolArgs` found for enum `ForjaError` in the current scope
+  --> crates\forja-tools\src\gemini_cli.rs:64:40
+   |
+64 |             .ok_or_else(|| ForjaError::InvalidToolArgs("Missing 'prompt' argument".to_string()))?;
+   |                                        ^^^^^^^^^^^^^^^ variant or associated item not found in `ForjaError`
+
+Some errors have detailed explanations: E0407, E0432, E0599.
+For more information about an error, try `rustc --explain E0407`.
+error: could not compile `forja-tools` (lib) due to 12 previous errors
