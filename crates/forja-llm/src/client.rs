@@ -10,7 +10,7 @@ use std::pin::Pin;
 use tokio_stream::Stream;
 
 #[cfg(feature = "anthropic")]
-use reqwest_eventsource::{Event, EventSource};
+// Removed EventSource and Event as we now use manual SSE chunk parsing for better control
 
 /// OpenAI Chat Completions 포맷을 사용하는 범용 LlmClient
 ///
@@ -324,12 +324,10 @@ impl LlmProvider for LlmClient {
                 self.config.base_url
             );
 
-
             let mut response = self
                 .client
                 .post(&endpoint)
                 .json(&payload)
-                .header("Accept", "text/event-stream")
                 .send()
                 .await
                 .map_err(|e| ForjaError::LlmError(e.to_string()))?;
@@ -353,7 +351,6 @@ impl LlmProvider for LlmClient {
                     break;
                 }
             }
-                        let mut collected_text = String::new();
             let mut collected_text = String::new();
             let mut last_thought_signature: Option<String> = None;
             for line in raw.lines() {
@@ -556,13 +553,13 @@ impl LlmProvider for LlmClient {
         Ok(Message::text(Role::Assistant, content, None))
     }
 
-    #[cfg(feature = "anthropic")] // TODO: 향후 sse 혹은 stream 피쳐로 이름을 변경하는 것이 의미상 적절함. 현재는 plan.md대로 anthropic 사용
+    #[cfg(feature = "anthropic")]
     async fn stream(
         &self,
         messages: &[Message],
         tools: Option<&[ToolDefinition]>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
-        if self.config.use_gemini_native_api {
+        let (endpoint, payload) = if self.config.use_gemini_native_api {
             let inner = self.prepare_gemini_native_payload(messages, tools);
             let project = std::env::var("FORJA_GEMINI_PROJECT")
                 .unwrap_or_else(|_| "outstanding-sanctum-knhr3".to_string());
@@ -571,40 +568,61 @@ impl LlmProvider for LlmClient {
                 "model": self.config.model,
                 "project": project,
             });
-            let endpoint = format!(
-                "{}/v1internal:streamGenerateContent?alt=sse",
-                self.config.base_url
-            );
+            let endpoint = format!("{}/v1internal:streamGenerateContent?alt=sse", self.config.base_url);
+            (endpoint, payload)
+        } else if self.config.use_responses_api {
+            let payload = self.prepare_responses_payload(messages, tools, true);
+            let endpoint = format!("{}/codex/responses", self.config.base_url);
+            (endpoint, payload)
+        } else {
+            let payload = serde_json::to_value(self.prepare_payload(messages, tools, true))
+                .map_err(|e| ForjaError::Internal(e.to_string()))?;
+            let endpoint = format!("{}/chat/completions", self.config.base_url);
+            (endpoint, payload)
+        };
 
-            let request_builder = self.client.post(&endpoint).json(&payload).header("Accept", "text/event-stream");
+        let mut response = self.client.post(&endpoint)
+            .json(&payload)
+            .header("Accept", "text/event-stream")
+            .send()
+            .await
+            .map_err(|e| ForjaError::LlmError(e.to_string()))?;
 
-            let mut event_source = EventSource::new(request_builder)
-                .map_err(|e| ForjaError::LlmError(e.to_string()))?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            eprintln!("[STREAM-ERROR] Http {}: {}", status, &text[..text.len().min(300)]);
+            return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
+        }
 
-            let stream = async_stream::stream! {
-                while let Some(event_res) = tokio_stream::StreamExt::next(&mut event_source).await {
-                    match event_res {
-                        Ok(Event::Message(msg)) => {
-                            if let Ok(ev) = serde_json::from_str::<serde_json::Value>(&msg.data) {
+        let is_gemini = self.config.use_gemini_native_api;
+        let is_responses = self.config.use_responses_api;
+
+        let stream = async_stream::stream! {
+            let mut buffer = String::new();
+            while let Ok(Some(chunk)) = response.chunk().await {
+                let chunk_str = String::from_utf8_lossy(&chunk);
+                buffer.push_str(&chunk_str);
+
+                while let Some(pos) = buffer.find('\n') {
+                    let line = buffer[..pos].trim().to_string();
+                    buffer = buffer[pos + 1..].to_string();
+
+                    if line.is_empty() { continue; }
+                    if line == "data: [DONE]" { break; }
+
+                    if let Some(data) = line.strip_prefix("data: ") {
+                        if let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) {
+                            if is_gemini {
                                 let candidates = ev.get("response")
                                     .and_then(|r| r.get("candidates"))
                                     .or_else(|| ev.get("candidates"));
-
                                 if let Some(candidates) = candidates.and_then(|c| c.as_array()) {
                                     if let Some(candidate) = candidates.first() {
-                                        // 종료 여부 확인
-                                        if candidate.get("finishReason").is_some() {
-                                            break;
-                                        }
-                                        let parts = candidate
-                                            .get("content")
-                                            .and_then(|c| c.get("parts"))
-                                            .and_then(|p| p.as_array());
-                                        if let Some(parts) = parts {
+                                        if candidate.get("finishReason").is_some() { break; }
+                                        if let Some(parts) = candidate.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
                                             for part in parts {
-                                                if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) {
-                                                    continue;
-                                                }
+                                                if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) { continue; }
                                                 if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
                                                     yield Ok(text.to_string());
                                                 }
@@ -612,89 +630,23 @@ impl LlmProvider for LlmClient {
                                         }
                                     }
                                 }
-                            }
-                        }
-                        Ok(Event::Open) => continue,
-                        Err(e) => {
-                            yield Err(ForjaError::LlmError(format!("Stream error: {}", e)));
-                            break;
-                        }
-                    }
-                }
-            };
-
-            return Ok(Box::pin(stream));
-        }
-
-        if self.config.use_responses_api {
-            let payload = self.prepare_responses_payload(messages, tools, true);
-            let endpoint = format!("{}/codex/responses", self.config.base_url);
-
-            let request_builder = self.client.post(&endpoint).json(&payload);
-
-            let mut event_source = EventSource::new(request_builder)
-                .map_err(|e| ForjaError::LlmError(e.to_string()))?;
-
-            let stream = async_stream::stream! {
-                while let Some(event_res) = tokio_stream::StreamExt::next(&mut event_source).await {
-                    match event_res {
-                        Ok(Event::Message(msg)) => {
-                            if let Ok(event_json) = serde_json::from_str::<serde_json::Value>(&msg.data) {
-                                match event_json["type"].as_str() {
+                            } else if is_responses {
+                                match ev["type"].as_str() {
                                     Some("response.output_text.delta") => {
-                                        if let Some(delta) = event_json["delta"].as_str() {
+                                        if let Some(delta) = ev["delta"].as_str() {
                                             yield Ok(delta.to_string());
                                         }
                                     }
-                                    Some("response.completed") | Some("response.failed") => {
-                                        break;
-                                    }
-                                    _ => {} // Ignore other event types
+                                    Some("response.completed") | Some("response.failed") => break,
+                                    _ => {}
+                                }
+                            } else {
+                                // Default OpenAI format
+                                if let Some(text) = ev["choices"][0]["delta"]["content"].as_str() {
+                                    yield Ok(text.to_string());
                                 }
                             }
                         }
-                        Ok(Event::Open) => continue,
-                        Err(e) => {
-                            yield Err(ForjaError::LlmError(format!("Stream error: {}", e)));
-                            break;
-                        }
-                    }
-                }
-            };
-
-            return Ok(Box::pin(stream));
-        }
-
-        let payload = self.prepare_payload(messages, tools, true);
-        let endpoint = format!("{}/chat/completions", self.config.base_url);
-
-        let request_builder = self.client.post(&endpoint).json(&payload);
-
-        let mut event_source = EventSource::new(request_builder)
-            .map_err(|e| ForjaError::LlmError(e.to_string()))?;
-
-        let stream = async_stream::stream! {
-            while let Some(event_res) = tokio_stream::StreamExt::next(&mut event_source).await {
-                match event_res {
-                    Ok(Event::Message(msg)) => {
-                        // OpenAI 스펙상 "[DONE]" 메세지는 스트리밍 종료 신호.
-                        if msg.data == "[DONE]" {
-                            break;
-                        }
-
-                        // SSE payload delta 구조 분해 추출
-                        if let Ok(parsed) = serde_json::from_str::<ChatCompletionResponse>(&msg.data)
-                            && let Some(choice) = parsed.choices.into_iter().next()
-                                && let Some(delta) = choice.delta
-                                    && let Some(text) = delta.content {
-                                        yield Ok(text);
-                                    }
-                    }
-                    Ok(Event::Open) => continue,
-                    Err(e) => {
-                        // 종료, 타임아웃, 예외 발생
-                        yield Err(ForjaError::LlmError(format!("Stream error: {}", e)));
-                        break;
                     }
                 }
             }
