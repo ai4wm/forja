@@ -349,7 +349,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         if let Some(target) = text.strip_prefix("/model ") {
             let mut reg = registry.lock().unwrap();
-            match reg.resolve(target) {
+            match reg.resolve(target, &cfg_for_handler) {
                 None => return Some(format!("❌ '{}' 모델을 찾을 수 없습니다. `/models`로 목록을 확인하세요.", target)),
                 Some(idx) => {
                     match reg.switch_to(idx, &cfg_for_handler) {

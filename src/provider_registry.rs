@@ -87,17 +87,26 @@ impl ProviderRegistry {
         &MODEL_TABLE[self.active_idx]
     }
 
+    /// 프로바이더 사용 가능 여부 확인 (내부 헬퍼)
+    fn is_provider_available(provider: &str, cfg: &ForjaConfig, auth: &crate::oauth::AuthData) -> bool {
+        match provider {
+            "ollama" => true,
+            "openai_oauth" => auth.openai.is_some(),
+            "gemini_oauth" => auth.gemini.is_some(),
+            _ => cfg.keys.get_for(provider).is_some(),
+        }
+    }
+
     /// `/models` 출력: config에 등록된 프로바이더의 모델만 표시
     pub fn list_for_config(&self, cfg: &ForjaConfig) -> String {
         let mut s = String::from("📋 사용 가능한 모델 (등록된 프로바이더):\n");
         let mut display_idx = 1usize;
+        let auth = crate::oauth::AuthData::load();
         for (i, e) in MODEL_TABLE.iter().enumerate() {
-            let has_key = e.provider == "ollama"
-                || cfg.keys.get_for(e.provider).is_some();
-            if !has_key { continue; }
+            if !Self::is_provider_available(e.provider, cfg, &auth) { continue; }
             let cur = if i == self.active_idx { " ◀ 현재" } else { "" };
             s.push_str(&format!(
-                "  {:2}. [{}] {} — {}{}\\n",
+                "  {:2}. [{}] {} — {}{}\n",
                 display_idx, e.provider, e.label, e.model_id, cur
             ));
             display_idx += 1;
@@ -122,25 +131,36 @@ impl ProviderRegistry {
     }
 
     /// `/model <input>` → 인덱스 검색 (번호 | model_id | alias | 부분문자열)
-    pub fn resolve(&self, input: &str) -> Option<usize> {
+    pub fn resolve(&self, input: &str, cfg: &ForjaConfig) -> Option<usize> {
         let input = input.trim().to_lowercase();
+        let auth = crate::oauth::AuthData::load();
 
         #[allow(clippy::collapsible_if)]
         if let Ok(n) = input.parse::<usize>() {
-            if n >= 1 && n <= MODEL_TABLE.len() {
-                return Some(n - 1);
+            let mut available_count = 0;
+            for (i, e) in MODEL_TABLE.iter().enumerate() {
+                if Self::is_provider_available(e.provider, cfg, &auth) {
+                    available_count += 1;
+                    if available_count == n {
+                        return Some(i);
+                    }
+                }
             }
         }
 
-        if let Some(idx) = MODEL_TABLE.iter().position(|e| e.model_id == input) {
+        if let Some((idx, _)) = MODEL_TABLE.iter().enumerate()
+            .find(|(_, e)| e.model_id == input && Self::is_provider_available(e.provider, cfg, &auth)) {
             return Some(idx);
         }
 
-        if let Some(idx) = MODEL_TABLE.iter().position(|e| e.aliases.contains(&input.as_str())) {
+        if let Some((idx, _)) = MODEL_TABLE.iter().enumerate()
+            .find(|(_, e)| e.aliases.contains(&input.as_str()) && Self::is_provider_available(e.provider, cfg, &auth)) {
             return Some(idx);
         }
 
-        MODEL_TABLE.iter().position(|e| e.model_id.contains(input.as_str()))
+        MODEL_TABLE.iter().enumerate()
+            .find(|(_, e)| e.model_id.contains(input.as_str()) && Self::is_provider_available(e.provider, cfg, &auth))
+            .map(|(idx, _)| idx)
     }
 
     /// 스위칭 실행, 새 LlmConfig 반환

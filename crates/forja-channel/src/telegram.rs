@@ -133,7 +133,7 @@ impl Channel for TelegramChannel {
             if let Content::Text { text, .. } = &message.content {
                 let send_res = self.bot
                     .send_message(teloxide::types::ChatId(chat_id), text.to_string())
-                    .parse_mode(teloxide::types::ParseMode::Markdown)
+                    .parse_mode(teloxide::types::ParseMode::MarkdownV2)
                     .await;
 
                 if send_res.is_err() {

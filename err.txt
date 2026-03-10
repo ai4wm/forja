@@ -10,7 +10,7 @@ warning: use of deprecated unit variant `teloxide::types::ParseMode::Markdown`: 
 warning: use of deprecated unit variant `teloxide::types::ParseMode::Markdown`: This is a legacy mode, retained for backward compatibility. Use `MarkdownV2` instead.
    --> crates\forja-channel\src\telegram.rs:136:61
     |
-136 |                     .parse_mode(teloxide::types::ParseMode::Markdown)
+136 |                     .parse_mode(teloxide::types::ParseMode::MarkdownV2)
     |                                                             ^^^^^^^^
 
 warning: `forja-channel` (lib) generated 2 warnings
