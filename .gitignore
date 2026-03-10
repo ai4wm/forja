@@ -25,3 +25,4 @@ clippy_result.txt
 *.log
 
 build_errors.txt
+auth.json
