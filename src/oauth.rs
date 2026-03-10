@@ -49,10 +49,58 @@ impl AuthData {
         }
     }
 
-    pub async fn load_and_refresh() -> Self {
-        // Here we would implement refresh logic if expires_at < now.
-        // For simplicity and immediate scope, we return loaded data.
-        Self::load()
+    pub async fn refresh_token_if_needed(provider: &str) -> Self {
+        let mut auth = Self::load();
+        
+        let token = match provider {
+            "openai" | "openai_oauth" => auth.openai.as_ref(),
+            "gemini" | "gemini_oauth" | "gemini_flash" => auth.gemini.as_ref(),
+            "anthropic" | "anthropic_sonnet" => auth.anthropic.as_ref(),
+            _ => return auth,
+        };
+        
+        if let Some(t) = token {
+            // 만료 5분 전이면 갱신
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            let expires_at = t.expires_at.unwrap_or(0);
+            
+            if now < expires_at - 300 {
+                // 아직 유효 (5분 여유)
+                return auth;
+            }
+            
+            // refresh_token이 있으면 갱신 시도
+            if let Some(ref refresh) = t.refresh_token {
+                eprintln!("[AUTH] {} 토큰 만료됨, 자동 갱신 중...", provider);
+                
+                let result = match provider {
+                    "openai" | "openai_oauth" => {
+                        refresh_openai_token(refresh).await
+                    }
+                    "gemini" | "gemini_oauth" | "gemini_flash" => {
+                        refresh_gemini_token(refresh).await
+                    }
+                    _ => None,
+                };
+                
+                if let Some(new_token) = result {
+                    match provider {
+                        "openai" | "openai_oauth" => auth.openai = Some(new_token),
+                        "gemini" | "gemini_oauth" | "gemini_flash" => auth.gemini = Some(new_token),
+                        _ => {}
+                    }
+                    auth.save();
+                    eprintln!("[AUTH] {} 토큰 갱신 완료!", provider);
+                } else {
+                    eprintln!("[AUTH] {} 토큰 갱신 실패. forja login {} 을 실행하세요.", provider, provider);
+                }
+            }
+        }
+        
+        auth
     }
 }
 
@@ -351,4 +399,80 @@ async fn login_anthropic() {
     auth.anthropic = Some(token);
     auth.save();
     println!("Anthropic 토큰 저장이 완료되었습니다.");
+}
+
+async fn refresh_openai_token(refresh_token: &str) -> Option<ProviderToken> {
+    let client = reqwest::Client::new();
+    let resp = client.post("https://auth.openai.com/oauth/token")
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", "app_EMoamEEZ73f0CkXaXp7hrann"),
+        ])
+        .send()
+        .await
+        .ok()?;
+    
+    if !resp.status().is_success() { return None; }
+    
+    let json: serde_json::Value = resp.json().await.ok()?;
+    let access_token = json["access_token"].as_str()?.to_string();
+    let new_refresh = json["refresh_token"].as_str()
+        .map(|s| s.to_string())
+        .or_else(|| Some(refresh_token.to_string()));
+    let expires_in = json["expires_in"].as_u64().unwrap_or(864000);
+    let expires_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64 + expires_in as i64;
+    
+    Some(ProviderToken {
+        access_token,
+        refresh_token: new_refresh,
+        expires_at: Some(expires_at),
+        project_id: None,
+    })
+}
+
+async fn refresh_gemini_token(refresh_token: &str) -> Option<ProviderToken> {
+    let client_id = std::env::var("FORJA_GOOGLE_CLIENT_ID")
+        .unwrap_or_else(|_| "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com".into());
+    let client_secret = std::env::var("FORJA_GOOGLE_CLIENT_SECRET")
+        .unwrap_or_else(|_| "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".into());
+    
+    let client = reqwest::Client::new();
+    let resp = client.post("https://oauth2.googleapis.com/token")
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", &client_id),
+            ("client_secret", &client_secret),
+        ])
+        .send()
+        .await
+        .ok()?;
+    
+    if !resp.status().is_success() { return None; }
+    
+    let json: serde_json::Value = resp.json().await.ok()?;
+    let access_token = json["access_token"].as_str()?.to_string();
+    let new_refresh = json["refresh_token"].as_str()
+        .map(|s| s.to_string())
+        .or_else(|| Some(refresh_token.to_string()));
+    let expires_in = json["expires_in"].as_u64().unwrap_or(3600);
+    let expires_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64 + expires_in as i64;
+    
+    // 기존 project_id 보존
+    let auth = AuthData::load();
+    let project_id = auth.gemini.and_then(|t| t.project_id);
+    
+    Some(ProviderToken {
+        access_token,
+        refresh_token: new_refresh,
+        expires_at: Some(expires_at),
+        project_id,
+    })
 }

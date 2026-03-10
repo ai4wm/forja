@@ -336,7 +336,11 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
     let mut api_key = cfg.keys.get_for(provider).unwrap_or_default();
 
     if api_key.is_empty() && provider != "ollama" {
-        let auth = crate::oauth::AuthData::load();
+        let auth = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(
+                crate::oauth::AuthData::refresh_token_if_needed(provider)
+            )
+        });
         
         // Handle OAuth specific data (like project_id for Gemini)
         if matches!(provider, "gemini_oauth" | "gemini_flash" | "gemini") {

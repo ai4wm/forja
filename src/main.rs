@@ -120,7 +120,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         std::process::exit(1);
     }
 
-    let _auth_data = oauth::AuthData::load_and_refresh().await;
+    let _auth_data = oauth::AuthData::load();
 
     ctrlc::set_handler(move || {
         println!("\n[System] Exiting...");
