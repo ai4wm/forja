@@ -26,3 +26,4 @@ clippy_result.txt
 
 build_errors.txt
 auth.json
+crates/forja-llm/tests/
