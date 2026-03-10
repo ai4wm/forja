@@ -35,3 +35,8 @@ clippy_result.txt
 err.txt
 error.log
 *.log
+
+*.txt
+*.json
+!Cargo.lock
+!*.toml
