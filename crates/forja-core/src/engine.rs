@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 #[cfg(feature = "memory")]
-use crate::traits::MemoryStore;
+mod memory;
+
 #[cfg(feature = "memory")]
-use uuid::Uuid;
+use crate::traits::MemoryStore;
 
 const MAX_TOOL_DEPTH: usize = 10;
 
@@ -29,6 +30,8 @@ pub struct Engine {
 
     #[cfg(feature = "memory")]
     memory: Option<Arc<dyn MemoryStore>>,
+    #[cfg(feature = "memory")]
+    turn_memory_context: Option<String>,
 }
 
 impl Engine {
@@ -44,6 +47,8 @@ impl Engine {
             slash_handler: None,
             #[cfg(feature = "memory")]
             memory: None,
+            #[cfg(feature = "memory")]
+            turn_memory_context: None,
         }
     }
 
@@ -98,6 +103,24 @@ impl Engine {
         }
     }
 
+    fn request_messages(&self) -> Vec<Message> {
+        let mut messages = self.conversation_history.clone();
+
+        #[cfg(feature = "memory")]
+        if let Some(memory_context) = &self.turn_memory_context {
+            if let Some(first_message) = messages.first_mut()
+                && first_message.role == Role::System
+                && let Content::Text { text, .. } = &mut first_message.content {
+                    text.push_str("\n\n");
+                    text.push_str(memory_context);
+                } else {
+                    messages.insert(0, Message::text(Role::System, memory_context, None));
+                }
+        }
+
+        messages
+    }
+
     /// 한 턴(step)을 평가하고 처리합니다.
     /// LLM의 응답이 ToolCall일 경우, 등록된 Tool을 실행한 뒤 결과를 추가하여
     /// LLM을 재귀 호출(handle_step)합니다.
@@ -115,7 +138,8 @@ impl Engine {
             .collect();
         let tools = if tool_defs.is_empty() { None } else { Some(tool_defs.as_slice()) };
 
-        let response_msg = self.provider.chat(&self.conversation_history, tools).await?;
+        let request_messages = self.request_messages();
+        let response_msg = self.provider.chat(&request_messages, tools).await?;
 
         match &response_msg.content {
             Content::ToolCall {
@@ -177,6 +201,9 @@ impl Engine {
                             self.push_message(sys_msg);
                         }
 
+                    #[cfg(feature = "memory")]
+                    self.refresh_turn_memory_context(&user_msg).await;
+
                     self.push_message(user_msg.clone());
 
                     // LLM 프로바이더로 전달하여 한 턴 평가 (handle_step 내부에서 도구 명세 수집함)
@@ -186,43 +213,15 @@ impl Engine {
                     self.channel.send(response.clone()).await?;
 
                     #[cfg(feature = "memory")]
-                    if let Some(mem) = &self.memory {
-                        use crate::types::MemoryEntry;
-                        use std::time::{SystemTime, UNIX_EPOCH};
-
-                        let now = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-
-                        if let Content::Text { text, .. } = &user_msg.content {
-                            let entry = MemoryEntry {
-                                id: format!("user_{}_{}", now, user_msg.id),
-                                timestamp: now,
-                                tags: vec!["user".to_string()],
-                                content: text.clone(),
-                                score: 0.0,
-                                metadata: Default::default(),
-                            };
-                            let _ = mem.save(&entry).await;
-                        }
-
-                        if let Content::Text { text, .. } = &response.content {
-                            let entry = MemoryEntry {
-                                id: format!("assistant_{}_{}", now + 1, Uuid::new_v4()),
-                                timestamp: now + 1,
-                                tags: vec!["assistant".to_string()],
-                                content: text.clone(),
-                                score: 0.0,
-                                metadata: Default::default(),
-                            };
-                            let _ = mem.save(&entry).await;
-                        }
+                    {
+                        let assistant_text = match &response.content {
+                            Content::Text { text, .. } => Some(text.as_str()),
+                            _ => None,
+                        };
+                        self.save_turn_memory_entries(&user_msg, assistant_text).await;
+                        self.clear_turn_memory_context();
+                        self.check_and_flush_context().await?;
                     }
-
-                    // 턴 종료 후 컨텍스트 윈도우 검사 (Auto-Flush)
-                    #[cfg(feature = "memory")]
-                    self.check_and_flush_context().await?;
                 }
             }
         }
@@ -270,6 +269,9 @@ impl Engine {
                             let sys_msg = Message::text(Role::System, prompt, None);
                             self.push_message(sys_msg);
                         }
+
+                    #[cfg(feature = "memory")]
+                    self.refresh_turn_memory_context(&user_msg).await;
 
                     self.push_message(user_msg.clone());
 
@@ -355,42 +357,11 @@ impl Engine {
                     };
 
                     #[cfg(feature = "memory")]
-                    if let Some(mem) = &self.memory {
-                        use crate::types::MemoryEntry;
-                        use std::time::{SystemTime, UNIX_EPOCH};
-
-                        let now = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-
-                        if let Content::Text { text, .. } = &user_msg.content {
-                            let entry = MemoryEntry {
-                                id: format!("user_{}_{}", now, user_msg.id),
-                                timestamp: now,
-                                tags: vec!["user".to_string()],
-                                content: text.clone(),
-                                score: 0.0,
-                                metadata: Default::default(),
-                            };
-                            let _ = mem.save(&entry).await;
-                        }
-
-                        if let Some(text) = final_assistant_text {
-                            let entry = MemoryEntry {
-                                id: format!("assistant_{}_{}", now + 1, Uuid::new_v4()),
-                                timestamp: now + 1,
-                                tags: vec!["assistant".to_string()],
-                                content: text,
-                                score: 0.0,
-                                metadata: Default::default(),
-                            };
-                            let _ = mem.save(&entry).await;
-                        }
+                    {
+                        self.save_turn_memory_entries(&user_msg, final_assistant_text.as_deref()).await;
+                        self.clear_turn_memory_context();
+                        self.check_and_flush_context().await?;
                     }
-
-                    #[cfg(feature = "memory")]
-                    self.check_and_flush_context().await?;
                 }
             }
         }
@@ -423,7 +394,8 @@ impl Engine {
         spinner.enable_steady_tick(Duration::from_millis(80));
 
         // 도구 명세를 포함하여 스트리밍 시도
-        let mut stream = match self.provider.stream(&self.conversation_history, tools).await {
+        let request_messages = self.request_messages();
+        let mut stream = match self.provider.stream(&request_messages, tools).await {
             Ok(s) => s,
             Err(_) => {
                 spinner.finish_and_clear();
@@ -475,23 +447,5 @@ impl Engine {
             }
             Ok(Some(full_text))
         }
-    }
-
-    /// 컨텍스트 윈도우 점검 후 임계치 초과시 Auto-Flush 및 다단계 스토리지 보관
-    #[cfg(feature = "memory")]
-    async fn check_and_flush_context(&mut self) -> Result<()> {
-        let estimated_tokens: usize = self.conversation_history
-            .iter()
-            .map(|m| m.content_text_len() / 4)
-            .sum();
-
-        if estimated_tokens > 32_000 {
-            if let Some(mem) = &self.memory {
-                mem.flush().await?;
-            }
-            let drain_count = self.conversation_history.len() / 2;
-            self.conversation_history.drain(0..drain_count);
-        }
-        Ok(())
     }
 }
