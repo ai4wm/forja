@@ -4,7 +4,7 @@ use std::io::Write;
 use tokio::sync::{mpsc, Mutex};
 
 #[cfg(feature = "telegram")]
-use teloxide::{prelude::*, types::ParseMode};
+use teloxide::prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum ChannelSource {
@@ -183,21 +183,14 @@ impl Channel for MultiChannel {
                     #[cfg(feature = "telegram")]
                     ChannelSource::Telegram { chat_id } => {
                         if let Some(bot) = &self.telegram_bot {
-                            let send_res = bot
-                                .send_message(teloxide::types::ChatId(chat_id), text.clone())
-                                .parse_mode(ParseMode::Markdown)
-                                .await;
-
-                            if send_res.is_err() {
-                                bot.send_message(teloxide::types::ChatId(chat_id), text.clone())
-                                    .await
-                                    .map_err(|e| {
-                                        forja_core::error::ForjaError::ChannelError(format!(
-                                            "Failed to send Telegram message: {}",
-                                            e
-                                        ))
-                                    })?;
-                            }
+                            bot.send_message(teloxide::types::ChatId(chat_id), text.clone())
+                                .await
+                                .map_err(|e| {
+                                    forja_core::error::ForjaError::ChannelError(format!(
+                                        "Failed to send Telegram message: {}",
+                                        e
+                                    ))
+                                })?;
                             
                             // 터미널에 ● 로그
                             let log_text = text.clone();

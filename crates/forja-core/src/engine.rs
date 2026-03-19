@@ -6,6 +6,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "memory")]
 use crate::traits::MemoryStore;
+#[cfg(feature = "memory")]
+use uuid::Uuid;
 
 const MAX_TOOL_DEPTH: usize = 10;
 
@@ -195,7 +197,7 @@ impl Engine {
 
                         if let Content::Text { text, .. } = &user_msg.content {
                             let entry = MemoryEntry {
-                                id: format!("user_{}", now),
+                                id: format!("user_{}_{}", now, user_msg.id),
                                 timestamp: now,
                                 tags: vec!["user".to_string()],
                                 content: text.clone(),
@@ -207,7 +209,7 @@ impl Engine {
 
                         if let Content::Text { text, .. } = &response.content {
                             let entry = MemoryEntry {
-                                id: format!("assistant_{}", now + 1),
+                                id: format!("assistant_{}_{}", now + 1, Uuid::new_v4()),
                                 timestamp: now + 1,
                                 tags: vec!["assistant".to_string()],
                                 content: text.clone(),
@@ -364,7 +366,7 @@ impl Engine {
 
                         if let Content::Text { text, .. } = &user_msg.content {
                             let entry = MemoryEntry {
-                                id: format!("user_{}", now),
+                                id: format!("user_{}_{}", now, user_msg.id),
                                 timestamp: now,
                                 tags: vec!["user".to_string()],
                                 content: text.clone(),
@@ -376,7 +378,7 @@ impl Engine {
 
                         if let Some(text) = final_assistant_text {
                             let entry = MemoryEntry {
-                                id: format!("assistant_{}", now + 1),
+                                id: format!("assistant_{}_{}", now + 1, Uuid::new_v4()),
                                 timestamp: now + 1,
                                 tags: vec!["assistant".to_string()],
                                 content: text,

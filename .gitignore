@@ -40,3 +40,6 @@ error.log
 *.json
 !Cargo.lock
 !*.toml
+
+# Codex
+codex-reference/

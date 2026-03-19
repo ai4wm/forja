@@ -12,8 +12,8 @@ use std::sync::Arc;
 use tokio_stream::{Stream, StreamExt};
 use std::io::Write;
 use forja_tools::{FileTool, WebTool, ShellTool, SearchTool, SearchProvider, StdinConfirmation, ClaudeCodeTool, CodexTool, GeminiCliTool};
+use forja_memory::MarkdownMemoryStore;
 use provider_registry::ProviderRegistry;
-// use forja_memory::MarkdownMemoryStore;
 
 // ─── Mock LLM (API 키 없이 로컬 테스트용) ────────────────────────────────────
 
@@ -85,9 +85,9 @@ fn print_banner(provider_info: &str) {
 
 // ─── 유틸리티 함수: 프롬프트 파일 로드 ──────────────────────────────────────
 
-/// 프로젝트 내 프롬프트 파일 로드 (우선순위: CLAUDE.md -> FORJA.md -> AGENTS.md)
+/// 프로젝트 내 프롬프트 파일 로드 (우선순위: AGENTS.md -> FORJA.md -> CLAUDE.md)
 fn load_project_prompt() -> Option<(String, String)> {
-    let candidates = ["CLAUDE.md", "FORJA.md", "AGENTS.md"];
+    let candidates = ["AGENTS.md", "FORJA.md", "CLAUDE.md"];
     for file in candidates.iter() {
         if let Ok(content) = std::fs::read_to_string(file)
             && !content.trim().is_empty() {
@@ -284,15 +284,16 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         // engine = engine
     }
 
-    // ── 메모리 스토어 초기화 (비활성) ──
-    // let memory_dir = dirs_next::home_dir()
-    //     .unwrap_or_default()
-    //     .join(".forja")
-    //     .join("memory");
-    // let memory_store = Arc::new(
-    //     MarkdownMemoryStore::new(memory_dir).await
-    //         .expect("Failed to initialize memory store")
-    // );
+    // ── 메모리 스토어 초기화 ──
+    let memory_dir = std::env::var("FORJA_MEMORY_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs_next::home_dir()
+                .unwrap_or_default()
+                .join(".forja")
+                .join("memory")
+        });
+    let memory_store = Arc::new(MarkdownMemoryStore::new(memory_dir).await?);
 
 
     // ── 도구 등록 ──
@@ -375,7 +376,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         None
     });
 
-    let mut engine = engine.with_slash_handler(slash_handler);
+    let mut engine = engine.with_memory(memory_store).with_slash_handler(slash_handler);
 
     println!("[System] Engine is ready. Type /models to list models, /model <name> to switch.");
     print!("\n> ");

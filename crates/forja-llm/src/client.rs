@@ -9,13 +9,11 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use std::pin::Pin;
 use tokio_stream::Stream;
 
-#[cfg(feature = "anthropic")]
-// Removed EventSource and Event as we now use manual SSE chunk parsing for better control
-
 /// OpenAI Chat Completions 포맷을 사용하는 범용 LlmClient
 ///
 /// LlmConfig를 통해 base_url, api_key, model, 헤더 등을 동적으로 외부 주입받아
 /// 다양한 파운데이션 모델(OpenAI, Anthropic, DeepSeek, GLM, 로컬 Ollama)과 통신합니다.
+#[cfg(feature = "anthropic")]
 pub struct LlmClient {
     client: reqwest::Client,
     config: LlmConfig,
@@ -354,56 +352,56 @@ impl LlmProvider for LlmClient {
             let mut collected_text = String::new();
             let mut last_thought_signature: Option<String> = None;
             for line in raw.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) {
-                        let candidates = ev.get("response")
-                            .and_then(|r| r.get("candidates"))
-                            .or_else(|| ev.get("candidates"));
+                if let Some(data) = line.strip_prefix("data: ")
+                    && let Ok(ev) = serde_json::from_str::<serde_json::Value>(data)
+                {
+                    let candidates = ev.get("response")
+                        .and_then(|r| r.get("candidates"))
+                        .or_else(|| ev.get("candidates"));
 
-                        if let Some(candidates) = candidates.and_then(|c| c.as_array()) {
-                            if let Some(candidate) = candidates.first() {
-                                let parts = candidate
-                                    .get("content")
-                                    .and_then(|c| c.get("parts"))
-                                    .and_then(|p| p.as_array());
+                    if let Some(candidates) = candidates.and_then(|c| c.as_array())
+                        && let Some(candidate) = candidates.first()
+                    {
+                        let parts = candidate
+                            .get("content")
+                            .and_then(|c| c.get("parts"))
+                            .and_then(|p| p.as_array());
 
-                                if let Some(parts) = parts {
-                                    for part in parts {
-                                        // 도구 호출 확인
-                                        if let Some(fc) = part.get("functionCall") {
-                                            let call_id = fc.get("id")
-                                                .or_else(|| fc.get("name"))
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or_default()
-                                                .to_string();
-                                            let name = fc.get("name")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or_default()
-                                                .to_string();
-                                            let args = fc.get("args")
-                                                .cloned()
-                                                .unwrap_or(serde_json::json!({}));
-                                                
-                                            let ts = part.get("thoughtSignature")
-                                                .and_then(|v| v.as_str())
-                                                .map(|s| s.to_string());
-                                                
-                                            return Ok(Message::tool_call_with_reasoning(
-                                                &call_id, &name, args, None, ts,
-                                            ));
-                                        }
+                        if let Some(parts) = parts {
+                            for part in parts {
+                                // 도구 호출 확인
+                                if let Some(fc) = part.get("functionCall") {
+                                    let call_id = fc.get("id")
+                                        .or_else(|| fc.get("name"))
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or_default()
+                                        .to_string();
+                                    let name = fc.get("name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or_default()
+                                        .to_string();
+                                    let args = fc.get("args")
+                                        .cloned()
+                                        .unwrap_or(serde_json::json!({}));
 
-                                        // 텍스트 확인 (생각 중인 부분 건너뜀)
-                                        if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) {
-                                            continue;
-                                        }
-                                        if let Some(ts) = part.get("thoughtSignature").and_then(|t| t.as_str()) {
-                                            last_thought_signature = Some(ts.to_string());
-                                        }
-                                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                            collected_text.push_str(text);
-                                        }
-                                    }
+                                    let ts = part.get("thoughtSignature")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string());
+
+                                    return Ok(Message::tool_call_with_reasoning(
+                                        &call_id, &name, args, None, ts,
+                                    ));
+                                }
+
+                                // 텍스트 확인 (생각 중인 부분 건너뜀)
+                                if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) {
+                                    continue;
+                                }
+                                if let Some(ts) = part.get("thoughtSignature").and_then(|t| t.as_str()) {
+                                    last_thought_signature = Some(ts.to_string());
+                                }
+                                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                    collected_text.push_str(text);
                                 }
                             }
                         }
@@ -443,54 +441,41 @@ impl LlmProvider for LlmClient {
             let mut collected_text = String::new();
             let mut last_item_id = String::new();
             let mut last_tool_name = String::new();
-
-            // 디버그: 도구 관련 SSE 이벤트 raw 데이터 확인
             for line in raw.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) {
-                        if let Some(t) = ev["type"].as_str() {
-                            if t.contains("function_call") || t.contains("output_item") {
+                if let Some(data) = line.strip_prefix("data: ")
+                    && let Ok(ev) = serde_json::from_str::<serde_json::Value>(data)
+                {
+                    match ev["type"].as_str() {
+                        Some("response.output_item.added") => {
+                            if let Some(id) = ev["item"]["id"].as_str() {
+                                last_item_id = id.to_string();
+                            }
+                            // 도구 이름이 여기에 포함되어 있을 수 있음
+                            if let Some(name) = ev["item"]["name"].as_str() {
+                                last_tool_name = name.to_string();
                             }
                         }
-                    }
-                }
-            }
-
-            for line in raw.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) {
-                        match ev["type"].as_str() {
-                            Some("response.output_item.added") => {
-                                if let Some(id) = ev["item"]["id"].as_str() {
-                                    last_item_id = id.to_string();
-                                }
-                                // 도구 이름이 여기에 포함되어 있을 수 있음
-                                if let Some(name) = ev["item"]["name"].as_str() {
-                                    last_tool_name = name.to_string();
-                                }
+                        Some("response.output_text.delta") => {
+                            if let Some(d) = ev["delta"].as_str() {
+                                collected_text.push_str(d);
                             }
-                            Some("response.output_text.delta") => {
-                                if let Some(d) = ev["delta"].as_str() {
-                                    collected_text.push_str(d);
-                                }
-                            }
-                            Some("response.function_call_arguments.done") => {
-                                let call_id = ev["call_id"].as_str()
-                                    .or_else(|| ev["item_id"].as_str())
-                                    .unwrap_or(&last_item_id)
-                                    .to_string();
-                                let name = ev["name"].as_str()
-                                    .map(|s| s.to_string())
-                                    .filter(|s| !s.is_empty())
-                                    .unwrap_or_else(|| last_tool_name.clone());
-                                
-                                let args_str = ev["arguments"].as_str().unwrap_or("{}");
-                                let args = serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
-                                return Ok(Message::tool_call_with_reasoning(&call_id, &name, args, None, None));
-                            }
-                            Some("response.completed") | Some("response.failed") => break,
-                            _ => {}
                         }
+                        Some("response.function_call_arguments.done") => {
+                            let call_id = ev["call_id"].as_str()
+                                .or_else(|| ev["item_id"].as_str())
+                                .unwrap_or(&last_item_id)
+                                .to_string();
+                            let name = ev["name"].as_str()
+                                .map(|s| s.to_string())
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or_else(|| last_tool_name.clone());
+
+                            let args_str = ev["arguments"].as_str().unwrap_or("{}");
+                            let args = serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
+                            return Ok(Message::tool_call_with_reasoning(&call_id, &name, args, None, None));
+                        }
+                        Some("response.completed") | Some("response.failed") => break,
+                        _ => {}
                     }
                 }
             }
@@ -611,40 +596,40 @@ impl LlmProvider for LlmClient {
                     if line.is_empty() { continue; }
                     if line == "data: [DONE]" { break; }
 
-                    if let Some(data) = line.strip_prefix("data: ") {
-                        if let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) {
-                            if is_gemini {
-                                let candidates = ev.get("response")
-                                    .and_then(|r| r.get("candidates"))
-                                    .or_else(|| ev.get("candidates"));
-                                if let Some(candidates) = candidates.and_then(|c| c.as_array()) {
-                                    if let Some(candidate) = candidates.first() {
-                                        if candidate.get("finishReason").is_some() { break; }
-                                        if let Some(parts) = candidate.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
-                                            for part in parts {
-                                                if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) { continue; }
-                                                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                                    yield Ok(text.to_string());
-                                                }
-                                            }
+                    if let Some(data) = line.strip_prefix("data: ")
+                        && let Ok(ev) = serde_json::from_str::<serde_json::Value>(data)
+                    {
+                        if is_gemini {
+                            let candidates = ev.get("response")
+                                .and_then(|r| r.get("candidates"))
+                                .or_else(|| ev.get("candidates"));
+                            if let Some(candidates) = candidates.and_then(|c| c.as_array())
+                                && let Some(candidate) = candidates.first()
+                            {
+                                if candidate.get("finishReason").is_some() { break; }
+                                if let Some(parts) = candidate.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
+                                    for part in parts {
+                                        if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) { continue; }
+                                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                            yield Ok(text.to_string());
                                         }
                                     }
                                 }
-                            } else if is_responses {
-                                match ev["type"].as_str() {
-                                    Some("response.output_text.delta") => {
-                                        if let Some(delta) = ev["delta"].as_str() {
-                                            yield Ok(delta.to_string());
-                                        }
+                            }
+                        } else if is_responses {
+                            match ev["type"].as_str() {
+                                Some("response.output_text.delta") => {
+                                    if let Some(delta) = ev["delta"].as_str() {
+                                        yield Ok(delta.to_string());
                                     }
-                                    Some("response.completed") | Some("response.failed") => break,
-                                    _ => {}
                                 }
-                            } else {
-                                // Default OpenAI format
-                                if let Some(text) = ev["choices"][0]["delta"]["content"].as_str() {
-                                    yield Ok(text.to_string());
-                                }
+                                Some("response.completed") | Some("response.failed") => break,
+                                _ => {}
+                            }
+                        } else {
+                            // Default OpenAI format
+                            if let Some(text) = ev["choices"][0]["delta"]["content"].as_str() {
+                                yield Ok(text.to_string());
                             }
                         }
                     }
