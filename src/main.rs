@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio_stream::{Stream, StreamExt};
 use std::io::Write;
 use forja_tools::{FileTool, WebTool, ShellTool, SearchTool, SearchProvider, StdinConfirmation, ClaudeCodeTool, CodexTool, GeminiCliTool};
-use forja_memory::MarkdownMemoryStore;
+use forja_memory::{MarkdownMemoryStore, MemoryLoadOptions};
 use provider_registry::ProviderRegistry;
 
 // ─── Mock LLM (API 키 없이 로컬 테스트용) ────────────────────────────────────
@@ -293,7 +293,18 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .join(".forja")
                 .join("memory")
         });
-    let memory_store = Arc::new(MarkdownMemoryStore::new(memory_dir).await?);
+    let mut memory_load_options = MemoryLoadOptions::default();
+    if let Ok(value) = std::env::var("FORJA_MEMORY_MAX_FILES")
+        && let Ok(parsed) = value.parse::<usize>() {
+            memory_load_options.max_files = Some(parsed);
+        }
+    if let Ok(value) = std::env::var("FORJA_MEMORY_MAX_DAYS")
+        && let Ok(parsed) = value.parse::<u64>() {
+            memory_load_options.recent_days = Some(parsed);
+        }
+    let memory_store = Arc::new(
+        MarkdownMemoryStore::new_with_options(memory_dir, memory_load_options).await?
+    );
 
 
     // ── 도구 등록 ──
