@@ -12,8 +12,18 @@ use crate::traits::MemoryStore;
 
 const MAX_TOOL_DEPTH: usize = 10;
 
+pub enum SlashCommandResult {
+    Reply(String),
+    UpdateSystemPrompt {
+        reply: String,
+        system_prompt: Option<String>,
+        reset_history: bool,
+    },
+}
+
 /// /models, /model 슬래시 명령 처리용 콜백 타입
-pub type SlashHandler = Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>) -> Option<String> + Send + Sync>;
+pub type SlashHandler =
+    Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>) -> Option<SlashCommandResult> + Send + Sync>;
 
 /// Forja의 핵심 엔진 코어
 ///
@@ -21,6 +31,7 @@ pub type SlashHandler = Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>) -> Option<St
 /// 메인 이벤트 루프 및 도구 호출의 재귀적 평가(handle_step)를 담당합니다.
 pub struct Engine {
     provider: Arc<dyn LlmProvider>,
+    #[cfg_attr(not(feature = "runtime"), allow(dead_code))]
     channel: Arc<dyn Channel>,
     tools: HashMap<String, Arc<dyn Tool>>,
     conversation_history: Vec<Message>,
@@ -104,7 +115,10 @@ impl Engine {
     }
 
     fn request_messages(&self) -> Vec<Message> {
+        #[cfg(feature = "memory")]
         let mut messages = self.conversation_history.clone();
+        #[cfg(not(feature = "memory"))]
+        let messages = self.conversation_history.clone();
 
         #[cfg(feature = "memory")]
         if let Some(memory_context) = &self.turn_memory_context {
@@ -119,6 +133,26 @@ impl Engine {
         }
 
         messages
+    }
+
+    #[cfg(feature = "runtime")]
+    fn apply_system_prompt_update(
+        &mut self,
+        next_system_prompt: Option<String>,
+        reset_history: bool,
+    ) {
+        self.system_prompt = next_system_prompt.clone();
+
+        if reset_history {
+            self.conversation_history.clear();
+        } else {
+            self.conversation_history.retain(|message| message.role != Role::System);
+        }
+
+        if let Some(system_prompt) = next_system_prompt {
+            let system_message = Message::text(Role::System, system_prompt, None);
+            self.conversation_history.insert(0, system_message);
+        }
     }
 
     /// 한 턴(step)을 평가하고 처리합니다.
@@ -256,7 +290,19 @@ impl Engine {
                         None
                     };
 
-                    if let Some(reply) = slash_reply {
+                    if let Some(slash_result) = slash_reply {
+                        let reply = match slash_result {
+                            SlashCommandResult::Reply(reply) => reply,
+                            SlashCommandResult::UpdateSystemPrompt {
+                                reply,
+                                system_prompt,
+                                reset_history,
+                            } => {
+                                self.apply_system_prompt_update(system_prompt, reset_history);
+                                reply
+                            }
+                        };
+
                         let reply_msg = Message::text(Role::Assistant, &reply, None);
                         let _ = self.channel.send(reply_msg).await;
                         // 슬래시 명령은 대화 히스토리에 추가하지 않음

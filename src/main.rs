@@ -1,6 +1,7 @@
 mod config;
 mod provider_registry;
 mod oauth;
+mod bootstrap;
 
 use async_trait::async_trait;
 use forja_core::error::Result;
@@ -97,13 +98,34 @@ fn load_project_prompt() -> Option<(String, String)> {
     None
 }
 
-/// 사용자 글로벌 설정 프롬프트 로드 (~/.forja/USER.md)
-fn load_user_prompt() -> Option<String> {
-    dirs_next::home_dir()
-        .map(|home| home.join(".forja").join("USER.md"))
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .map(|c| c.trim().to_string())
-        .filter(|c| !c.is_empty())
+fn build_system_prompt(
+    bootstrap_paths: &bootstrap::BootstrapPaths,
+) -> std::io::Result<(String, Option<String>)> {
+    let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
+    let bootstrap_prompt = bootstrap::compose_system_prompt_prefix(bootstrap_paths)?;
+    let project_prompt = load_project_prompt();
+    let loaded_project_file = project_prompt.as_ref().map(|(file_name, _)| file_name.clone());
+
+    let mut combined_prompt = String::new();
+
+    if !bootstrap_prompt.trim().is_empty() {
+        combined_prompt.push_str(&bootstrap_prompt);
+    }
+
+    if let Some((_, project_content)) = project_prompt {
+        if !combined_prompt.is_empty() {
+            combined_prompt.push_str("\n\n---\n\n");
+        }
+        combined_prompt.push_str(&project_content);
+    }
+
+    if !combined_prompt.is_empty() {
+        combined_prompt.push_str(&format!(
+            "\n\n오늘 날짜는 {today}입니다. 이 날짜는 정확하며 의심하지 마세요. 검색 결과의 날짜가 오늘과 일치하면 최신 정보입니다."
+        ));
+    }
+
+    Ok((combined_prompt, loaded_project_file))
 }
 
 // ─── 진입점 ─────────────────────────────────────────────────────────────────
@@ -205,6 +227,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let info = config::provider_info(&forja_cfg);
     print_banner(&info);
 
+    let bootstrap_paths = bootstrap::default_paths();
+    let bootstrap_outcome = bootstrap::ensure_bootstrap(&bootstrap_paths)?;
+    let (combined_prompt, loaded_project_file) = build_system_prompt(&bootstrap_paths)?;
+    if let Some(file_name) = loaded_project_file {
+        println!("[System] {file_name} 로드됨");
+    }
+
     // ── ProviderRegistry 초기화 ──
     let registry = ProviderRegistry::from_config(&forja_cfg);
 
@@ -223,7 +252,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
 
     // ── 채널 설정 ──
-    let channel: Arc<dyn Channel> = {
+    let (channel, interactive_identity_supported, print_initial_prompt): (
+        Arc<dyn Channel>,
+        bool,
+        bool,
+    ) = {
         #[cfg(feature = "telegram")]
         {
             let bot_token = forja_cfg.channel.telegram.bot_token.clone()
@@ -236,52 +269,35 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 } else {
                     println!("[System] MultiChannel starting with CLI + Telegram (IDs: {:?})", allowed);
                 }
-                Arc::new(forja_channel::multi::MultiChannel::new_both(token, allowed).await)
+                (
+                    Arc::new(forja_channel::multi::MultiChannel::new_both(token, allowed).await),
+                    false,
+                    true,
+                )
             } else {
                 println!("[System] CLI mode (Telegram not configured)");
-                Arc::new(forja_channel::multi::MultiChannel::new_cli_only().await)
+                (
+                    Arc::new(forja_channel::cli::CliChannel::new()),
+                    true,
+                    false,
+                )
             }
         }
         #[cfg(not(feature = "telegram"))]
         {
-            Arc::new(forja_channel::multi::MultiChannel::new_cli_only().await)
+            (
+                Arc::new(forja_channel::cli::CliChannel::new()),
+                true,
+                false,
+            )
         }
     };
 
     // ── System Prompt 설정 ──
-    let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
-    
-    // 1. 글로벌 USER.md
-    let user_prompt = load_user_prompt();
-    // 2. 프로젝트 특화 프롬프트
-    let project_prompt = load_project_prompt();
-
-    let mut combined_prompt = String::new();
-
-    if let Some(user_content) = user_prompt {
-        combined_prompt.push_str(&user_content);
-    }
-
-    if let Some((file_name, project_content)) = project_prompt {
-        if !combined_prompt.is_empty() {
-            combined_prompt.push_str("\n\n---\n\n");
-        }
-        combined_prompt.push_str(&project_content);
-        println!("[System] {} 로드됨", file_name);
-    }
-
-    let mut engine = Engine::new(provider, channel);
+    let mut engine = Engine::new(provider, channel.clone());
 
     if !combined_prompt.is_empty() {
-        // 프롬프트가 존재하는 경우에만 날짜 정보 추가 후 주입
-        combined_prompt.push_str(&format!(
-            "\n\n오늘 날짜는 {}입니다. 이 날짜는 정확하며 의심하지 마세요. 검색 결과의 날짜가 오늘과 일치하면 최신 정보입니다.",
-            today
-        ));
         engine = engine.with_system_prompt(combined_prompt);
-    } else {
-        // 프롬프트 파일이 없으면 프롬프트를 None 상태로 실행시킴
-        // engine = engine
     }
 
     // ── 메모리 스토어 초기화 ──
@@ -345,37 +361,57 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // ── 슬래시 핸들러: ProviderRegistry 를 캐폁한 클로저 ──
     let registry = std::sync::Mutex::new(registry);
+    let channel_for_slash = channel.clone();
+    let bootstrap_paths_for_slash = bootstrap_paths.clone();
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(move |text: &str, provider: &mut Arc<dyn LlmProvider>| {
         let text = text.trim();
 
         if text == "/models" {
             let reg = registry.lock().unwrap();
-            return Some(reg.list_for_config(&cfg_for_handler));
+            return Some(forja_core::engine::SlashCommandResult::Reply(
+                reg.list_for_config(&cfg_for_handler),
+            ));
         }
 
         if text == "/model" {
             let reg = registry.lock().unwrap();
             let e = reg.active();
-            return Some(format!("현재 모델: **{}** ({}/{})", e.label, e.provider, e.model_id));
+            return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                "현재 모델: **{}** ({}/{})",
+                e.label, e.provider, e.model_id
+            )));
         }
 
         if let Some(target) = text.strip_prefix("/model ") {
             let mut reg = registry.lock().unwrap();
             match reg.resolve(target, &cfg_for_handler) {
-                None => return Some(format!("❌ '{}' 모델을 찾을 수 없습니다. `/models`로 목록을 확인하세요.", target)),
+                None => {
+                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                        "❌ '{}' 모델을 찾을 수 없습니다. `/models`로 목록을 확인하세요.",
+                        target
+                    )))
+                }
                 Some(idx) => {
                     match reg.switch_to(idx, &cfg_for_handler) {
-                        Err(e) => return Some(format!("❌ 전환 실패: {}", e)),
+                        Err(e) => {
+                            return Some(forja_core::engine::SlashCommandResult::Reply(
+                                format!("❌ 전환 실패: {e}"),
+                            ))
+                        }
                         Ok(new_config) => {
                             match forja_llm::LlmClient::new(new_config) {
-                                Err(e) => return Some(format!("❌ LlmClient 생성 실패: {}", e)),
+                                Err(e) => {
+                                    return Some(forja_core::engine::SlashCommandResult::Reply(
+                                        format!("❌ LlmClient 생성 실패: {e}"),
+                                    ))
+                                }
                                 Ok(client) => {
                                     let entry = reg.active();
                                     *provider = Arc::new(client);
-                                    return Some(format!(
+                                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
                                         "✅ 모델 전환: **{}** ({}/{})",
                                         entry.label, entry.provider, entry.model_id
-                                    ));
+                                    )));
                                 }
                             }
                         }
@@ -384,14 +420,52 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        if text == "/identity" {
+            if !interactive_identity_supported || !channel_for_slash.is_cli_source() {
+                return Some(forja_core::engine::SlashCommandResult::Reply(
+                    "이 명령은 CLI 단독 모드에서만 지원됩니다.".to_string(),
+                ));
+            }
+
+            let outcome = match bootstrap::reset_bootstrap(&bootstrap_paths_for_slash) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                        "❌ identity 재설정 실패: {error}"
+                    )))
+                }
+            };
+
+            let system_prompt = match build_system_prompt(&bootstrap_paths_for_slash) {
+                Ok((system_prompt, _)) => system_prompt,
+                Err(error) => {
+                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                        "❌ 시스템 프롬프트 재구성 실패: {error}"
+                    )))
+                }
+            };
+
+            return Some(forja_core::engine::SlashCommandResult::UpdateSystemPrompt {
+                reply: outcome.profile.greeting(),
+                system_prompt: Some(system_prompt),
+                reset_history: true,
+            });
+        }
+
         None
     });
 
     let mut engine = engine.with_memory(memory_store).with_slash_handler(slash_handler);
 
+    if let Some(greeting) = bootstrap_outcome.greeting {
+        println!("{greeting}");
+    }
+
     println!("[System] Engine is ready. Type /models to list models, /model <name> to switch.");
-    print!("\n> ");
-    std::io::stdout().flush().ok();
+    if print_initial_prompt {
+        print!("\n> ");
+        std::io::stdout().flush().ok();
+    }
 
     engine.run_streaming(async {
         let _ = tokio::signal::ctrl_c().await;

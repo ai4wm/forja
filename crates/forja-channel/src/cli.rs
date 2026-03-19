@@ -75,4 +75,8 @@ impl Channel for CliChannel {
         }
         Ok(())
     }
+
+    fn is_cli_source(&self) -> bool {
+        true
+    }
 }
