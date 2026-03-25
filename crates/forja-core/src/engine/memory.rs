@@ -97,6 +97,6 @@ impl Engine {
 
 fn format_memory_context(contents: &str) -> String {
     format!(
-        "[memory.md]\n당신은 롤링 메모리 방식으로 동작합니다.\n모든 대화는 영구 저장됩니다.\n아래에 과거 대화 기록이 포함되어 있습니다.\n'세션'이라는 표현을 사용하지 마세요.\nUse this rolling conversation memory only when it is relevant.\n{contents}"
+        "[memory.md - Persistent Memory]\n\n## Mandatory Rules (NEVER violate)\n1. You have a rolling memory system. The records below are real past conversations.\n2. When asked \"do you remember?\", if the information exists below, answer \"Yes, I remember.\"\n3. NEVER use phrases like \"current session\", \"provided in this conversation\", or \"I cannot browse past records.\"\n4. Only say \"I don't have that in my records\" if the information is truly absent below.\n5. Do NOT downplay your memory capabilities. The records below ARE your memory.\n\n## Past conversation records:\n{contents}"
     )
 }
