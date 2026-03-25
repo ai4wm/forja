@@ -4,7 +4,7 @@ mod oauth;
 mod bootstrap;
 
 use async_trait::async_trait;
-use forja_core::error::Result;
+use forja_core::error::{ForjaError, Result};
 use forja_core::traits::LlmProvider;
 use forja_core::{Channel, Content, Engine, Message, Role, ToolDefinition};
 use forja_llm::LlmClient;
@@ -126,6 +126,47 @@ fn build_system_prompt(
     }
 
     Ok((combined_prompt, loaded_project_file))
+}
+
+fn auto_summarize_enabled() -> bool {
+    !matches!(
+        std::env::var("FORJA_AUTO_SUMMARIZE"),
+        Ok(value) if value.eq_ignore_ascii_case("false")
+    )
+}
+
+async fn summarize_memory_block(
+    provider: Arc<dyn LlmProvider>,
+    block: String,
+) -> Result<String> {
+    let response = provider
+        .chat(
+            &[
+                Message::text(
+                    Role::System,
+                    "Summarize one daily memory.md block into at most three plain-text lines. Return only the summary lines.",
+                    None,
+                ),
+                Message::text(
+                    Role::User,
+                    format!(
+                        "아래 하루치 memory.md 기록을 한국어로 최대 3줄로 요약하세요.\n\
+중요한 선호, 결정, 진행 중 작업만 남기고 군더더기 없이 평문으로만 답하세요.\n\
+\n{block}"
+                    ),
+                    None,
+                ),
+            ],
+            None,
+        )
+        .await?;
+
+    match response.content {
+        Content::Text { text, .. } => Ok(text),
+        _ => Err(ForjaError::LlmError(
+            "memory summary response was not text".to_string(),
+        )),
+    }
 }
 
 // ─── 진입점 ─────────────────────────────────────────────────────────────────
@@ -294,7 +335,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
 
     // ── System Prompt 설정 ──
-    let mut engine = Engine::new(provider, channel.clone());
+    let mut engine = Engine::new(provider.clone(), channel.clone());
 
     if !combined_prompt.is_empty() {
         engine = engine.with_system_prompt(combined_prompt);
@@ -311,6 +352,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         });
     let memory_path = memory_dir.join("memory.md");
     let memory_store = Arc::new(MarkdownMemoryStore::new(memory_path).await?);
+
+    if auto_summarize_enabled() {
+        let summary_provider = provider.clone();
+        if let Err(error) = memory_store
+            .flush_and_summarize(|block: String| {
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current()
+                        .block_on(summarize_memory_block(summary_provider.clone(), block))
+                })
+            })
+            .await
+        {
+            eprintln!("[Memory] auto summarize failed: {error}");
+        }
+    }
 
 
     // ── 도구 등록 ──
