@@ -1,4 +1,5 @@
 pub mod engine;
+pub mod emotion;
 #[cfg(feature = "runtime")]
 pub mod scheduler;
 pub mod error;

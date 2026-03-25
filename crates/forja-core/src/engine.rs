@@ -1,8 +1,11 @@
 use crate::error::{ForjaError, Result};
+use crate::emotion::EmotionEngine;
 use crate::traits::{Channel, LlmProvider, Tool};
 use crate::types::{Content, Message, Role, ToolDefinition};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+mod emotion;
 
 #[cfg(feature = "memory")]
 mod memory;
@@ -38,6 +41,9 @@ pub struct Engine {
     max_history: usize,
     system_prompt: Option<String>,
     slash_handler: Option<SlashHandler>,
+    emotion: Option<EmotionEngine>,
+    turn_tone_context: Option<String>,
+    turn_relationship_context: Option<String>,
 
     #[cfg(feature = "memory")]
     memory: Option<Arc<dyn MemoryStore>>,
@@ -56,6 +62,9 @@ impl Engine {
             max_history: 100,
             system_prompt: None,
             slash_handler: None,
+            emotion: None,
+            turn_tone_context: None,
+            turn_relationship_context: None,
             #[cfg(feature = "memory")]
             memory: None,
             #[cfg(feature = "memory")]
@@ -66,6 +75,11 @@ impl Engine {
     /// 커스텀 System Prompt를 설정합니다. (history 주입은 메시지 수신 시 처리)
     pub fn with_system_prompt(mut self, prompt: String) -> Self {
         self.system_prompt = Some(prompt);
+        self
+    }
+
+    pub fn with_emotion(mut self, emotion: EmotionEngine) -> Self {
+        self.emotion = Some(emotion);
         self
     }
 
@@ -115,17 +129,30 @@ impl Engine {
     }
 
     fn request_messages(&self) -> Vec<Message> {
-        #[cfg(feature = "memory")]
         let mut messages = self.conversation_history.clone();
-        #[cfg(not(feature = "memory"))]
-        let messages = self.conversation_history.clone();
+        let mut insertion_index = messages
+            .iter()
+            .take_while(|message| message.role == Role::System)
+            .count();
+
+        if let Some(tone_context) = &self.turn_tone_context {
+            messages.insert(
+                insertion_index,
+                Message::text(Role::System, tone_context.clone(), None),
+            );
+            insertion_index += 1;
+        }
+
+        if let Some(relationship_context) = &self.turn_relationship_context {
+            messages.insert(
+                insertion_index,
+                Message::text(Role::System, relationship_context.clone(), None),
+            );
+            insertion_index += 1;
+        }
 
         #[cfg(feature = "memory")]
         if let Some(memory_context) = &self.turn_memory_context {
-            let insertion_index = messages
-                .iter()
-                .take_while(|message| message.role == Role::System)
-                .count();
             messages.insert(
                 insertion_index,
                 Message::text(Role::System, memory_context.clone(), None),
@@ -236,9 +263,11 @@ impl Engine {
                         }
 
                     #[cfg(feature = "memory")]
-                    self.refresh_turn_memory_context(&user_msg).await;
-
                     self.push_message(user_msg.clone());
+                    self.refresh_turn_emotion_context().await;
+
+                    #[cfg(feature = "memory")]
+                    self.refresh_turn_memory_context(&user_msg).await;
 
                     // LLM 프로바이더로 전달하여 한 턴 평가 (handle_step 내부에서 도구 명세 수집함)
                     let response = self.handle_step(0).await?;
@@ -256,6 +285,8 @@ impl Engine {
                         self.clear_turn_memory_context();
                         self.check_and_flush_context().await?;
                     }
+
+                    self.clear_turn_emotion_context();
                 }
             }
         }
@@ -317,9 +348,11 @@ impl Engine {
                         }
 
                     #[cfg(feature = "memory")]
-                    self.refresh_turn_memory_context(&user_msg).await;
-
                     self.push_message(user_msg.clone());
+                    self.refresh_turn_emotion_context().await;
+
+                    #[cfg(feature = "memory")]
+                    self.refresh_turn_memory_context(&user_msg).await;
 
                     // 스트리밍 + 폴백 전체 에러를 catch
                     let response_result = async {
@@ -408,6 +441,8 @@ impl Engine {
                         self.clear_turn_memory_context();
                         self.check_and_flush_context().await?;
                     }
+
+                    self.clear_turn_emotion_context();
                 }
             }
         }

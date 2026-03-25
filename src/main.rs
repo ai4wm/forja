@@ -4,8 +4,9 @@ mod oauth;
 mod bootstrap;
 
 use async_trait::async_trait;
+use forja_core::emotion::{EmotionEngine, MoodState, generate_startup_greeting};
 use forja_core::error::{ForjaError, Result};
-use forja_core::traits::LlmProvider;
+use forja_core::traits::{LlmProvider, MemoryStore};
 use forja_core::{Channel, Content, Engine, Message, Role, ToolDefinition};
 use forja_llm::LlmClient;
 use std::pin::Pin;
@@ -30,6 +31,22 @@ impl LlmProvider for MockLlmProvider {
                 _ => "(no text)".to_string(),
             })
             .unwrap_or_default();
+
+        if last.contains("감정 상태를 JSON으로만 응답하세요.") {
+            return Ok(Message::text(
+                Role::Assistant,
+                r#"{"mood":"neutral","intensity":1,"reason":"mock mode","tone_instruction":"균형 잡힌 존중의 톤으로 답하세요."}"#,
+                None,
+            ));
+        }
+
+        if last.contains("자연스럽게 건넬 인사를 한 문장으로 하세요.") {
+            return Ok(Message::text(Role::Assistant, "NONE", None));
+        }
+
+        if last.contains("하루치 memory.md 기록을 한국어로 최대 3줄로 요약하세요.") {
+            return Ok(Message::text(Role::Assistant, "Mock 요약", None));
+        }
 
         Ok(Message::text(
             Role::Assistant,
@@ -368,6 +385,26 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let memory_contents = match memory_store.load_all().await {
+        Ok(contents) => contents,
+        Err(error) => {
+            eprintln!("[Memory] failed to load memory for emotion bootstrap: {error}");
+            String::new()
+        }
+    };
+    let restored_mood = EmotionEngine::restore_from_memory(&memory_contents)
+        .unwrap_or_else(MoodState::neutral);
+    let startup_greeting = generate_startup_greeting(
+        provider.as_ref(),
+        &bootstrap_outcome.profile.identity.name,
+        &bootstrap_outcome.profile.user.name,
+        &memory_contents,
+        bootstrap_outcome.greeting.is_some(),
+    )
+    .await
+    .unwrap_or(None);
+    engine = engine.with_emotion(EmotionEngine::new(restored_mood));
+
 
     // ── 도구 등록 ──
     let file_tool = Arc::new(FileTool::new());
@@ -504,6 +541,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut engine = engine.with_memory(memory_store).with_slash_handler(slash_handler);
 
     if let Some(greeting) = bootstrap_outcome.greeting {
+        println!("{greeting}");
+    } else if let Some(greeting) = startup_greeting {
         println!("{greeting}");
     }
 
