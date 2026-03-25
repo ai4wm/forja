@@ -181,7 +181,7 @@ async fn restart_loads_memory_md_into_engine_prompt() {
     let requests = provider.chat_texts().await;
     assert_eq!(requests.len(), 1);
     assert!(requests[0].contains("System:base system prompt"));
-    assert!(requests[0].contains("System:[memory.md]"));
+    assert!(requests[0].contains("System:[memory.md - Persistent Memory]"));
     assert!(requests[0].contains("| user | I prefer oolong tea."));
     assert!(requests[0].contains("| assistant | You previously said you like oolong tea."));
     assert!(requests[0].contains("User:What tea do I like?"));

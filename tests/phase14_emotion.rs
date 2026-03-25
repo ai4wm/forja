@@ -348,7 +348,7 @@ async fn tone_instruction_is_injected_into_system_prompt() {
     assert!(main_request.contains("System:base system prompt"));
     assert!(main_request.contains("System:[tone]"));
     assert!(main_request.contains("짧고 또렷하게 안내하세요"));
-    assert!(main_request.contains("System:[memory.md]"));
+    assert!(main_request.contains("System:[memory.md - Persistent Memory]"));
 }
 
 #[tokio::test]
