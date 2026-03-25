@@ -538,15 +538,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         None
     });
 
+    let identity_name = bootstrap_outcome.profile.identity.name.clone();
+    let displayed_greeting = bootstrap_outcome.greeting.or(startup_greeting);
     let mut engine = engine.with_memory(memory_store).with_slash_handler(slash_handler);
 
-    if let Some(greeting) = bootstrap_outcome.greeting {
-        println!("{greeting}");
-    } else if let Some(greeting) = startup_greeting {
-        println!("{greeting}");
-    }
-
     println!("[System] Engine is ready. Type /models to list models, /model <name> to switch.");
+    if let Some(greeting) = displayed_greeting {
+        println!();
+        println!("{identity_name}: {greeting}");
+    }
     if print_initial_prompt {
         print!("\n> ");
         std::io::stdout().flush().ok();
