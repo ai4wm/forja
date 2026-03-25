@@ -4,12 +4,9 @@ use crate::types::{Content, MemoryEntry, Message};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
-const MEMORY_SEARCH_LIMIT: usize = 3;
-const MAX_MEMORY_SNIPPET_CHARS: usize = 240;
-
 impl Engine {
-    pub(super) async fn refresh_turn_memory_context(&mut self, user_msg: &Message) {
-        self.turn_memory_context = self.build_turn_memory_context(user_msg).await;
+    pub(super) async fn refresh_turn_memory_context(&mut self, _user_msg: &Message) {
+        self.turn_memory_context = self.build_turn_memory_context().await;
     }
 
     pub(super) fn clear_turn_memory_context(&mut self) {
@@ -79,58 +76,27 @@ impl Engine {
         Ok(())
     }
 
-    async fn build_turn_memory_context(&self, user_msg: &Message) -> Option<String> {
-        let query = match &user_msg.content {
-            Content::Text { text, .. } => text.trim(),
-            _ => return None,
-        };
-
-        if query.is_empty() {
-            return None;
-        }
-
+    async fn build_turn_memory_context(&self) -> Option<String> {
         let memory = self.memory.as_ref()?;
-        let entries = match memory.search(query, MEMORY_SEARCH_LIMIT).await {
-            Ok(entries) => entries,
+        let contents = match memory.load_all().await {
+            Ok(contents) => contents,
             Err(error) => {
-                eprintln!("[Memory] search failed: {error}");
+                eprintln!("[Memory] load_all failed: {error}");
                 return None;
             }
         };
 
-        if entries.is_empty() {
+        let trimmed = contents.trim();
+        if trimmed.is_empty() {
             return None;
         }
 
-        Some(format_memory_context(&entries))
+        Some(format_memory_context(trimmed))
     }
 }
 
-fn format_memory_context(entries: &[MemoryEntry]) -> String {
-    let mut lines = vec![
-        "Relevant memory context from prior conversation:".to_string(),
-        "Use it only if it is relevant to the current request.".to_string(),
-    ];
-
-    for (index, entry) in entries.iter().enumerate() {
-        lines.push(format!(
-            "{}. [score={:.2}] {}",
-            index + 1,
-            entry.score,
-            truncate_memory_content(&entry.content)
-        ));
-    }
-
-    lines.join("\n")
-}
-
-fn truncate_memory_content(content: &str) -> String {
-    let normalized = content.split_whitespace().collect::<Vec<_>>().join(" ");
-
-    if normalized.chars().count() <= MAX_MEMORY_SNIPPET_CHARS {
-        return normalized;
-    }
-
-    let snippet: String = normalized.chars().take(MAX_MEMORY_SNIPPET_CHARS).collect();
-    format!("{snippet}...")
+fn format_memory_context(contents: &str) -> String {
+    format!(
+        "[memory.md]\nUse this rolling conversation memory only when it is relevant.\n{contents}"
+    )
 }

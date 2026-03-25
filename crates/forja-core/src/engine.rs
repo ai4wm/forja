@@ -122,14 +122,14 @@ impl Engine {
 
         #[cfg(feature = "memory")]
         if let Some(memory_context) = &self.turn_memory_context {
-            if let Some(first_message) = messages.first_mut()
-                && first_message.role == Role::System
-                && let Content::Text { text, .. } = &mut first_message.content {
-                    text.push_str("\n\n");
-                    text.push_str(memory_context);
-                } else {
-                    messages.insert(0, Message::text(Role::System, memory_context, None));
-                }
+            let insertion_index = messages
+                .iter()
+                .take_while(|message| message.role == Role::System)
+                .count();
+            messages.insert(
+                insertion_index,
+                Message::text(Role::System, memory_context.clone(), None),
+            );
         }
 
         messages

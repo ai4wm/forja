@@ -19,11 +19,10 @@ pub trait LlmProvider: Send + Sync {
 }
 
 /// 기억 저장소 (forja-memory에서 구현: 마크다운 파일, 벡터 DB 등).
-/// search는 MemoryEntry를 반환하여 점수 기반 정렬을 지원.
 #[async_trait]
 pub trait MemoryStore: Send + Sync {
     async fn save(&self, entry: &MemoryEntry) -> Result<()>;
-    async fn search(&self, query: &str, limit: usize) -> Result<Vec<MemoryEntry>>;
+    async fn load_all(&self) -> Result<String>;
     async fn flush(&self) -> Result<()>;
 }
 
