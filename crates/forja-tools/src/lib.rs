@@ -1,4 +1,5 @@
 pub mod confirm;
+pub mod browser;
 pub mod file;
 pub mod input;
 pub mod web;
@@ -9,6 +10,7 @@ pub mod codex;
 pub mod gemini_cli;
 
 pub use confirm::StdinConfirmation;
+pub use browser::BrowserTool;
 pub use file::FileTool;
 pub use input::InputTool;
 pub use web::WebTool;

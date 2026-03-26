@@ -20,7 +20,8 @@ use std::sync::Arc;
 use tokio_stream::{Stream, StreamExt};
 use std::io::Write;
 use forja_tools::{
-    ClaudeCodeTool, CodexTool, FileTool, GeminiCliTool, InputTool, SearchProvider,
+    browser::MockBrowserBackend, BrowserTool, ClaudeCodeTool, CodexTool, FileTool,
+    GeminiCliTool, InputTool, SearchProvider,
     SearchTool, ShellTool, StdinConfirmation, WebTool,
 };
 use forja_memory::MarkdownMemoryStore;
@@ -136,6 +137,7 @@ fn build_system_prompt(
     bootstrap_paths: &bootstrap::BootstrapPaths,
     shell_enabled: bool,
     input_enabled: bool,
+    browser_enabled: bool,
 ) -> std::io::Result<(String, Option<String>)> {
     let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
     let bootstrap_prompt = bootstrap::compose_system_prompt_prefix(bootstrap_paths)?;
@@ -189,6 +191,22 @@ Example: {\"tool\":\"input\",\"action\":\"type_text\",\"text\":\"hello\"}\n\
 Example: {\"tool\":\"input\",\"action\":\"hotkey\",\"keys\":[\"ctrl\",\"s\"]}\n\
 Example: {\"tool\":\"input\",\"action\":\"mouse_click\",\"button\":\"left\",\"x\":500,\"y\":300}\n\
 Example: {\"tool\":\"input\",\"action\":\"scroll\",\"direction\":\"down\",\"amount\":3}"
+        );
+    }
+
+    if browser_enabled {
+        if !combined_prompt.is_empty() {
+            combined_prompt.push_str("\n\n---\n\n");
+        }
+        combined_prompt.push_str(
+            "Tool: browser\n\
+Actions: open, goto, scroll, click, type_text, read_text, read_page, screenshot, evaluate, tab_list, tab_switch, tab_close, back, forward\n\
+Example: {\"tool\":\"browser\",\"action\":\"open\",\"url\":\"https://google.com\"}\n\
+Example: {\"tool\":\"browser\",\"action\":\"click\",\"selector\":\"button.submit\"}\n\
+Example: {\"tool\":\"browser\",\"action\":\"type_text\",\"selector\":\"input#search\",\"text\":\"forja rust\"}\n\
+Example: {\"tool\":\"browser\",\"action\":\"scroll\",\"direction\":\"down\",\"amount\":500}\n\
+Example: {\"tool\":\"browser\",\"action\":\"read_text\",\"selector\":\"h1\"}\n\
+Example: {\"tool\":\"browser\",\"action\":\"screenshot\"}"
         );
     }
 
@@ -343,10 +361,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         std::env::var("FORJA_INPUT"),
         Ok(value) if value.eq_ignore_ascii_case("false")
     );
+    let browser_enabled = !matches!(
+        std::env::var("FORJA_BROWSER"),
+        Ok(value) if value.eq_ignore_ascii_case("false")
+    );
     let bootstrap_paths = bootstrap::default_paths();
     let bootstrap_outcome = bootstrap::ensure_bootstrap(&bootstrap_paths)?;
     let (combined_prompt, loaded_project_file) =
-        build_system_prompt(&bootstrap_paths, shell_enabled, input_enabled)?;
+        build_system_prompt(&bootstrap_paths, shell_enabled, input_enabled, browser_enabled)?;
     if let Some(file_name) = loaded_project_file {
         println!("[System] {file_name} 로드됨");
     }
@@ -532,6 +554,26 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("[System] Input tool disabled by FORJA_INPUT=false.");
     }
+    if browser_enabled {
+        let confirmation = Arc::new(StdinConfirmation::new());
+        let browser_unsafe_mode = matches!(
+            std::env::var("FORJA_BROWSER_UNSAFE"),
+            Ok(value) if value.eq_ignore_ascii_case("true")
+        );
+        if use_mock {
+            let browser_tool = BrowserTool::with_backend_and_settings(
+                Arc::new(MockBrowserBackend::new()),
+                confirmation,
+                browser_unsafe_mode,
+            );
+            engine.register_tool(Arc::new(browser_tool));
+        } else {
+            let browser_tool = BrowserTool::new(confirmation);
+            engine.register_tool(Arc::new(browser_tool));
+        }
+    } else {
+        println!("[System] Browser tool disabled by FORJA_BROWSER=false.");
+    }
 
     if ClaudeCodeTool::is_installed().await {
         engine.register_tool(Arc::new(ClaudeCodeTool::new()));
@@ -552,6 +594,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let bootstrap_paths_for_slash = bootstrap_paths.clone();
     let shell_enabled_for_slash = shell_enabled;
     let input_enabled_for_slash = input_enabled;
+    let browser_enabled_for_slash = browser_enabled;
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(move |text: &str, provider: &mut Arc<dyn LlmProvider>| {
         let text = text.trim();
 
@@ -629,6 +672,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 &bootstrap_paths_for_slash,
                 shell_enabled_for_slash,
                 input_enabled_for_slash,
+                browser_enabled_for_slash,
             ) {
                 Ok((system_prompt, _)) => system_prompt,
                 Err(error) => {
