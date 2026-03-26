@@ -9,12 +9,10 @@ use crate::types::{Content, Message, Role, ToolDefinition};
 use chrono::{DateTime, Local};
 use std::collections::HashMap;
 use std::sync::Arc;
-
 mod emotion;
 mod knowledge;
 mod mode;
 mod serendipity;
-
 #[cfg(feature = "memory")]
 mod memory;
 
@@ -33,12 +31,9 @@ pub enum SlashCommandResult {
 }
 
 /// /models, /model 슬래시 명령 처리용 콜백 타입
-pub type SlashHandler =
-    Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>, &mut ModeState) -> Option<SlashCommandResult> + Send + Sync>;
+pub type SlashHandler = Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>, &mut ModeState) -> Option<SlashCommandResult> + Send + Sync>;
 
-/// Forja의 핵심 엔진 코어
-///
-/// 채널(Channel), LLM 프로바이더(LlmProvider), 도구(Tool)를 조율하고
+/// Forja의 핵심 엔진 코어. 채널(Channel), LLM 프로바이더(LlmProvider), 도구(Tool)를 조율하고
 /// 메인 이벤트 루프 및 도구 호출의 재귀적 평가(handle_step)를 담당합니다.
 pub struct Engine {
     provider: Arc<dyn LlmProvider>,
@@ -61,7 +56,6 @@ pub struct Engine {
     serendipity: Option<SerendipityEngine>,
     turn_count: u32,
     last_serendipity_triggered_at: Option<DateTime<Local>>,
-
     #[cfg(feature = "memory")]
     memory: Option<Arc<dyn MemoryStore>>,
     #[cfg(feature = "memory")]
@@ -265,11 +259,13 @@ impl Engine {
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
                     self.refresh_turn_role(&user_msg);
+                    let pre_spinner = start_pre_spinner();
                     self.refresh_turn_emotion_context().await;
                     self.refresh_turn_knowledge_context(&user_msg).await;
 
                     #[cfg(feature = "memory")]
                     self.refresh_turn_memory_context(&user_msg).await;
+                    pre_spinner.finish_and_clear();
 
                     // LLM 프로바이더로 전달하여 한 턴 평가 (handle_step 내부에서 도구 명세 수집함)
                     let response = self.handle_step(0).await?;
@@ -348,11 +344,13 @@ impl Engine {
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
                     self.refresh_turn_role(&user_msg);
+                    let pre_spinner = start_pre_spinner();
                     self.refresh_turn_emotion_context().await;
                     self.refresh_turn_knowledge_context(&user_msg).await;
 
                     #[cfg(feature = "memory")]
                     self.refresh_turn_memory_context(&user_msg).await;
+                    pre_spinner.finish_and_clear();
 
                     // 스트리밍 + 폴백 전체 에러를 catch
                     let response_result = async {
@@ -540,4 +538,21 @@ impl Engine {
             Ok(Some(full_text))
         }
     }
+}
+
+#[cfg(feature = "runtime")]
+fn start_pre_spinner() -> indicatif::ProgressBar {
+    use indicatif::{ProgressBar, ProgressStyle};
+    use std::time::Duration;
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_style(
+        ProgressStyle::default_spinner()
+            .tick_strings(&["","","","","","","","","","",""])
+            .template("{spinner:.cyan} {msg}")
+            .unwrap()
+    );
+    spinner.set_message("Processing...");
+    spinner.enable_steady_tick(Duration::from_millis(80));
+    spinner
 }
