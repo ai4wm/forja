@@ -251,6 +251,11 @@ impl GptVisionAnalyzer {
             client: Client::new(),
         }
     }
+
+    fn is_responses_api(&self) -> bool {
+        let normalized = self.api_base.to_lowercase();
+        normalized.contains("chatgpt.com") || normalized.contains("backend-api")
+    }
 }
 
 impl Default for GptVisionAnalyzer {
@@ -271,21 +276,40 @@ impl VisionAnalyzer for GptVisionAnalyzer {
         }
 
         let media_type = detect_media_type(image_base64);
-        let payload = json!({
-            "model": self.model,
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {
-                        "url": format!("data:{media_type};base64,{image_base64}")
-                    }}
-                ]
-            }],
-            "max_tokens": 4096
-        });
+        let (endpoint, payload) = if self.is_responses_api() {
+            (
+                format!("{}/responses", self.api_base),
+                json!({
+                    "model": self.model,
+                    "input": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": prompt},
+                            {"type": "input_image", "image_url": format!("data:{media_type};base64,{image_base64}")}
+                        ]
+                    }],
+                    "max_output_tokens": 4096
+                }),
+            )
+        } else {
+            (
+                format!("{}/chat/completions", self.api_base),
+                json!({
+                    "model": self.model,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {
+                                "url": format!("data:{media_type};base64,{image_base64}")
+                            }}
+                        ]
+                    }],
+                    "max_tokens": 4096
+                }),
+            )
+        };
 
-        let endpoint = format!("{}/chat/completions", self.api_base);
         let response = self
             .client
             .post(&endpoint)
@@ -307,6 +331,14 @@ impl VisionAnalyzer for GptVisionAnalyzer {
 
         let json: Value = serde_json::from_str(&body)
             .map_err(|error| format!("Failed to parse vision response JSON: {error}. Raw: {body}"))?;
+
+        if self.is_responses_api() {
+            if let Some(text) = json["output"][0]["content"][0]["text"].as_str() {
+                return Ok(text.to_string());
+            }
+
+            return Err("Vision response missing output[0].content[0].text".to_string());
+        }
 
         if let Some(text) = json["choices"][0]["message"]["content"].as_str() {
             return Ok(text.to_string());
