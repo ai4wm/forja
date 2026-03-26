@@ -1,172 +1,164 @@
 # Forja
 
-Lightweight Rust AI Agent Engine
+A lightweight, cross-platform AI agent engine built in Rust.
 
-Forja는 Rust 워크스페이스로 구성된 경량 AI 에이전트 엔진입니다. 현재 저장소는 CLI 중심 런타임, 멀티 프로바이더 LLM 라우팅, 도구 실행, 대화형 설정, 모델 전환, 선택적 Telegram 채널을 포함합니다.
+Forja is a personal AI assistant that lives in your terminal. It remembers past conversations, detects emotional context, controls your OS, analyzes screenshots, and adapts its reasoning depth all through natural language.
 
-자세한 구조는 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), 진행 방향은 [docs/ROADMAP.md](docs/ROADMAP.md)를 참고하세요.
+## Features
 
-## 현재 상태
+**Multi-Provider LLM Support**
+Connect to OpenAI, Anthropic, Google Gemini, DeepSeek, Moonshot, xAI, GLM, or local Ollama models. Switch providers and models at runtime with `/model`.
 
-현재 코드 기준으로 다음 기능이 구현되어 있습니다.
+**Persistent Memory**
+Rolling memory system stored in markdown. Forja remembers past conversations across restarts no "session" boundaries.
 
-- 멀티 LLM 프로바이더: OpenAI API, OpenAI OAuth, Anthropic, Gemini API, Gemini OAuth, DeepSeek, GLM, Moonshot, xAI, Ollama
-- 채널: CLI 기본, Telegram 선택 지원
-- 도구: `FileTool`, `WebTool`, `ShellTool`, `SearchTool`
-- 외부 CLI 브리지 도구: `ClaudeCodeTool`, `CodexTool`, `GeminiCliTool`
-- 런타임 기능: 토큰 스트리밍 출력, 슬래시 명령(`/models`, `/model`), 프로젝트 프롬프트 자동 로드, 대화형 설정 위저드
+**Emotion & Relationship Awareness**
+Detects emotional signals (late night work, long absence, frustration) and adjusts tone naturally.
 
-주의:
+**OS Control**
+- Shell command execution with safety confirmations
+- Keyboard and mouse input (type, click, scroll, hotkeys)
+- CDP browser automation (navigate, click, type, read pages, take screenshots)
+- Screen capture + GPT Vision analysis
 
-- `forja-memory` 크레이트 자체는 구현되어 있지만, 현재 top-level 바이너리에서는 메모리 스토어 연결 코드가 비활성화되어 있습니다.
-- Telegram은 바이너리에 포함되어도 토큰이 없으면 자동으로 CLI 전용 모드로 동작합니다.
+**Smart Input**
+- Drag-and-drop image files for instant Vision analysis
+- `/ss` for screen capture + analysis
+- `/image <path>` for file-based image analysis
+- Multiline input with `\` continuation
 
-## 워크스페이스 구성
+**Adaptive Thinking**
+Three reasoning modes: `/think min` (concise), `/think mid` (default), `/think max` (deep reasoning with self-verification).
 
-```text
-forja                CLI 바이너리, 설정 로드, 채널/도구/프롬프트 조립
-forja-core           엔진 루프, ToolCall 처리, 스트리밍, 슬래시 명령
-forja-llm            멀티 프로바이더 LLM 클라이언트와 프리셋
-forja-memory         Markdown + BM25 기반 메모리 스토어
-forja-tools          파일/웹/쉘/검색 및 외부 CLI 브리지 도구
-forja-channel        CLI / Telegram 멀티 채널 입력·출력
-```
+**Execution Modes**
+`/mode safe` (confirm everything), `/mode auto` (confirm dangerous only), `/mode trust` (no confirmations).
 
-## 지원 프로바이더
+**Auto Role Detection**
+Automatically switches between coder, writer, assistant, and analyst prompts based on conversation context.
 
-현재 `src/provider_registry.rs` 기준 활성 모델 테이블은 아래 계열을 포함합니다.
+**Configurable Identity**
+Set assistant name and user title during onboarding. No hardcoded language responds in whatever language you use.
 
-- OpenAI API: `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`
-- OpenAI OAuth: `gpt-5.4`, `gpt-5.3-codex`, `gpt-5.3-codex-spark`, `o3-pro`
-- Anthropic: `claude-opus-4-6`, `claude-sonnet-4-6`
-- Gemini API: `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, `gemini-2.5-pro`, `gemini-2.5-flash`
-- Gemini OAuth: `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-2.5-pro`, `gemini-2.5-flash`
-- DeepSeek: `deepseek-chat`, `deepseek-reasoner`
-- GLM: `glm-5`, `glm-4.5v`
-- Moonshot: `kimi-k2.5`
-- xAI: `grok-3`, `grok-3-mini`
-- Ollama: `qwen3.5:9b`, `llama3:8b`, `mistral:7b`
+## Quick Start
 
-실행 중 `/models`로 현재 사용 가능한 모델 목록을 보고 `/model <번호|이름|별칭>`으로 전환할 수 있습니다.
+### Install from source
 
-## 빠른 시작
-
-### 1. 실행
-
-- `cargo run`
-- 설정이 없으면 자동 온보딩이 시작됩니다.
-
-### 2. 설정 다시 실행
-
-- `cargo run -- setup`
-- `cargo run -- --setup`
-
-두 방식 모두 현재 코드에서 동작합니다.
-
-### 3. 로그인
-
-OAuth 또는 토큰 저장이 필요한 경우:
-
-- `cargo run -- login openai`
-- `cargo run -- login gemini`
-- `cargo run -- login anthropic`
-
-### 4. 실행 중 프로바이더/모델 변경
-
-- `cargo run -- --provider moonshot`
-- `cargo run -- --model kimi-k2.5`
-
-### 5. 모의 실행
-
-실제 API 호출 없이 런타임만 확인하려면:
-
-```powershell
-$env:FORJA_USE_MOCK = "1"
+```bash
+git clone https://github.com/ai4wm/forja.git
+cd forja
 cargo run
 ```
 
-## 설정 파일
+First run launches the onboarding wizard to configure your provider, assistant name, and preferences.
 
-기본 설정 파일 위치:
+### Install from crates.io
 
-- `~/.forja/config.toml`
+```bash
+cargo install forja
+```
 
-현재 코드 기준 주요 구조:
+### Setup
+
+```bash
+forja setup          # Run setup wizard
+forja login openai   # OAuth login
+forja login gemini   # OAuth login
+forja --provider openai_oauth --model gpt-5.4  # Override at launch
+```
+
+## Configuration
+
+Config file: `~/.forja/config.toml`
 
 ```toml
 [active]
-provider = "moonshot"
-model = "kimi-k2.5"
+provider = "openai_oauth"
+model = "gpt-5.4"
+
+[identity]
+assistant_name = "Forja"
+user_title = "User"
 
 [keys]
-openai = "..."
-anthropic = "..."
-gemini = "..."
-deepseek = "..."
-glm = "..."
-moonshot = "..."
-xai = "..."
+openai = "sk-..."
+anthropic = "sk-ant-..."
 
 [channel.telegram]
 bot_token = "123456:token"
 allowed_chat_ids = [123456789]
-
-[tools.search]
-provider = "duckduckgo" # duckduckgo | brave | grok
-brave_api_key = ""
-xai_api_key = ""
 ```
 
-환경 변수 오버라이드:
+### Environment Variables
 
-- `FORJA_PROVIDER`
-- `FORJA_MODEL`
-- `FORJA_API_KEY`
-- `FORJA_SYSTEM_PROMPT`
-- `FORJA_USE_MOCK`
-- `TELEGRAM_BOT_TOKEN`
+| Variable | Description |
+|----------|-------------|
+| `FORJA_MODE` | Execution mode: `safe`, `auto`, `trust` |
+| `FORJA_THINK` | Thinking level: `min`, `mid`, `max` |
+| `FORJA_ASSISTANT_NAME` | Override assistant name |
+| `FORJA_USER_TITLE` | Override user title |
+| `FORJA_PROVIDER` | Override LLM provider |
+| `FORJA_MODEL` | Override model |
+| `FORJA_USE_MOCK` | Run without real API calls |
+| `FORJA_VISION` | Enable/disable vision (`true`/`false`) |
+| `FORJA_BROWSER` | Enable/disable browser tool |
+| `FORJA_INPUT` | Enable/disable input tool |
 
-## 프롬프트 로드 순서
+## Slash Commands
 
-런타임은 아래 순서로 프롬프트를 합쳐 시스템 프롬프트로 주입합니다.
+| Command | Description |
+|---------|-------------|
+| `/model <name>` | Switch model |
+| `/models` | List available models |
+| `/mode <safe\|auto\|trust>` | Set execution mode |
+| `/think <min\|mid\|max>` | Set reasoning depth |
+| `/role <coder\|writer\|assistant\|analyst\|auto>` | Set role |
+| `/ss [prompt]` | Capture screen + Vision analysis |
+| `/image <path> [prompt]` | Analyze image file |
+| `/help` | Show available commands |
 
-1. 사용자 전역 프롬프트: `~/.forja/USER.md`
-2. 프로젝트 프롬프트: `AGENTS.md` -> `FORJA.md` -> `CLAUDE.md`
+## Architecture
 
-프로젝트 프롬프트가 존재하면 현재 날짜 정보도 함께 주입됩니다.
+```text
+forja/
+ src/main.rs              # Entry point, onboarding, tool registration
+ crates/
+    forja-core/          # Engine loop, prompt assembly, mode system
+    forja-llm/           # Multi-provider LLM client
+    forja-memory/        # Markdown + BM25 memory store
+    forja-tools/         # Shell, input, browser, vision, search tools
+    forja-channel/       # CLI and Telegram channels
+```
 
-## 도구
+## Supported Providers
 
-기본 등록 도구:
+OpenAI (API & OAuth), Anthropic, Google Gemini (API & OAuth), DeepSeek, Moonshot, xAI, GLM, Ollama.
 
-- `FileTool`: 파일 읽기/쓰기
-- `WebTool`: HTTP GET 기반 본문 수집
-- `ShellTool`: 사용자 확인 기반 로컬 명령 실행
-- `SearchTool`: DuckDuckGo, Brave, xAI Grok 웹 검색
+Use `/models` at runtime to see all available models.
 
-설치되어 있을 때만 동적으로 등록되는 도구:
+## Prompt Loading Order
 
-- `ClaudeCodeTool`
-- `CodexTool`
-- `GeminiCliTool`
+1. Base prompt (identity, memory rules, core rules)
+2. Think mode prompt (min/mid/max)
+3. Role-specific prompt (coder/writer/assistant/analyst)
+4. Tool descriptions
+5. Emotion context
+6. Relationship context
+7. Knowledge context
+8. Memory context (from memory.md)
+9. User global prompt: `~/.forja/USER.md`
+10. Project prompt: `AGENTS.md` `FORJA.md` `CLAUDE.md`
 
-## 채널
+## Channels
 
-- CLI: 항상 사용 가능
-- Telegram: `bot_token` 또는 `TELEGRAM_BOT_TOKEN`이 있을 때 `CLI + Telegram` 멀티채널로 실행
+- **CLI**: Always available, with streaming output
+- **Telegram**: Activate with bot token. Whitelist-based access control with typing indicators.
 
-Telegram이 활성화되면 허용된 `chat_id`만 처리하며, 응답 중 타이핑 인디케이터를 전송합니다.
+## License
 
-## 개발 메모
+MIT OR Apache-2.0
 
-- 메인 진입점: `src/main.rs`
-- 설정 로직: `src/config.rs`
-- 모델 레지스트리: `src/provider_registry.rs`
-- 엔진 코어: `crates/forja-core/src/engine.rs`
-- LLM 프리셋: `crates/forja-llm/src/presets.rs`
+## Links
 
-## 문서
-
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [docs/ROADMAP.md](docs/ROADMAP.md)
-- [docs/RESEARCH.md](docs/RESEARCH.md)
+- [Repository](https://github.com/ai4wm/forja)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Roadmap](docs/ROADMAP.md)
