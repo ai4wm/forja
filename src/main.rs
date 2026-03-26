@@ -19,12 +19,14 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio_stream::{Stream, StreamExt};
 use std::io::Write;
+#[cfg(feature = "vision")]
+use forja_tools::XcapBackend;
 use forja_tools::{
     browser::MockBrowserBackend, BrowserTool, ClaudeCodeTool, CodexTool, FileTool,
     GeminiCliTool, GptVisionAnalyzer, InputTool, MockCaptureBackend, MockVisionAnalyzer,
     SearchProvider,
     SearchTool, ShellTool, StdinConfirmation, WebTool,
-    VisionTool, XcapBackend,
+    VisionTool,
 };
 use forja_memory::MarkdownMemoryStore;
 use provider_registry::ProviderRegistry;
@@ -610,11 +612,22 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 false,
             )
         } else {
-            VisionTool::with_backends(
-                Arc::new(XcapBackend::new()),
-                Arc::new(GptVisionAnalyzer::new()),
-                false,
-            )
+            #[cfg(feature = "vision")]
+            {
+                VisionTool::with_backends(
+                    Arc::new(XcapBackend::new()),
+                    Arc::new(GptVisionAnalyzer::new()),
+                    false,
+                )
+            }
+            #[cfg(not(feature = "vision"))]
+            {
+                VisionTool::with_backends(
+                    Arc::new(MockCaptureBackend::new()),
+                    Arc::new(GptVisionAnalyzer::new()),
+                    false,
+                )
+            }
         };
         engine.register_tool(Arc::new(vision_tool));
     } else {

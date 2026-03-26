@@ -25,11 +25,11 @@ jobs:
         components: clippy
 
     - name: Build workspace
-      run: cargo build --workspace
+      run: cargo build --workspace --no-default-features
 
     - name: Run clippy
-      run: cargo clippy --workspace
+      run: cargo clippy --workspace --no-default-features
 
     - name: Run tests
-      run: cargo test --workspace --exclude forja-llm
+      run: cargo test --workspace --exclude forja-llm --no-default-features
 

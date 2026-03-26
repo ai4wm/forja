@@ -19,7 +19,7 @@ repository = "https://github.com/ai4wm/forja"
 forja-core = { version = "0.1.0", path = "crates/forja-core", features = ["runtime", "memory"] }
 forja-llm  = { version = "0.1.0", path = "crates/forja-llm" }
 forja-memory = { version = "0.1.0", path = "crates/forja-memory" }
-forja-tools = { version = "0.1.0", path = "crates/forja-tools" }
+forja-tools = { version = "0.1.0", path = "crates/forja-tools", default-features = false }
 forja-channel = { version = "0.1.0", path = "crates/forja-channel" }
 tokio = { version = "1.0", features = ["full"] }
 chrono = "0.4"
@@ -40,6 +40,7 @@ sha2 = "0.10.9"
 serde_json = "1.0.149"
 
 [features]
-default = ["telegram"]
+default = ["telegram", "vision"]
 telegram = ["forja-channel/telegram"]
 discord = ["forja-channel/discord"]
+vision = ["forja-tools/vision"]

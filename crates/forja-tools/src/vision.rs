@@ -2,11 +2,15 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use forja_core::error::Result;
 use forja_core::traits::Tool;
+#[cfg(feature = "vision")]
 use image::imageops::crop_imm;
+#[cfg(feature = "vision")]
 use image::{DynamicImage, ImageFormat, RgbaImage};
 use serde_json::{json, Value};
+#[cfg(feature = "vision")]
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
+#[cfg(feature = "vision")]
 use xcap::Monitor;
 
 #[async_trait]
@@ -21,8 +25,10 @@ pub trait ScreenCaptureBackend: Send + Sync + 'static {
     ) -> std::result::Result<Vec<u8>, String>;
 }
 
+#[cfg(feature = "vision")]
 pub struct XcapBackend;
 
+#[cfg(feature = "vision")]
 impl XcapBackend {
     pub fn new() -> Self {
         Self
@@ -41,12 +47,14 @@ impl XcapBackend {
     }
 }
 
+#[cfg(feature = "vision")]
 impl Default for XcapBackend {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(feature = "vision")]
 #[async_trait]
 impl ScreenCaptureBackend for XcapBackend {
     async fn capture_full(&self) -> std::result::Result<Vec<u8>, String> {
@@ -111,8 +119,18 @@ impl MockCaptureBackend {
     }
 
     fn transparent_png() -> std::result::Result<Vec<u8>, String> {
-        let image = RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0]));
-        encode_png(image)
+        #[cfg(feature = "vision")]
+        {
+            let image = RgbaImage::from_pixel(1, 1, image::Rgba([0, 0, 0, 0]));
+            encode_png(image)
+        }
+
+        #[cfg(not(feature = "vision"))]
+        {
+            BASE64_STANDARD
+                .decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADElEQVR4nGNgYGAAAAAEAAHIokmRAAAAAElFTkSuQmCC")
+                .map_err(|error| format!("Failed to decode mock PNG: {error}"))
+        }
     }
 }
 
@@ -411,6 +429,7 @@ impl VisionTool {
     }
 }
 
+#[cfg(feature = "vision")]
 fn encode_png(image: RgbaImage) -> std::result::Result<Vec<u8>, String> {
     let mut buffer = Cursor::new(Vec::new());
     DynamicImage::ImageRgba8(image)

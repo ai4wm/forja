@@ -17,7 +17,9 @@ pub use input::InputTool;
 pub use web::WebTool;
 pub use shell::ShellTool;
 pub use search::{SearchTool, SearchProvider};
-pub use vision::{GptVisionAnalyzer, MockCaptureBackend, MockVisionAnalyzer, ScreenCaptureBackend, VisionAnalyzer, VisionTool, XcapBackend};
+pub use vision::{GptVisionAnalyzer, MockCaptureBackend, MockVisionAnalyzer, ScreenCaptureBackend, VisionAnalyzer, VisionTool};
+#[cfg(feature = "vision")]
+pub use vision::XcapBackend;
 pub use claude_code::ClaudeCodeTool;
 pub use codex::CodexTool;
 pub use gemini_cli::GeminiCliTool;
