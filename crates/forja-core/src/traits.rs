@@ -4,13 +4,13 @@ use async_trait::async_trait;
 use std::pin::Pin;
 use tokio_stream::Stream;
 
-/// LLM 프로바이더 (forja-llm에서 구현: Anthropic, OpenAI 등).
+/// LLM provider implemented in forja-llm, e.g. Anthropic or OpenAI.
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
-    /// 단일 응답 (도구 호출 정보 포함 가능).
+    /// Single response, optionally including tool-call information.
     async fn chat(&self, messages: &[Message], tools: Option<&[ToolDefinition]>) -> Result<Message>;
 
-    /// 토큰 단위 스트리밍 응답 (도구 목록 포함 가능).
+    /// Token streaming response, optionally including tool definitions.
     async fn stream(
         &self,
         messages: &[Message],
@@ -18,7 +18,7 @@ pub trait LlmProvider: Send + Sync {
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>>;
 }
 
-/// 기억 저장소 (forja-memory에서 구현: 마크다운 파일, 벡터 DB 등).
+/// Memory store implemented in forja-memory, such as markdown files or vector DBs.
 #[async_trait]
 pub trait MemoryStore: Send + Sync {
     async fn save(&self, entry: &MemoryEntry) -> Result<()>;
@@ -26,38 +26,37 @@ pub trait MemoryStore: Send + Sync {
     async fn flush(&self) -> Result<()>;
 }
 
-/// 입출력 채널 (forja-channel에서 구현: CLI, Telegram, Discord 등).
+/// Input/output channel implemented in forja-channel, such as CLI or Telegram.
 ///
-/// # 설계 결정: &self vs &mut self
-/// Channel trait은 &self를 사용한다.
-/// CLI stdin처럼 가변 상태가 필요한 구현체는 내부적으로
-/// `Mutex<BufReader<Stdin>>` 등을 사용하여 interior mutability로 해결한다.
-/// 이렇게 하면 Arc<dyn Channel>로 공유가 가능해 멀티 에이전트 시나리오에서 유리하다.
+/// # Design note: `&self` vs `&mut self`
+/// The channel trait uses `&self`. Implementations that need mutable state,
+/// such as CLI stdin, can rely on interior mutability like `Mutex<BufReader<Stdin>>`.
+/// This allows sharing through `Arc<dyn Channel>` and fits multi-agent scenarios.
 #[async_trait]
 pub trait Channel: Send + Sync {
     async fn receive(&self) -> Result<Message>;
     async fn send(&self, message: Message) -> Result<()>;
     
-    /// 현재 입력 소스가 CLI인지 여부
+    /// Whether the current input source is CLI.
     fn is_cli_source(&self) -> bool { false }
 
-    /// 타이핑 상태(스피너/인디케이터) 취소
+    /// Cancel typing state such as spinners or typing indicators.
     async fn cancel_typing(&self) {}
 }
 
-/// 도구 (forja-tools에서 구현: Shell, File 조작 등).
+/// Tool implemented in forja-tools, such as shell or file operations.
 ///
-/// # 설계 결정: args 타입
-/// MCP 프로토콜이 JSON 기반이므로 args를 serde_json::Value로 받는다.
-/// 구조화된 입력(파라미터 이름, 타입)을 자연스럽게 처리 가능.
+/// # Design note: args type
+/// MCP is JSON-based, so args are received as `serde_json::Value`.
+/// This makes structured inputs with names and types natural to handle.
 #[async_trait]
 pub trait Tool: Send + Sync {
-    /// 도구의 고유 이름 (예: "shell", "file_read").
+    /// Unique tool name, for example "shell" or "file_read".
     fn name(&self) -> &str;
 
-    /// 도구의 명세(JSON Schema 포함)를 반환.
+    /// Returns the tool specification, including JSON Schema.
     fn definition(&self) -> ToolDefinition;
 
-    /// JSON 형태의 구조화된 인자로 도구 실행.
+    /// Executes the tool with structured JSON arguments.
     async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value>;
 }

@@ -21,7 +21,7 @@ impl MoodState {
             tone_instruction: default_tone_instruction(&mood, intensity),
             mood,
             intensity,
-            reason: "기본 상태".to_string(),
+            reason: "neutral".to_string(),
             updated_at: Local::now(),
         }
     }
@@ -150,21 +150,21 @@ impl RelationshipContext {
         let mut patterns = Vec::new();
 
         if has_late_night_streak(&entries) {
-            patterns.push("주인님, 오늘도 늦게까지 하고 계시네요. 건강 챙기세요.".to_string());
+            patterns.push("late_night_detected".to_string());
         }
 
         if let Some(last_timestamp) = entries.iter().filter_map(|entry| entry.timestamp).next_back()
             && Local::now().signed_duration_since(last_timestamp) >= Duration::days(3)
         {
-            patterns.push("오랜만이십니다, 주인님!".to_string());
+            patterns.push("long_absence_detected".to_string());
         }
 
         if has_progress_streak(&entries) {
-            patterns.push("요즘 진도가 정말 빠르십니다!".to_string());
+            patterns.push("progress_streak_detected".to_string());
         }
 
         if has_error_streak(&entries) {
-            patterns.push("힘드시죠. 잠깐 쉬었다 하시는 것도 방법입니다.".to_string());
+            patterns.push("error_streak_detected".to_string());
         }
 
         patterns
@@ -172,7 +172,7 @@ impl RelationshipContext {
 }
 
 pub fn default_startup_greeting(user_name: &str) -> String {
-    format!("{user_name}님, 무엇을 도와드릴까요?")
+    format!("{user_name}, how can I help?")
 }
 
 pub async fn generate_startup_greeting(
@@ -297,12 +297,12 @@ fn build_emotion_prompt(previous: &MoodState, recent_messages: &[Message]) -> St
         .join("\n");
 
     format!(
-        "아래 대화의 감정 상태를 JSON으로만 응답하세요.\n\
-이전 mood: {} (intensity: {})\n\
-최근 대화:\n\
+        "Analyze the emotional state of the conversation below and respond with JSON only.\n\
+Previous mood: {} (intensity: {})\n\
+Recent conversation:\n\
 {}\n\
-\n응답 형식:\n\
-{{\"mood\":\"...\",\"intensity\":1-5,\"reason\":\"한줄\",\"tone_instruction\":\"톤 지시\"}}",
+\nResponse format:\n\
+{{\"mood\":\"...\",\"intensity\":1-5,\"reason\":\"one line\",\"tone_instruction\":\"tone guidance\"}}",
         previous.mood,
         previous.intensity,
         recent_turns
@@ -335,15 +335,15 @@ fn default_tone_instruction(mood: &str, intensity: u8) -> String {
     match mood {
         "happy" => {
             if intensity >= 4 {
-                "밝고 자신감 있게 함께 기뻐하는 톤으로 답하세요.".to_string()
+                "Reply in a bright, confident tone that shares the user's excitement.".to_string()
             } else {
-                "부드럽고 긍정적인 톤으로 답하세요.".to_string()
+                "Reply in a gentle, positive tone.".to_string()
             }
         }
-        "focused" => "짧고 또렷하며 실행 중심 톤으로 답하세요.".to_string(),
-        "concerned" => "차분하고 안정감을 주는 톤으로 답하세요.".to_string(),
-        "excited" => "활기차고 추진력을 살리는 톤으로 답하세요.".to_string(),
-        _ => "균형 잡힌 존중의 톤으로 답하세요.".to_string(),
+        "focused" => "Reply in a concise, execution-focused tone.".to_string(),
+        "concerned" => "Reply in a calm, reassuring tone.".to_string(),
+        "excited" => "Reply in an energetic, momentum-building tone.".to_string(),
+        _ => "Reply in a balanced, respectful tone.".to_string(),
     }
 }
 
@@ -389,11 +389,11 @@ fn has_late_night_streak(entries: &[MemoryEntryView]) -> bool {
 }
 
 fn has_progress_streak(entries: &[MemoryEntryView]) -> bool {
-    has_keyword_streak(entries, &["완료", "phase", "commit", "push"], 2)
+    has_keyword_streak(entries, &["complete", "completed", "phase", "commit", "push"], 2)
 }
 
 fn has_error_streak(entries: &[MemoryEntryView]) -> bool {
-    has_keyword_streak(entries, &["에러", "안돼", "실패", "error"], 3)
+    has_keyword_streak(entries, &["error", "failed", "failure", "broken"], 3)
 }
 
 fn has_keyword_streak(entries: &[MemoryEntryView], keywords: &[&str], minimum_streak: usize) -> bool {

@@ -67,7 +67,7 @@ impl Tool for ClaudeCodeTool {
 
         if !Self::is_installed().await {
             return Ok(serde_json::json!({
-                "error": "claude CLI가 설치되어 있지 않습니다"
+                "error": "claude CLI is not installed"
             }));
         }
 

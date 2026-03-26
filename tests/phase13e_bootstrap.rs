@@ -55,7 +55,7 @@ fn first_run_without_identity_starts_bootstrap_onboarding() {
     let output = kill_and_collect_output(child);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    assert!(stdout.contains("저를 뭐라고 부르면 될까요?"));
+    assert!(stdout.contains("What should I call myself?"));
 
     let _ = std::fs::remove_dir_all(&home_dir);
 }
@@ -88,15 +88,15 @@ fn completed_onboarding_persists_identity_and_skips_questions_on_restart() {
     assert!(identity.contains("tone: 존댓말"));
     assert!(identity.contains("role: 개인 비서"));
     assert!(user.contains("name: 주인님"));
-    assert!(first_stdout.contains("안녕하세요, 주인님! 저는 황비서입니다. 무엇을 도와드릴까요?"));
+    assert!(first_stdout.contains("Hello, 주인님! I am 황비서. How can I help?"));
 
     let second_child = spawn_forja(&home_dir);
     std::thread::sleep(Duration::from_millis(800));
     let second_output = kill_and_collect_output(second_child);
     let second_stdout = String::from_utf8_lossy(&second_output.stdout);
 
-    assert!(!second_stdout.contains("저를 뭐라고 부르면 될까요?"));
-    assert!(!second_stdout.contains("주인님을 뭘로 부를까요?"));
+    assert!(!second_stdout.contains("What should I call myself?"));
+    assert!(!second_stdout.contains("How should I address you?"));
 
     let _ = std::fs::remove_dir_all(&home_dir);
 }
@@ -118,8 +118,8 @@ fn startup_with_existing_identity_skips_bootstrap_onboarding() {
     let output = kill_and_collect_output(child);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    assert!(!stdout.contains("저를 뭐라고 부르면 될까요?"));
-    assert!(!stdout.contains("주인님을 뭘로 부를까요?"));
+    assert!(!stdout.contains("What should I call myself?"));
+    assert!(!stdout.contains("How should I address you?"));
 
     let _ = std::fs::remove_dir_all(&home_dir);
 }

@@ -3,7 +3,7 @@ use forja_core::error::{ForjaError, Result};
 use forja_core::traits::Tool;
 use serde_json::{json, Value};
 
-/// 간단한 웹 GET 요청을 통해 페이지의 문서(텍스트)를 가져오는 도구
+/// Tool for fetching web page text with a simple GET request.
 pub struct WebTool;
 
 impl WebTool {
@@ -46,7 +46,7 @@ impl Tool for WebTool {
             ForjaError::ToolError("Missing 'url' parameter for web_tool".into())
         })?;
 
-        // reqwest 클라이언트를 10초 타임아웃으로 생성 후 GET 요청
+        // Build a reqwest client with a 10-second timeout and issue a GET request.
         let client = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()
@@ -68,8 +68,8 @@ impl Tool for WebTool {
             ForjaError::ToolError(format!("Failed to extract body text from {}: {}", url, e))
         })?;
 
-        // 💡 Phase 2 목표는 단순 수집이므로 HTML 스크래핑/정제 단계 없이 Body Raw 텍스트를 반환하되,
-        // LLM 컨텍스트 오버플로우 방지를 위해 최대 50,000자로 자릅니다.
+        // Return raw body text without HTML cleanup and cap it at 50,000 chars
+        // to avoid excessive context growth.
         let max_chars = 50_000;
         let truncated = if body.chars().count() > max_chars {
             let cut: String = body.chars().take(max_chars).collect();

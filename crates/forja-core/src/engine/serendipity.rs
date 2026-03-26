@@ -83,6 +83,6 @@ impl Engine {
             }
         };
 
-        format!("{text}\n\n참고: {insight}")
+        format!("{text}\n\n{insight}")
     }
 }

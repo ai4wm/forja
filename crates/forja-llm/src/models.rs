@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// OpenAI Chat Completions 포맷의 요청 본문 (Payload)
+/// OpenAI Chat Completions request payload.
 #[derive(Serialize, Debug)]
 pub struct ChatCompletionRequest<'a> {
     pub model: &'a str,
@@ -11,7 +11,7 @@ pub struct ChatCompletionRequest<'a> {
     pub tools: Option<Vec<serde_json::Value>>,
 }
 
-/// 단일 메시지 객체
+/// Single message object.
 #[derive(Serialize, Debug)]
 pub struct ChatCompletionMessage {
     pub role: String,
@@ -25,24 +25,24 @@ pub struct ChatCompletionMessage {
     pub tool_call_id: Option<String>,
 }
 
-/// OpenAI Chat Completions 포맷의 응답 본문 (일반 & 전체)
+/// OpenAI Chat Completions response body.
 #[derive(Deserialize, Debug)]
 pub struct ChatCompletionResponse {
     pub id: Option<String>,
     pub choices: Vec<Choice>,
 }
 
-/// 응답 내 개별 선택지 (Choice)
+/// Individual response choice.
 #[derive(Deserialize, Debug)]
 pub struct Choice {
-    /// 일반(non-streaming) 요청 시 반환되는 완성된 텍스트.
+    /// Completed text returned by a regular non-streaming request.
     pub message: Option<ChatMessage>,
     
-    /// 스트리밍(SSE) 요청 시 델타(조각) 데이터가 담기는 위치.
+    /// Delta chunk returned during streaming (SSE) requests.
     pub delta: Option<ChatDelta>,
 }
 
-/// Choice 내의 완전한 텍스트 메시지
+/// Completed text message inside a choice.
 #[derive(Deserialize, Debug)]
 pub struct ChatMessage {
     pub role: Option<String>,
@@ -64,10 +64,10 @@ pub struct ToolCall {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct ToolFunction {
     pub name: String,
-    pub arguments: String, // JSON 문자열로 옴
+    pub arguments: String, // Arrives as a JSON string
 }
 
-/// 스트리밍 조각 데이터
+/// Streaming delta payload.
 #[derive(Deserialize, Debug)]
 pub struct ChatDelta {
     pub content: Option<String>,

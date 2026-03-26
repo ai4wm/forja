@@ -100,7 +100,7 @@ async fn dangerous_command_returns_warning_when_not_confirmed() {
     let result = tool.execute(json!({ "command": "rm -rf /" })).await.unwrap();
 
     assert_eq!(result["status"], json!("warning"));
-    assert!(result["output"].as_str().unwrap().contains("[경고]"));
+    assert!(result["output"].as_str().unwrap().contains("[WARNING]"));
     assert!(result["output"].as_str().unwrap().contains("rm -rf /"));
 }
 

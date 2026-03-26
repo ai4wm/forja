@@ -10,7 +10,7 @@ pub mod serendipity;
 pub mod traits;
 pub mod types;
 
-// 핵심 타입 Re-export
+// Re-export core types.
 pub use engine::Engine;
 pub use error::{ForjaError, Result};
 pub use knowledge::{KnowledgeManager, TopicEntry};

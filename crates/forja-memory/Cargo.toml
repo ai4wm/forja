@@ -11,5 +11,5 @@ forja-core = { version = "0.1.0", path = "../forja-core" }
 tokio = { version = "1.0", features = ["fs", "io-util"] }
 chrono = "0.4"
 serde = { version = "1.0", features = ["derive"] }
-serde_yaml = "0.9" # YAML Frontmatter 파싱용
+serde_yaml = "0.9" # YAML frontmatter parsing
 async-trait = "0.1"

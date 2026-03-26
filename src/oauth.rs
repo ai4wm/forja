@@ -60,7 +60,7 @@ impl AuthData {
         };
         
         if let Some(t) = token {
-            // 만료 5분 전이면 갱신
+            // Refresh if the token will expire within 5 minutes
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -68,13 +68,13 @@ impl AuthData {
             let expires_at = t.expires_at.unwrap_or(0);
             
             if now < expires_at - 300 {
-                // 아직 유효 (5분 여유)
+                // Still valid with 5 minutes of safety margin
                 return auth;
             }
             
-            // refresh_token이 있으면 갱신 시도
+            // Try refresh if a refresh_token is available
             if let Some(ref refresh) = t.refresh_token {
-                eprintln!("[AUTH] {} 토큰 만료됨, 자동 갱신 중...", provider);
+                eprintln!("[AUTH] {} token expired, refreshing...", provider);
                 
                 let result = match provider {
                     "openai" | "openai_oauth" => {
@@ -93,9 +93,9 @@ impl AuthData {
                         _ => {}
                     }
                     auth.save();
-                    eprintln!("[AUTH] {} 토큰 갱신 완료!", provider);
+                    eprintln!("[AUTH] {} token refresh completed.", provider);
                 } else {
-                    eprintln!("[AUTH] {} 토큰 갱신 실패. forja login {} 을 실행하세요.", provider, provider);
+                    eprintln!("[AUTH] {} token refresh failed. Run `forja login {}`.", provider, provider);
                 }
             }
         }
@@ -111,8 +111,8 @@ pub async fn run_login(provider: &str) {
         "gemini" => login_gemini().await,
         "anthropic" => login_anthropic().await,
         _ => {
-            println!("지원하지 않는 프로바이더입니다: {}", provider);
-            println!("가능한 옵션: openai, gemini, anthropic");
+            println!("Unsupported provider: {}", provider);
+            println!("Available options: openai, gemini, anthropic");
         }
     }
 }
@@ -158,7 +158,7 @@ async fn wait_for_callback() -> Option<String> {
                                 return code;
                             }
                     }
-                    // /auth/callback이 아닌 요청은 404 처리하고 계속 대기
+                    // Return 404 for non-callback requests and keep waiting
                     let response = "HTTP/1.1 404 Not Found\r\n\r\n";
                     let _ = socket.write_all(response.as_bytes()).await;
                 }
@@ -169,7 +169,7 @@ async fn wait_for_callback() -> Option<String> {
     match result {
         Ok(code_opt) => code_opt,
         Err(_) => {
-            println!("콜백 대기 시간(120초)이 초과되었습니다.");
+            println!("Callback wait timed out after 120 seconds.");
             None
         }
     }
@@ -200,20 +200,20 @@ async fn exchange_code(
         .form(&params)
         .send()
         .await
-        .map_err(|e| format!("Token 요청 실패: {e}"))?;
+        .map_err(|e| format!("Token request failed: {e}"))?;
 
     let status = resp.status();
     let body = resp
         .text()
         .await
-        .map_err(|e| format!("응답 읽기 실패: {e}"))?;
+        .map_err(|e| format!("Failed to read response: {e}"))?;
 
     if !status.is_success() {
-        return Err(format!("Token 교환 실패 ({}): {}", status, body));
+        return Err(format!("Token exchange failed ({}): {}", status, body));
     }
 
     serde_json::from_str(&body)
-        .map_err(|e| format!("JSON 파싱 실패: {e}"))
+        .map_err(|e| format!("JSON parsing failed: {e}"))
 }
 
 async fn login_openai() {
@@ -233,7 +233,7 @@ async fn login_openai() {
 
     println!("Opening browser for OpenAI login...");
     if open::that(&auth_url).is_err() {
-        println!("브라우저를 열지 못했습니다. 아래 URL로 직접 접속해주세요:\n{}", auth_url);
+        println!("Could not open the browser. Open this URL manually:\n{}", auth_url);
     }
 
     if let Some(code) = wait_for_callback().await {
@@ -266,14 +266,14 @@ async fn login_openai() {
                 let mut auth = AuthData::load();
                 auth.openai = Some(token);
                 auth.save();
-                println!("OpenAI 로그인 및 토큰 저장이 완료되었습니다.");
+                println!("OpenAI login completed and token saved.");
             }
             Err(e) => {
-                println!("OpenAI 토큰 교환 에러: {}", e);
+                println!("OpenAI token exchange error: {}", e);
             }
         }
     } else {
-        println!("로그인에 실패했습니다. (콜백 없음)");
+        println!("Login failed (no callback received).");
     }
 }
 
@@ -291,7 +291,7 @@ async fn login_gemini() {
 
     println!("Opening browser for Gemini login...");
     if open::that(&auth_url).is_err() {
-        println!("브라우저를 열지 못했습니다. 아래 URL로 직접 접속해주세요:\n{}", auth_url);
+        println!("Could not open the browser. Open this URL manually:\n{}", auth_url);
     }
 
     if let Some(code) = wait_for_callback().await {
@@ -317,7 +317,7 @@ async fn login_gemini() {
                     .unwrap()
                     .as_secs() as i64 + expires_in as i64;
                 
-                // 동적으로 cloudaicompanionProject 값 가져오기
+                // Retrieve cloudaicompanionProject dynamically
                 let mut project_id = None;
                 let client = Client::new();
                 let assist_req = client.post("https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
@@ -338,25 +338,25 @@ async fn login_gemini() {
                         let status = resp.status();
                         if status.is_success() {
                             let text = resp.text().await.unwrap_or_default();
-                            // 에러 추적을 위한 출력
+                            // Debug output for error tracking
                             // println!("CodeAssist Response: {}", text);
                             
                             if let Ok(resp_json) = serde_json::from_str::<serde_json::Value>(&text) {
                                 if let Some(proj) = resp_json.get("cloudaicompanionProject").and_then(|v| v.as_str()) {
                                     project_id = Some(proj.to_string());
                                 } else {
-                                    println!("⚠️ cloudaicompanionProject 필드가 응답에 없습니다. 응답: {}", text);
+                                    println!("⚠️ cloudaicompanionProject was missing from the response. Response: {}", text);
                                 }
                             } else {
-                                println!("⚠️ 응답을 JSON으로 파싱할 수 없습니다. 응답: {}", text);
+                                println!("⚠️ Could not parse the response JSON. Response: {}", text);
                             }
                         } else {
                             let text = resp.text().await.unwrap_or_default();
-                            println!("⚠️ loadCodeAssist 요청 실패! 상태 코드: {}, 응답: {}", status, text);
+                            println!("⚠️ loadCodeAssist request failed. Status: {}, response: {}", status, text);
                         }
                     }
                     Err(e) => {
-                        println!("⚠️ loadCodeAssist 요청 자체가 실패했습니다: {:?}", e);
+                        println!("⚠️ loadCodeAssist request failed before completion: {:?}", e);
                     }
                 }
 
@@ -370,21 +370,21 @@ async fn login_gemini() {
                 let mut auth = AuthData::load();
                 auth.gemini = Some(token);
                 auth.save();
-                println!("Gemini 로그인 및 토큰 저장이 완료되었습니다.");
+                println!("Gemini login completed and token saved.");
             }
             Err(e) => {
-                println!("Gemini 토큰 교환 에러: {}", e);
+                println!("Gemini token exchange error: {}", e);
             }
         }
     } else {
-        println!("로그인에 실패했습니다. (콜백 없음)");
+        println!("Login failed (no callback received).");
     }
 }
 
 async fn login_anthropic() {
-    println!("Anthropic은 OAuth를 지원하지 않습니다.");
+    println!("Anthropic does not support OAuth.");
     let token = Password::with_theme(&ColorfulTheme::default())
-        .with_prompt("Anthropic API 키를 붙여넣으세요")
+        .with_prompt("Paste the Anthropic API key")
         .interact()
         .unwrap();
 
@@ -398,7 +398,7 @@ async fn login_anthropic() {
     let mut auth = AuthData::load();
     auth.anthropic = Some(token);
     auth.save();
-    println!("Anthropic 토큰 저장이 완료되었습니다.");
+    println!("Anthropic token saved.");
 }
 
 async fn refresh_openai_token(refresh_token: &str) -> Option<ProviderToken> {
@@ -465,7 +465,7 @@ async fn refresh_gemini_token(refresh_token: &str) -> Option<ProviderToken> {
         .unwrap()
         .as_secs() as i64 + expires_in as i64;
     
-    // 기존 project_id 보존
+    // Preserve the existing project_id
     let auth = AuthData::load();
     let project_id = auth.gemini.and_then(|t| t.project_id);
     

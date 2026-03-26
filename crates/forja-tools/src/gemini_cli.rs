@@ -67,7 +67,7 @@ impl Tool for GeminiCliTool {
 
         if !Self::is_installed().await {
             return Ok(serde_json::json!({
-                "error": "gemini CLI가 설치되어 있지 않습니다"
+                "error": "gemini CLI is not installed"
             }));
         }
 

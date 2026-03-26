@@ -24,7 +24,7 @@ pub struct MultiChannel {
 }
 
 impl MultiChannel {
-    /// CLI 전용 (텔레그램 없음)
+    /// CLI only (no Telegram)
     pub async fn new_cli_only() -> Self {
         let (tx, rx) = mpsc::channel::<(ChannelSource, CoreMessage)>(100);
 
@@ -174,7 +174,7 @@ impl Channel for MultiChannel {
                 }
 
                 if let Content::Text { ref text, .. } = msg.content {
-                    // 현재 줄(프롬프트 "> ") 지우고 출력
+                    // Clear current line (prompt ">") and print
                     print!("\r\x1b[K");
                     println!("[TG] {}", text);
                 }
@@ -199,7 +199,7 @@ impl Channel for MultiChannel {
                     ChannelSource::Cli => {
                         let t = text.clone();
                         let _ = tokio::task::spawn_blocking(move || {
-                            // 도구 폴백일 때 응답 출력 + 프롬프트 복원
+                            // Tool fallback: print response + restore prompt
                             println!("● {}", t);
                             print!("> ");
                             std::io::stdout().flush().ok();
@@ -217,7 +217,7 @@ impl Channel for MultiChannel {
                                     ))
                                 })?;
                             
-                            // 터미널에 ● 로그
+                            // Print ● log to terminal
                             let log_text = text.clone();
                             let _ = tokio::task::spawn_blocking(move || {
                                 println!("● {}", log_text);

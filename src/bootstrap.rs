@@ -3,9 +3,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 const DEFAULT_IDENTITY_NAME: &str = "Forja";
-const DEFAULT_TONE: &str = "존댓말";
-const DEFAULT_ROLE: &str = "AI 비서";
-const DEFAULT_USER_NAME: &str = "주인님";
+const DEFAULT_TONE: &str = "formal";
+const DEFAULT_ROLE: &str = "AI assistant";
+const DEFAULT_USER_NAME: &str = "User";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityProfile {
@@ -67,7 +67,7 @@ impl BootstrapProfile {
     pub fn greeting(&self) -> String {
         let user_name = &self.user.name;
         let identity_name = &self.identity.name;
-        format!("안녕하세요, {user_name}! 저는 {identity_name}입니다. 무엇을 도와드릴까요?")
+        format!("Hello, {user_name}! I am {identity_name}. How can I help?")
     }
 }
 
@@ -175,10 +175,10 @@ fn run_onboarding(paths: &BootstrapPaths, mode: OnboardingMode) -> io::Result<Bo
         OnboardingMode::Reset => existing_profile.as_ref().map(|profile| profile.user.name.as_str()),
     };
 
-    let identity_name = prompt_with_default("저를 뭐라고 부르면 될까요?", identity_name_default)?;
-    let user_name = prompt_required("주인님을 뭘로 부를까요?", user_name_default)?;
-    let tone = prompt_with_default("말투는 어떻게 할까요? (존댓말/반말)", tone_default)?;
-    let role = prompt_with_default("제 주요 역할은 뭔가요?", role_default)?;
+    let identity_name = prompt_with_default("What should I call myself?", identity_name_default)?;
+    let user_name = prompt_required("How should I address you?", user_name_default)?;
+    let tone = prompt_with_default("What speaking style should I use? (formal/casual)", tone_default)?;
+    let role = prompt_with_default("What is my primary role?", role_default)?;
 
     let profile = BootstrapProfile {
         identity: IdentityProfile {
@@ -408,17 +408,17 @@ mod tests {
         std::fs::create_dir_all(&paths.forja_dir).unwrap();
         std::fs::write(
             &paths.identity_path,
-            "---\nname: Forja\nrole: AI 비서\ntone: 존댓말\n---\n",
+            "---\nname: Forja\nrole: AI assistant\ntone: formal\n---\n",
         )
         .unwrap();
-        std::fs::write(&paths.user_path, "---\nname: 주인님\n---\n").unwrap();
+        std::fs::write(&paths.user_path, "---\nname: User\n---\n").unwrap();
 
         let prompt = compose_system_prompt_prefix(&paths).unwrap();
 
         assert!(prompt.contains("[identity.md]"));
         assert!(prompt.contains("name: Forja"));
         assert!(prompt.contains("[user.md]"));
-        assert!(prompt.contains("name: 주인님"));
+        assert!(prompt.contains("name: User"));
 
         let _ = std::fs::remove_dir_all(&home_dir);
     }
@@ -428,7 +428,7 @@ mod tests {
         let home_dir = unique_temp_dir("bootstrap_user_body");
         let paths = BootstrapPaths::from_home(&home_dir);
         std::fs::create_dir_all(&paths.forja_dir).unwrap();
-        std::fs::write(&paths.user_path, "---\nname: 주인님\n---\n\nKeep legacy prompt").unwrap();
+        std::fs::write(&paths.user_path, "---\nname: User\n---\n\nKeep legacy prompt").unwrap();
 
         let body = preserved_user_body(&paths).unwrap();
 

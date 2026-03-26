@@ -31,11 +31,11 @@ pub enum SlashCommandResult {
     },
 }
 
-/// /models, /model 슬래시 명령 처리용 콜백 타입
+/// Slash command callback type for /models and /model.
 pub type SlashHandler = Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>, &mut ModeState) -> Option<SlashCommandResult> + Send + Sync>;
 
-/// Forja의 핵심 엔진 코어. 채널(Channel), LLM 프로바이더(LlmProvider), 도구(Tool)를 조율하고
-/// 메인 이벤트 루프 및 도구 호출의 재귀적 평가(handle_step)를 담당합니다.
+/// Core Forja engine. Coordinates channels, LLM providers, and tools,
+/// and drives the main event loop plus recursive tool evaluation.
 pub struct Engine {
     provider: Arc<dyn LlmProvider>,
     #[cfg_attr(not(feature = "runtime"), allow(dead_code))]
@@ -74,7 +74,7 @@ impl Engine {
             system_prompt: None,
             tool_prompt: None,
             assistant_name: "Forja".to_string(),
-            user_title: "사용자님".to_string(),
+            user_title: "User".to_string(),
             slash_handler: None,
             mode_state: ModeState::default(),
             emotion: None,
@@ -92,45 +92,42 @@ impl Engine {
         }
     }
 
-    /// 커스텀 System Prompt를 설정합니다. (history 주입은 메시지 수신 시 처리)
+    /// Sets a custom system prompt. History injection happens at request time.
     pub fn with_system_prompt(mut self, prompt: String) -> Self {
         self.system_prompt = Some(prompt);
         self
     }
 
-    /// (선택) 메모리 저장소 연동 확장 메서드
+    /// Optional memory store integration.
     #[cfg(feature = "memory")]
     pub fn with_memory(mut self, memory: Arc<dyn MemoryStore>) -> Self {
         self.memory = Some(memory);
         self
     }
 
-    /// /models, /model 슬래시 명령 핸들러를 등록합니다.
-    /// 콜백은 (입력 텍스트, 현재 provider mut ref) → Option<응답 텍스트> 형태입니다.
+    /// Registers the slash command handler.
     pub fn with_slash_handler(mut self, handler: SlashHandler) -> Self {
         self.slash_handler = Some(handler);
         self
     }
 
-    /// 외부에서 엔진에 도구를 등록합니다.
+    /// Registers a tool with the engine.
     pub fn register_tool(&mut self, tool: Arc<dyn Tool>) {
         self.tools.insert(tool.name().to_string(), tool);
     }
 
-    /// 런타임에 LLM 프로바이더를 교체합니다 (예: /model 명령 처리).
+    /// Swaps the LLM provider at runtime, for example after /model.
     pub fn swap_provider(&mut self, new_provider: Arc<dyn LlmProvider>) {
         self.provider = new_provider;
     }
 
-    /// 슬래시 명령('/...') 이면 Some(응답 텍스트)를, 아니면 None을 반환합니다.
-    /// main.rs 에서 engine.run_streaming 외부 루프 대신 호출 가능.
+    /// Returns Some for slash-command-like input and None otherwise.
     pub fn slash_response(&self, text: &str) -> Option<&'static str> {
-        // 단순 감지만 수행, 실제 처리는 호출자가 담당
+        // Detection only. Actual handling is delegated to the caller.
         if text.trim_start().starts_with('/') { Some("") } else { None }
     }
 
-    /// 대화 히스토리에 새 메시지를 추가하고,
-    /// 허용된 윈도우(max_history) 초과 시 System 메시지를 보존한 채로 컴팩션합니다.
+    /// Adds a message to conversation history and compacts it when it exceeds the window.
     fn push_message(&mut self, msg: Message) {
         self.conversation_history.push(msg);
         while self.conversation_history.len() > self.max_history {
@@ -183,15 +180,14 @@ impl Engine {
         }
     }
 
-    /// 한 턴(step)을 평가하고 처리합니다. ToolCall이면 도구 실행 결과를 추가한 뒤
-    /// LLM을 재귀 호출(handle_step)하며 `MAX_TOOL_DEPTH`로 무한루프를 방어합니다.
+    /// Evaluates a single turn. Tool calls are executed and then re-interpreted recursively.
     #[async_recursion::async_recursion]
     pub async fn handle_step(&mut self, depth: usize) -> Result<Message> {
         if depth >= MAX_TOOL_DEPTH {
             return Err(ForjaError::MaxDepthExceeded(MAX_TOOL_DEPTH));
         }
 
-        // 등록된 모든 도구의 명세 수집
+        // Collect tool definitions from all registered tools.
         let tool_defs: Vec<ToolDefinition> = self.tools.values()
             .map(|t| t.definition())
             .collect();
@@ -208,7 +204,7 @@ impl Engine {
                 reasoning_content: _,
                 thought_signature: _,
             } => {
-                // LLM의 ToolCall 요청을 히스토리에 먼저 push
+                // Store the tool call request in history first.
                 self.push_message(response_msg.clone());
 
                 let result = if let Some(tool) = self.tools.get(tool_name) {
@@ -222,18 +218,18 @@ impl Engine {
                 let result_msg = Message::tool_result(call_id, result);
                 self.push_message(result_msg);
 
-                // 결과 반환 후 LLM의 최종 해석을 위해 재귀 깊이를 증가(depth+1)하여 호출
+                // Recurse so the model can interpret the tool result.
                 self.handle_step(depth + 1).await
             }
             _ => {
-                // ToolCall이 아닌 경우(일반 Text 등), 턴을 종료
+                // End the turn for non-tool responses.
                 self.push_message(response_msg.clone());
                 Ok(response_msg)
             }
         }
     }
 
-    /// 메인 이벤트 순환 루프. `runtime` feature에서 제공되며 shutdown future로 종료합니다.
+    /// Main event loop, available with the `runtime` feature.
     #[cfg(feature = "runtime")]
     pub async fn run<F>(&mut self, shutdown: F) -> Result<()>
     where
@@ -243,11 +239,11 @@ impl Engine {
 
         loop {
             tokio::select! {
-                // 종료 시그널 캐치 시 루프 탈출
+                // Exit on shutdown signal.
                 _ = &mut shutdown => {
                     break;
                 }
-                // 채널 입력을 무한정 수신 대기
+                // Wait for incoming messages from the channel.
                 result = self.channel.receive() => {
                     let user_msg = result?;
                     
@@ -263,11 +259,11 @@ impl Engine {
                     self.refresh_turn_memory_context(&user_msg).await;
                     pre_spinner.finish_and_clear();
 
-                    // LLM 프로바이더로 전달하여 한 턴 평가 (handle_step 내부에서 도구 명세 수집함)
+                    // Run one evaluation step. Tool definitions are collected inside handle_step.
                     let response = self.handle_step(0).await?;
                     let response = self.maybe_append_serendipity_to_message(response).await;
 
-                    // 채널로 최종 출력 결과 반환
+                    // Send the final output back to the channel.
                     self.channel.send(response.clone()).await?;
 
                     #[cfg(feature = "memory")]
@@ -290,7 +286,7 @@ impl Engine {
         Ok(())
     }
 
-    /// 스트리밍 전용 메인 루프. 토큰을 즉시 출력하고 실패 시 chat()으로 자동 폴백합니다.
+    /// Streaming main loop. Falls back to chat() if streaming fails.
     #[cfg(feature = "runtime")]
     pub async fn run_streaming<F>(&mut self, shutdown: F) -> Result<()>
     where
@@ -304,7 +300,7 @@ impl Engine {
                 result = self.channel.receive() => {
                     let user_msg = result?;
 
-                    // ── 슬래시 명령 가로채기 ───────────────────────────
+                    // Intercept slash commands.
                     let slash_reply = if let Content::Text { text, .. } = &user_msg.content {
                         if let Some(handler) = &self.slash_handler.clone() {
                             handler(text, &mut self.provider, &mut self.mode_state)
@@ -349,9 +345,9 @@ impl Engine {
                     self.refresh_turn_memory_context(&user_msg).await;
                     pre_spinner.finish_and_clear();
 
-                    // 스트리밍 + 폴백 전체 에러를 catch
+                    // Catch errors across streaming and fallback handling.
                     let response_result = async {
-                        // LLM 호출 (스트리밍 시도)
+                        // Try a streaming LLM call first.
                         let streaming_result = self.stream_step_with_tools().await
                             .unwrap_or(None);
 
@@ -361,7 +357,7 @@ impl Engine {
                                 let text = self
                                     .maybe_append_serendipity_to_text(streamed_text.clone())
                                     .await;
-                                // 텍스트 스트리밍 성공
+                                // Streaming text path succeeded.
                                 let response_msg = crate::types::Message::text(
                                     crate::types::Role::Assistant, &text, None
                                 );
@@ -373,7 +369,7 @@ impl Engine {
                                             print!("{suffix}");
                                             std::io::Write::flush(&mut std::io::stdout()).ok();
                                         }
-                                    // CLI는 이미 스트리밍으로 출력됨 → 프롬프트만 복원
+                                    // CLI already showed streamed text, restore the prompt only.
                                     let _ = tokio::task::spawn_blocking(|| {
                                         use std::io::Write;
                                         println!();
@@ -381,7 +377,7 @@ impl Engine {
                                         std::io::stdout().flush().ok();
                                     }).await;
                                 } else {
-                                    // 텔레그램 등은 send()로 메시지 전송
+                                    // Non-CLI channels receive the final message through send().
                                     self.channel.send(response_msg).await?;
                                 }
                                 
@@ -391,7 +387,7 @@ impl Engine {
                                 use indicatif::{ProgressBar, ProgressStyle};
                                 use std::time::Duration;
 
-                                // 스트리밍 불가 시(도구 호출 등) 스피너 시작
+                                // Start spinner when streaming is unavailable, e.g. tool-call path.
                                 let spinner = ProgressBar::new_spinner();
                                 spinner.set_style(
                                     ProgressStyle::default_spinner()
@@ -402,11 +398,11 @@ impl Engine {
                                 spinner.set_message("Thinking...");
                                 spinner.enable_steady_tick(Duration::from_millis(80));
 
-                                // 순수 텍스트 chat 폴백 호출 연산 (무거운 작업)
+                                // Fallback to the non-streaming chat path.
                                 let final_msg = self.handle_step(0).await?;
                                 let final_msg = self.maybe_append_serendipity_to_message(final_msg).await;
                                 
-                                // 응답 도착 후 스피너 종료
+                                // Stop spinner after the response arrives.
                                 spinner.finish_and_clear();
 
                                 self.channel.send(final_msg.clone()).await?;
@@ -425,16 +421,16 @@ impl Engine {
                     let final_assistant_text = match response_result {
                         Ok(text_opt) => text_opt,
                         Err(e) => {
-                            let err_text = format!("⚠️ 에러 발생: {}", e);
+                            let err_text = format!("⚠️ Error: {}", e);
                             eprintln!("[Engine Error] {}", err_text);
                             
-                            // 토큰 초과 등의 경우 히스토리 초기화(System 봇 역할만 남김)
+                            // Reset history if the error looks like a token/context overflow.
                             let err_str = e.to_string().to_lowercase();
                             if err_str.contains("token") || err_str.contains("limit") || err_str.contains("exceeded") || err_str.contains("context") {
                                 self.conversation_history.clear();
                             }
                             
-                            // 텔레그램 등 채널로 에러 전송
+                            // Send the error text back through the active channel.
                             let _ = self.channel.send(crate::types::Message::text(crate::types::Role::Assistant, err_text, None)).await;
                             None
                         }
@@ -456,8 +452,7 @@ impl Engine {
         Ok(())
     }
 
-    /// 스트리밍 토큰을 stdout에 점진적으로 출력합니다. (도구 명세 포함)
-    /// 성공 시 Some(full_text), 실패 시 Err 반환.
+    /// Streams tokens progressively, including tool definitions in the request.
     #[cfg(feature = "runtime")]
     async fn stream_step_with_tools(&self) -> Result<Option<String>> {
         use tokio_stream::StreamExt;
@@ -469,7 +464,7 @@ impl Engine {
             .collect();
         let tools = if tool_defs.is_empty() { None } else { Some(tool_defs.as_slice()) };
 
-        // 스피너 시작
+        // Start spinner.
         let spinner = ProgressBar::new_spinner();
         spinner.set_style(
             ProgressStyle::default_spinner()
@@ -480,13 +475,13 @@ impl Engine {
         spinner.set_message("Thinking...");
         spinner.enable_steady_tick(Duration::from_millis(80));
 
-        // 도구 명세를 포함하여 스트리밍 시도
+        // Attempt streaming with tool definitions included.
         let request_messages = self.request_messages();
         let mut stream = match self.provider.stream(&request_messages, tools).await {
             Ok(s) => s,
             Err(_) => {
                 spinner.finish_and_clear();
-                return Ok(None); // 스트리밍 미지원 시 폴백
+                return Ok(None); // Fallback when streaming is unsupported.
             }
         };
 
@@ -496,10 +491,10 @@ impl Engine {
         while let Some(chunk) = stream.next().await {
             match chunk {
                 Ok(token) => {
-                    // 빈 토큰 무시
+                    // Ignore empty tokens.
                     if token.is_empty() { continue; }
 
-                    // tool call JSON이 감지되면 스트리밍 중단 → 폴백
+                    // Stop streaming and fall back if the first chunk looks like a tool call payload.
                     if first_token && (token.trim_start().starts_with("{\"") || token.contains("tool_call")) {
                         spinner.finish_and_clear();
                         return Ok(None);
@@ -507,13 +502,13 @@ impl Engine {
                     
                     if first_token {
                         if self.channel.is_cli_source() {
-                            spinner.finish_and_clear(); // CLI는 출력 시작하므로 스피너 제거
+                            spinner.finish_and_clear(); // CLI starts printing immediately, so remove spinner.
                         }
-                        self.channel.cancel_typing().await; // 텔레그램 등 타이핑 인디케이터 중단
+                        self.channel.cancel_typing().await; // Stop typing indicators on channels like Telegram.
                         first_token = false;
                     }
 
-                    // CLI일 때만 터미널에 즉시 출력
+                    // Print tokens immediately for CLI only.
                     if self.channel.is_cli_source() {
                         print!("{}", token);
                         std::io::Write::flush(&mut std::io::stdout()).ok();
@@ -528,9 +523,9 @@ impl Engine {
             spinner.finish_and_clear();
             Ok(None)
         } else {
-            spinner.finish_and_clear(); // 텔레그램처럼 루프 도중 스피너가 안 지워진 경우를 위해 최종 제거
+            spinner.finish_and_clear(); // Final cleanup in case the spinner is still visible.
             if self.channel.is_cli_source() {
-                println!(); // 스트리밍 완료 후 줄바꿈
+                println!(); // Newline after streaming completes.
             }
             Ok(Some(full_text))
         }

@@ -37,7 +37,7 @@ use forja_memory::MarkdownMemoryStore;
 use provider_registry::ProviderRegistry;
 use std::path::Path;
 
-// ─── Mock LLM (API 키 없이 로컬 테스트용) ────────────────────────────────────
+// Mock LLM used for local testing without a real API key.
 
 struct MockLlmProvider;
 
@@ -52,15 +52,15 @@ impl LlmProvider for MockLlmProvider {
             })
             .unwrap_or_default();
 
-        if last.contains("감정 상태를 JSON으로만 응답하세요.") {
+        if last.contains("Analyze the emotional state of the conversation below and respond with JSON only.") {
             return Ok(Message::text(
                 Role::Assistant,
-                r#"{"mood":"neutral","intensity":1,"reason":"mock mode","tone_instruction":"균형 잡힌 존중의 톤으로 답하세요."}"#,
+                r#"{"mood":"neutral","intensity":1,"reason":"mock mode","tone_instruction":"Reply in a balanced, respectful tone."}"#,
                 None,
             ));
         }
 
-        if last.contains("자연스럽게 건넬 인사를 한 문장으로 하세요.") {
+        if last.contains("Write one natural greeting sentence.") {
             return Ok(Message::text(Role::Assistant, "NONE", None));
         }
 
@@ -68,8 +68,8 @@ impl LlmProvider for MockLlmProvider {
             return Ok(Message::text(Role::Assistant, "NONE", None));
         }
 
-        if last.contains("하루치 memory.md 기록을 한국어로 최대 3줄로 요약하세요.") {
-            return Ok(Message::text(Role::Assistant, "Mock 요약", None));
+        if last.contains("Summarize the daily memory.md records in max 3 lines.") {
+            return Ok(Message::text(Role::Assistant, "Mock summary", None));
         }
 
         if last.contains("Below is the user's recent memory and knowledge base.") {
@@ -79,7 +79,7 @@ impl LlmProvider for MockLlmProvider {
         Ok(Message::text(
             Role::Assistant,
             format!(
-                "[MockLLM] 메시지를 받았습니다: '{}' (실제 API 키를 설정하면 진짜 응답을 받을 수 있습니다.)",
+                "[MockLLM] Received message: '{}' (configure a real API key to get a live response.)",
                 last
             ),
             None
@@ -100,11 +100,11 @@ impl LlmProvider for MockLlmProvider {
             .unwrap_or_default();
 
         let response = format!(
-            "[MockStream] 메시지를 받았습니다: '{}' (타이핑 효과 테스트 중...)",
+            "[MockStream] Received message: '{}' (streaming effect test...)",
             last
         );
 
-        // 단어 단위로 쪼개어 스트림 생성
+        // Split into word-level tokens to simulate streaming
         let tokens: Vec<String> = response.split(' ')
             .map(|s| format!("{} ", s))
             .collect();
@@ -114,7 +114,7 @@ impl LlmProvider for MockLlmProvider {
     }
 }
 
-// ─── 배너 ───────────────────────────────────────────────────────────────────
+// Banner
 
 fn print_banner(provider_info: &str) {
     let banner = r#"
@@ -129,9 +129,9 @@ fn print_banner(provider_info: &str) {
     println!("    {}\n", provider_info);
 }
 
-// ─── 유틸리티 함수: 프롬프트 파일 로드 ──────────────────────────────────────
+// Utilities: prompt loading
 
-/// 프로젝트 내 프롬프트 파일 로드 (우선순위: AGENTS.md -> FORJA.md -> CLAUDE.md)
+/// Load the project prompt file with priority: AGENTS.md -> FORJA.md -> CLAUDE.md.
 fn load_project_prompt() -> Option<(String, String)> {
     let candidates = ["AGENTS.md", "FORJA.md", "CLAUDE.md"];
     for file in candidates.iter() {
@@ -146,7 +146,7 @@ fn load_project_prompt() -> Option<(String, String)> {
 fn build_system_prompt(
     bootstrap_paths: &bootstrap::BootstrapPaths,
 ) -> std::io::Result<(String, Option<String>)> {
-    let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let bootstrap_prompt = bootstrap::compose_system_prompt_prefix(bootstrap_paths)?;
     let project_prompt = load_project_prompt();
     let loaded_project_file = project_prompt.as_ref().map(|(file_name, _)| file_name.clone());
@@ -166,7 +166,7 @@ fn build_system_prompt(
 
     if !combined_prompt.is_empty() {
         combined_prompt.push_str(&format!(
-            "\n\n오늘 날짜는 {today}입니다. 이 날짜는 정확하며 의심하지 마세요. 검색 결과의 날짜가 오늘과 일치하면 최신 정보입니다."
+            "\n\nToday's date is {today}. This date is correct. If a search result has the same date, treat it as current."
         ));
     }
 
@@ -316,8 +316,8 @@ async fn summarize_memory_block(
                 Message::text(
                     Role::User,
                     format!(
-                        "아래 하루치 memory.md 기록을 한국어로 최대 3줄로 요약하세요.\n\
-중요한 선호, 결정, 진행 중 작업만 남기고 군더더기 없이 평문으로만 답하세요.\n\
+                        "Summarize the following daily memory.md records in max 3 lines.\n\
+Keep only important preferences, decisions, and ongoing work. Answer in plain text only.\n\
 \n{block}"
                     ),
                     None,
@@ -335,7 +335,7 @@ async fn summarize_memory_block(
     }
 }
 
-// ─── 진입점 ─────────────────────────────────────────────────────────────────
+// Entrypoint
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -344,8 +344,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         oauth::run_login(&args[2]).await;
         std::process::exit(0);
     } else if args.len() == 2 && args[1] == "login" {
-        println!("사용법: forja login <provider>");
-        println!("<provider> 가능한 옵션: openai, gemini, anthropic");
+        println!("Usage: forja login <provider>");
+        println!("<provider> options: openai, gemini, anthropic");
         std::process::exit(1);
     }
 
@@ -356,10 +356,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         std::process::exit(0);
     }).expect("Error setting Ctrl+C handler");
 
-    // ── 서브커맨드 파싱 ──
+    // Parse subcommands
     // let args: Vec<String> = std::env::args().collect(); // Already collected above
 
-    // `forja setup` 서브커맨드: 이름된 후 종료
+    // `forja setup` subcommand: run setup and exit
     if args.get(1).map(|s| s.as_str()) == Some("setup") {
         config::run_setup();
         return Ok(());
@@ -390,27 +390,27 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         i += 1;
     }
 
-    // ── config 로드 ──
+    // Load config
     let mut forja_cfg = if force_setup {
         config::run_onboarding()
     } else {
         config::load_config()
     };
 
-    // 설정 파일이 없고 환경변수도 없으면 자동 온보딩 (load_config 내부에서 처리하지 않고 명시적으로 수행)
+    // Run onboarding explicitly if there is no configured provider and no override.
     if forja_cfg.active.provider.is_none() && !force_setup {
         forja_cfg = config::run_onboarding();
     }
 
-    // 플래그 적용
+    // Apply command-line overrides
     let mut updated = false;
     if let Some(p) = new_provider {
         println!("[System] Switching provider to: {}", p);
         forja_cfg.active.provider = Some(p.clone());
         
-        // 키가 없는 경우 즉석에서 요청
+        // Ask for the API key immediately if it is missing.
         if forja_cfg.keys.get_for(&p).is_none() && p != "ollama" {
-            print!("\n⚠️  {}의 API 키가 없습니다. 입력하세요 > ", p);
+            print!("\n[WARNING] Missing API key for {}. Enter it now > ", p);
             std::io::stdout().flush().ok();
             let mut key = String::new();
             std::io::stdin().read_line(&mut key).ok();
@@ -438,7 +438,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "Forja".to_string());
     let user_title = forja_cfg.user_title.clone()
         .or_else(|| std::env::var("FORJA_USER_TITLE").ok())
-        .unwrap_or_else(|| "사용자님".to_string());
+        .unwrap_or_else(|| "User".to_string());
 
     let shell_enabled = !matches!(
         std::env::var("FORJA_SHELL"),
@@ -466,16 +466,16 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         vision_enabled,
     );
     if let Some(file_name) = loaded_project_file {
-        println!("[System] {file_name} 로드됨");
+        println!("[System] Loaded {file_name}");
     }
 
-    // ── ProviderRegistry 초기화 ──
+    // Initialize ProviderRegistry
     let registry = ProviderRegistry::from_config(&forja_cfg);
 
-    // ── 핸들러용 config clone (이후 forja_cfg 일부 필드가 이동되기 전에 복사) ──
+    // Clone config for slash handler usage before any fields are moved.
     let cfg_for_handler = forja_cfg.clone();
 
-    // ── Mock 모드 or 실제 프로바이더 ──
+    // Mock mode or live provider
     let use_mock = std::env::var("FORJA_USE_MOCK").is_ok();
     let llm_config = if use_mock {
         None
@@ -486,7 +486,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         )
     };
     let provider: Arc<dyn LlmProvider> = if use_mock {
-        println!("[System] MockLlmProvider 모드 (실제 LLM 호출 없음)");
+        println!("[System] MockLlmProvider mode (no live LLM calls)");
         Arc::new(MockLlmProvider)
     } else {
         Arc::new(LlmClient::new(
@@ -500,7 +500,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mode_state = ModeState::new(exec_mode, think_level, ModeRole::Auto);
     let exec_mode_handle = Arc::new(std::sync::Mutex::new(exec_mode));
 
-    // ── 채널 설정 ──
+    // Channel setup
     let (channel, interactive_identity_supported, print_initial_prompt): (
         Arc<dyn Channel>,
         bool,
@@ -542,7 +542,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // ── System Prompt 설정 ──
+    // System prompt setup
     let mut engine = Engine::new(provider.clone(), channel.clone());
     engine = engine.with_mode(mode_state.clone()).with_tool_prompt(tool_prompt);
     engine = engine.with_assistant_profile(assistant_name.clone(), user_title.clone());
@@ -565,7 +565,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         engine = engine.with_serendipity(SerendipityEngine::new());
     }
 
-    // ── 메모리 스토어 초기화 ──
+    // Initialize memory store
     let memory_dir = std::env::var("FORJA_MEMORY_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| {
@@ -658,7 +658,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
 
 
-    // ── 도구 등록 ──
+    // Register tools
     let file_tool = Arc::new(FileTool::new());
     let web_tool = Arc::new(WebTool::new());
     let search_provider = match forja_cfg.tools.search.provider.as_deref() {
@@ -735,7 +735,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         println!("[System] Gemini CLI tool registered.");
     }
 
-    // ── 슬래시 핸들러: ProviderRegistry 를 캐폁한 클로저 ──
+    // Slash handler with ProviderRegistry captured in a closure
     let registry = std::sync::Mutex::new(registry);
     let channel_for_slash = channel.clone();
     let bootstrap_paths_for_slash = bootstrap_paths.clone();
@@ -748,7 +748,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         if vision_enabled_for_slash {
             if let Some(prompt) = parse_screenshot_command(text) {
-                println!("[Vision] 화면을 캡처했습니다. 분석 중...");
+                println!("[Vision] Captured the screen. Analyzing...");
                 let prompt = if prompt.trim().is_empty() {
                     "Describe what you see on screen.".to_string()
                 } else {
@@ -781,7 +781,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     Ok(image_base64) => image_base64,
                     Err(error) => {
                         return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                            "❌ 이미지 파일을 읽을 수 없습니다: {error}"
+                            "❌ Could not read the image file: {error}"
                         )))
                     }
                 };
@@ -872,7 +872,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let reg = registry.lock().unwrap();
             let e = reg.active();
             return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                "현재 모델: **{}** ({}/{})",
+                "Current model: **{}** ({}/{})",
                 e.label, e.provider, e.model_id
             )));
         }
@@ -882,7 +882,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             match reg.resolve(target, &cfg_for_handler) {
                 None => {
                     return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "❌ '{}' 모델을 찾을 수 없습니다. `/models`로 목록을 확인하세요.",
+                        "❌ Could not find model '{}'. Check `/models` for the list.",
                         target
                     )))
                 }
@@ -890,21 +890,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     match reg.switch_to(idx, &cfg_for_handler) {
                         Err(e) => {
                             return Some(forja_core::engine::SlashCommandResult::Reply(
-                                format!("❌ 전환 실패: {e}"),
+                                format!("❌ Switch failed: {e}"),
                             ))
                         }
                         Ok(new_config) => {
                             match forja_llm::LlmClient::new(new_config) {
                                 Err(e) => {
                                     return Some(forja_core::engine::SlashCommandResult::Reply(
-                                        format!("❌ LlmClient 생성 실패: {e}"),
+                                        format!("❌ Failed to create LlmClient: {e}"),
                                     ))
                                 }
                                 Ok(client) => {
                                     let entry = reg.active();
                                     *provider = Arc::new(client);
                                     return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                                        "✅ 모델 전환: **{}** ({}/{})",
+                                        "✅ Switched model: **{}** ({}/{})",
                                         entry.label, entry.provider, entry.model_id
                                     )));
                                 }
@@ -918,7 +918,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         if text == "/identity" {
             if !interactive_identity_supported || !channel_for_slash.is_cli_source() {
                 return Some(forja_core::engine::SlashCommandResult::Reply(
-                    "이 명령은 CLI 단독 모드에서만 지원됩니다.".to_string(),
+                    "This command is only supported in CLI-only mode.".to_string(),
                 ));
             }
 
@@ -926,7 +926,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "❌ identity 재설정 실패: {error}"
+                        "❌ Identity reset failed: {error}"
                     )))
                 }
             };
@@ -935,7 +935,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 Ok((system_prompt, _)) => system_prompt,
                 Err(error) => {
                     return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "❌ 시스템 프롬프트 재구성 실패: {error}"
+                        "❌ Failed to rebuild the system prompt: {error}"
                     )))
                 }
             };

@@ -23,7 +23,7 @@ const DANGEROUS_PATTERNS: &[&str] = &[
     "dd if=",
 ];
 
-/// 시스템 명령어를 로컬 셸에서 실행하는 도구.
+/// Tool for executing OS commands in the local shell.
 pub struct ShellTool {
     confirmation_handler: Arc<dyn ConfirmationHandler>,
     timeout: Duration,
@@ -159,7 +159,7 @@ impl Tool for ShellTool {
 
         if !self.unsafe_mode && Self::is_dangerous_command(command) {
             let warning = format!(
-                "[경고] 이 명령어는 시스템에 영향을 줄 수 있습니다: {command}\n실행하시겠습니까? (y/n)"
+                "[WARNING] This command may affect the system: {command}\nExecute? (y/n)"
             );
             if !self.confirmation_handler.confirm(command, true).await {
                 return Ok(json!({
@@ -170,7 +170,7 @@ impl Tool for ShellTool {
         } else if !self.unsafe_mode && !self.confirmation_handler.confirm(command, false).await {
             return Ok(json!({
                 "status": "warning",
-                "output": format!("[경고] 실행 전 확인이 필요합니다: {command}\n실행하시겠습니까? (y/n)"),
+                "output": format!("[WARNING] Confirmation required before execution: {command}\nExecute? (y/n)"),
             }));
         }
 

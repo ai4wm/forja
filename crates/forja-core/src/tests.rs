@@ -1,16 +1,16 @@
 use crate::types::{Content, Message, Role};
 
-// ─── Message 생성 ─────────────────────────────────────────────────────────
+// Message creation
 
 #[test]
 fn test_message_text_creation() {
-    let msg = Message::text(Role::User, "안녕하세요", None);
+    let msg = Message::text(Role::User, "hello", None);
     assert_eq!(msg.role, Role::User);
     assert!(!msg.id.is_empty());
     assert!(msg.timestamp > 0);
 
     match msg.content {
-        Content::Text { text, .. } => assert_eq!(text, "안녕하세요"),
+        Content::Text { text, .. } => assert_eq!(text, "hello"),
         _ => panic!("Expected Text content"),
     }
 }
@@ -51,7 +51,7 @@ fn test_message_tool_result_creation() {
     }
 }
 
-// ─── Content enum 매칭 ────────────────────────────────────────────────────
+// Content enum matching
 
 #[test]
 fn test_content_enum_variants() {
@@ -117,7 +117,7 @@ fn test_role_equality() {
     assert_ne!(Role::System, Role::Tool);
 }
 
-// ─── metadata 빌더 패턴 ───────────────────────────────────────────────────
+// metadata builder pattern
 
 #[test]
 fn test_message_with_metadata() {

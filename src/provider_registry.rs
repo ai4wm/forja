@@ -1,7 +1,7 @@
 use forja_llm::LlmConfig;
 use crate::config::{ForjaConfig, llm_config_from};
 
-// ─── 모델 엔트리 ──────────────────────────────────────────────────────────────
+// Model entries
 
 pub struct ModelEntry {
     pub provider: &'static str,
@@ -10,65 +10,65 @@ pub struct ModelEntry {
     pub aliases:  &'static [&'static str],
 }
 
-/// 전체 등록 모델 테이블 (최신 모델 ID 기준)
+/// Full registered model table using current model IDs.
 pub static MODEL_TABLE: &[ModelEntry] = &[
     // OpenAI API
-    ModelEntry { provider: "openai",       model_id: "gpt-5.4",              label: "GPT-5.4 (API 유료)",           aliases: &["smart", "gpt5"] },
-    ModelEntry { provider: "openai",       model_id: "gpt-5.4-mini",         label: "GPT-5.4 Mini (API 유료)",      aliases: &["mini"] },
-    ModelEntry { provider: "openai",       model_id: "gpt-5.3-codex",        label: "GPT-5.3 Codex (API 유료)",     aliases: &["codex"] },
+    ModelEntry { provider: "openai",       model_id: "gpt-5.4",              label: "GPT-5.4 (API paid)",           aliases: &["smart", "gpt5"] },
+    ModelEntry { provider: "openai",       model_id: "gpt-5.4-mini",         label: "GPT-5.4 Mini (API paid)",      aliases: &["mini"] },
+    ModelEntry { provider: "openai",       model_id: "gpt-5.3-codex",        label: "GPT-5.3 Codex (API paid)",     aliases: &["codex"] },
 
-    // OpenAI OAuth (구독)
-    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.4",              label: "GPT-5.4 (구독 ★)",           aliases: &["smart5"] },
-    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.3-codex",       label: "GPT-5.3 Codex (구독)",        aliases: &["codex53"] },
-    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark (구독, 초고속)", aliases: &["spark"] },
-    ModelEntry { provider: "openai_oauth", model_id: "o3-pro",              label: "o3-Pro (구독)",                aliases: &["o3pro"] },
+    // OpenAI OAuth (subscription)
+    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.4",              label: "GPT-5.4 (subscription ★)",           aliases: &["smart5"] },
+    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.3-codex",       label: "GPT-5.3 Codex (subscription)",        aliases: &["codex53"] },
+    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark (subscription, ultra-fast)", aliases: &["spark"] },
+    ModelEntry { provider: "openai_oauth", model_id: "o3-pro",              label: "o3-Pro (subscription)",                aliases: &["o3pro"] },
 
     // Anthropic
-    ModelEntry { provider: "anthropic",    model_id: "claude-opus-4-6",      label: "Claude Opus 4.6 (API 유료)",   aliases: &["opus"] },
-    ModelEntry { provider: "anthropic",    model_id: "claude-sonnet-4-6",    label: "Claude Sonnet 4.6 (API 유료)", aliases: &["sonnet"] },
+    ModelEntry { provider: "anthropic",    model_id: "claude-opus-4-6",      label: "Claude Opus 4.6 (API paid)",   aliases: &["opus"] },
+    ModelEntry { provider: "anthropic",    model_id: "claude-sonnet-4-6",    label: "Claude Sonnet 4.6 (API paid)", aliases: &["sonnet"] },
 
     // Gemini API
-    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (API 유료 ★)",  aliases: &["gemini", "pro31"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-3-flash-preview", label: "Gemini 3 Flash (무료)",      aliases: &["flash", "flash3"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash-Lite (무료)", aliases: &["lite"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-2.5-pro",         label: "Gemini 2.5 Pro (무료)",      aliases: &["gemini25"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (무료)",    aliases: &["flash25"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (API paid ★)",  aliases: &["gemini", "pro31"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-3-flash-preview", label: "Gemini 3 Flash (free)",      aliases: &["flash", "flash3"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash-Lite (free)", aliases: &["lite"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-2.5-pro",         label: "Gemini 2.5 Pro (free)",      aliases: &["gemini25"] },
+    ModelEntry { provider: "gemini",       model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (free)",    aliases: &["flash25"] },
 
-    // Gemini OAuth (CLI 구독)
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (CLI 구독 ★)",  aliases: &["gempro31"] },
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-3-flash-preview", label: "Gemini 3 Flash (CLI 구독)",    aliases: &["gemflash3"] },
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-pro",         label: "Gemini 2.5 Pro (CLI 구독)",   aliases: &["gempro"] },
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (CLI 구독)",  aliases: &["gemflash"] },
+    // Gemini OAuth (CLI subscription)
+    ModelEntry { provider: "gemini_oauth", model_id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (CLI subscription ★)",  aliases: &["gempro31"] },
+    ModelEntry { provider: "gemini_oauth", model_id: "gemini-3-flash-preview", label: "Gemini 3 Flash (CLI subscription)",    aliases: &["gemflash3"] },
+    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-pro",         label: "Gemini 2.5 Pro (CLI subscription)",   aliases: &["gempro"] },
+    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (CLI subscription)",  aliases: &["gemflash"] },
 
     // DeepSeek
-    ModelEntry { provider: "deepseek",     model_id: "deepseek-chat",          label: "DeepSeek V3.2 (API 유료)",   aliases: &["ds"] },
-    ModelEntry { provider: "deepseek",     model_id: "deepseek-reasoner",      label: "DeepSeek R1 (API 유료)",     aliases: &["dsr"] },
+    ModelEntry { provider: "deepseek",     model_id: "deepseek-chat",          label: "DeepSeek V3.2 (API paid)",   aliases: &["ds"] },
+    ModelEntry { provider: "deepseek",     model_id: "deepseek-reasoner",      label: "DeepSeek R1 (API paid)",     aliases: &["dsr"] },
 
     // GLM
-    ModelEntry { provider: "glm",          model_id: "glm-5",                  label: "GLM-5 (API 유료)",           aliases: &["glm"] },
-    ModelEntry { provider: "glm",          model_id: "glm-4.5v",               label: "GLM-4.5V (API 유료)",        aliases: &["glmv"] },
+    ModelEntry { provider: "glm",          model_id: "glm-5",                  label: "GLM-5 (API paid)",           aliases: &["glm"] },
+    ModelEntry { provider: "glm",          model_id: "glm-4.5v",               label: "GLM-4.5V (API paid)",        aliases: &["glmv"] },
 
     // Moonshot
-    ModelEntry { provider: "moonshot",     model_id: "kimi-k2.5",              label: "Kimi K2.5 (API 유료)",       aliases: &["kimi", "fast"] },
+    ModelEntry { provider: "moonshot",     model_id: "kimi-k2.5",              label: "Kimi K2.5 (API paid)",       aliases: &["kimi", "fast"] },
 
     // xAI
-    ModelEntry { provider: "xai",          model_id: "grok-3",                 label: "Grok-3 (API 유료)",          aliases: &["grok"] },
-    ModelEntry { provider: "xai",          model_id: "grok-3-mini",            label: "Grok-3 Mini (API 유료)",     aliases: &["grokmini"] },
+    ModelEntry { provider: "xai",          model_id: "grok-3",                 label: "Grok-3 (API paid)",          aliases: &["grok"] },
+    ModelEntry { provider: "xai",          model_id: "grok-3-mini",            label: "Grok-3 Mini (API paid)",     aliases: &["grokmini"] },
 
     // Ollama
-    ModelEntry { provider: "ollama",       model_id: "qwen3.5:9b",             label: "Qwen3.5 9B (로컬)",         aliases: &["local", "ollama"] },
-    ModelEntry { provider: "ollama",       model_id: "llama3:8b",               label: "Llama3 8B (로컬)",          aliases: &["llama"] },
-    ModelEntry { provider: "ollama",       model_id: "mistral:7b",              label: "Mistral 7B (로컬)",         aliases: &["mistral"] },
+    ModelEntry { provider: "ollama",       model_id: "qwen3.5:9b",             label: "Qwen3.5 9B (local)",         aliases: &["local", "ollama"] },
+    ModelEntry { provider: "ollama",       model_id: "llama3:8b",               label: "Llama3 8B (local)",          aliases: &["llama"] },
+    ModelEntry { provider: "ollama",       model_id: "mistral:7b",              label: "Mistral 7B (local)",         aliases: &["mistral"] },
 ];
 
-// ─── ProviderRegistry ─────────────────────────────────────────────────────────
+// ProviderRegistry
 
 pub struct ProviderRegistry {
     active_idx: usize,
 }
 
 impl ProviderRegistry {
-    /// config에서 활성 모델 인덱스를 찾아 초기화
+    /// Initialize from the active model index found in config.
     pub fn from_config(cfg: &ForjaConfig) -> Self {
         let provider = cfg.active.provider.as_deref().unwrap_or("");
         let model    = cfg.active.model.as_deref().unwrap_or("");
@@ -82,12 +82,12 @@ impl ProviderRegistry {
         Self { active_idx: idx }
     }
 
-    /// 현재 활성 엔트리
+    /// Current active entry.
     pub fn active(&self) -> &'static ModelEntry {
         &MODEL_TABLE[self.active_idx]
     }
 
-    /// 프로바이더 사용 가능 여부 확인 (내부 헬퍼)
+    /// Check whether a provider is available.
     fn is_provider_available(provider: &str, cfg: &ForjaConfig, auth: &crate::oauth::AuthData) -> bool {
         match provider {
             "ollama" => true,
@@ -97,40 +97,40 @@ impl ProviderRegistry {
         }
     }
 
-    /// `/models` 출력: config에 등록된 프로바이더의 모델만 표시
+    /// Render `/models` using only providers available in config.
     pub fn list_for_config(&self, cfg: &ForjaConfig) -> String {
-        let mut s = String::from("📋 사용 가능한 모델 (등록된 프로바이더):\n");
+        let mut s = String::from("Available models (configured providers):\n");
         let mut display_idx = 1usize;
         let auth = crate::oauth::AuthData::load();
         for (i, e) in MODEL_TABLE.iter().enumerate() {
             if !Self::is_provider_available(e.provider, cfg, &auth) { continue; }
-            let cur = if i == self.active_idx { " ◀ 현재" } else { "" };
+            let cur = if i == self.active_idx { " <- current" } else { "" };
             s.push_str(&format!(
                 "  {:2}. [{}] {} — {}{}\n",
                 display_idx, e.provider, e.label, e.model_id, cur
             ));
             display_idx += 1;
         }
-        s.push_str("\n→ `/model <번호>` 또는 `/model <이름/별칭>`으로 전환");
+        s.push_str("\nUse `/model <number>` or `/model <name/alias>` to switch.");
         s
     }
 
-    /// `/models` 전체 목록 (등록 여부 무관)
+    /// Render `/models` for the full table regardless of availability.
     #[allow(dead_code)]
     pub fn list_display(&self) -> String {
-        let mut s = String::from("📋 전체 모델 목록:\n");
+        let mut s = String::from("All models:\n");
         for (i, e) in MODEL_TABLE.iter().enumerate() {
-            let cur = if i == self.active_idx { " ◀ 현재" } else { "" };
+            let cur = if i == self.active_idx { " <- current" } else { "" };
             s.push_str(&format!(
                 "  {:2}. [{}] {} — {}{}\\n",
                 i + 1, e.provider, e.label, e.model_id, cur
             ));
         }
-        s.push_str("\n→ `/model <번호>` 또는 `/model <이름/별칭>`으로 전환");
+        s.push_str("\nUse `/model <number>` or `/model <name/alias>` to switch.");
         s
     }
 
-    /// `/model <input>` → 인덱스 검색 (번호 | model_id | alias | 부분문자열)
+    /// Resolve `/model <input>` by number, model ID, alias, or substring.
     pub fn resolve(&self, input: &str, cfg: &ForjaConfig) -> Option<usize> {
         let input = input.trim().to_lowercase();
         let auth = crate::oauth::AuthData::load();
@@ -163,7 +163,7 @@ impl ProviderRegistry {
             .map(|(idx, _)| idx)
     }
 
-    /// 스위칭 실행, 새 LlmConfig 반환
+    /// Switch and return the new LlmConfig.
     pub fn switch_to(&mut self, idx: usize, cfg: &ForjaConfig) -> Result<LlmConfig, String> {
         let entry = &MODEL_TABLE[idx];
         let mut tmp = cfg.clone();

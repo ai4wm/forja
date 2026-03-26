@@ -90,7 +90,7 @@ impl SearchTool {
     }
 
     async fn search_grok(&self, query: &str, api_key: &str) -> String {
-        // Responses API 엔드포인트
+        // Responses API endpoint
         let url = "https://api.x.ai/v1/responses";
         
         let body = serde_json::json!({

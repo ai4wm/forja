@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 도구 정의 (LLM에게 전달할 명세).
+/// Tool definition passed to the model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
     pub name: String,
@@ -10,7 +10,7 @@ pub struct ToolDefinition {
     pub parameters: serde_json::Value, // JSON Schema
 }
 
-/// 메시지의 발신자 역할.
+/// Sender role of a message.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Role {
     User,
@@ -19,58 +19,57 @@ pub enum Role {
     Tool,
 }
 
-/// 메시지 본문 — 텍스트, 도구 호출, 도구 결과를 구조화된 enum으로 구분.
-/// 문자열 파싱이 아닌 enum 매칭으로 도구 호출을 처리한다.
+/// Message payload. Text, tool calls, and tool results are represented as enums.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Content {
-    /// 일반 텍스트 메시지.
+    /// Plain text message.
     Text { 
         text: String,
-        /// Gemini 3 모델의 응답에 포함될 수 있는 thoughtSignature. 다음 요청시 반환 권장.
+        /// Gemini 3 thoughtSignature that may be returned with a response.
         #[serde(skip_serializing_if = "Option::is_none")]
         thought_signature: Option<String>,
     },
 
-    /// LLM이 도구 호출을 요청할 때.
+    /// When the model requests a tool call.
     ToolCall {
-        /// 호출 ID (응답 매칭용).
+        /// Call ID used to match results.
         call_id: String,
-        /// 도구 이름 (예: "shell", "file_read").
+        /// Tool name, for example "shell" or "file_read".
         tool_name: String,
-        /// 구조화된 JSON 인자.
+        /// Structured JSON arguments.
         arguments: serde_json::Value,
-        /// (선택적) 모델이 도구 호출 전 추론한 내용 (최신 모델 지원).
+        /// Optional reasoning content before the tool call.
         #[serde(skip_serializing_if = "Option::is_none")]
         reasoning_content: Option<String>,
-        /// Gemini 3 모델의 functionCall에 포함되는 서명. 다음 요청시 반드시 그대로 반환해야 함.
+        /// Gemini 3 functionCall signature that should be returned unchanged.
         #[serde(skip_serializing_if = "Option::is_none")]
         thought_signature: Option<String>,
     },
 
-    /// 도구 실행 결과를 LLM에게 반환할 때.
+    /// Tool execution result returned to the model.
     ToolResult {
-        /// 원본 호출 ID (ToolCall.call_id와 매칭).
+        /// Original call ID matching `ToolCall.call_id`.
         call_id: String,
-        /// 실행 결과 (JSON).
+        /// JSON result payload.
         result: serde_json::Value,
     },
 }
 
-/// 시스템 전체에서 흐르는 단일 메시지 단위.
+/// Single message unit flowing through the system.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
     pub role: Role,
     pub content: Content,
     pub timestamp: u64,
-    /// 토큰 수, 모델명, 채널 라우팅 정보 등 확장 가능한 메타데이터.
+    /// Extensible metadata such as tokens, model name, or channel routing info.
     #[serde(default)]
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
 impl Message {
-    /// 텍스트 메시지 생성 헬퍼.
+    /// Helper for creating text messages.
     pub fn text(role: Role, text: impl Into<String>, thought_signature: Option<String>) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -84,7 +83,7 @@ impl Message {
         }
     }
 
-    /// 도구 호출 메시지 생성 헬퍼.
+    /// Helper for creating tool-call messages.
     pub fn tool_call(
         call_id: impl Into<String>,
         tool_name: impl Into<String>,
@@ -94,7 +93,7 @@ impl Message {
         Self::tool_call_with_reasoning(call_id, tool_name, arguments, None, thought_signature)
     }
 
-    /// (확장용) 추론 내용(reasoning_content) 및 서명(thought_signature)을 포함한 도구 호출 생성 헬퍼.
+    /// Helper for creating tool calls with reasoning content and thought signature.
     pub fn tool_call_with_reasoning(
         call_id: impl Into<String>,
         tool_name: impl Into<String>,
@@ -117,7 +116,7 @@ impl Message {
         }
     }
 
-    /// 도구 결과 메시지 생성 헬퍼.
+    /// Helper for creating tool-result messages.
     pub fn tool_result(call_id: impl Into<String>, result: serde_json::Value) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -131,13 +130,13 @@ impl Message {
         }
     }
 
-    /// metadata에 key-value 추가 (빌더 패턴).
+    /// Adds metadata as key-value pairs via builder pattern.
     pub fn with_metadata(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.metadata.insert(key.into(), value);
         self
     }
 
-    /// 내부 컨텐츠의 대략적인 문자열 길이를 반환하는 헬퍼 메서드 (토큰 수 추정용)
+    /// Returns an approximate text length for token estimation.
     pub fn content_text_len(&self) -> usize {
         match &self.content {
             Content::Text { text, .. } => text.len(),
@@ -156,9 +155,7 @@ fn now() -> u64 {
         .as_secs()
 }
 
-/// 메모리 검색 결과 항목.
-/// 점수(score)와 타임스탬프를 포함하여
-/// 하이브리드 검색(벡터 + BM25 + 시간 감쇠)에서 정렬 가능.
+/// Memory retrieval item including score and timestamp for hybrid ranking.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {
     pub id: String,

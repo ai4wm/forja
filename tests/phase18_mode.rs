@@ -106,7 +106,7 @@ fn assemble_system_prompt_includes_base_prompt() {
     );
 
     assert!(prompt.contains("You are Forja, a personal AI assistant."));
-    assert_eq!(base_prompt("Forja", "사용자님").contains("address user as \"사용자님\""), true);
+    assert!(base_prompt("Forja", "사용자님").contains("Address the user as \"사용자님\""));
 }
 
 #[test]

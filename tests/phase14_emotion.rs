@@ -262,7 +262,7 @@ fn relationship_detects_late_night_work() {
 
     let patterns = RelationshipContext::detect_patterns(&memory);
 
-    assert!(patterns.iter().any(|pattern| pattern.contains("건강 챙기세요")));
+    assert!(patterns.iter().any(|pattern| pattern == "late_night_detected"));
 }
 
 #[test]
@@ -272,20 +272,20 @@ fn relationship_detects_long_gap() {
 
     let patterns = RelationshipContext::detect_patterns(&memory);
 
-    assert!(patterns.iter().any(|pattern| pattern.contains("오랜만이십니다")));
+    assert!(patterns.iter().any(|pattern| pattern == "long_absence_detected"));
 }
 
 #[test]
 fn relationship_detects_error_streak() {
     let today = Local::now().date_naive();
     let memory = format!(
-        "{}\n10:05 | assistant | 또 에러가 났어요\n10:10 | user | 안돼, 계속 실패해",
-        build_memory_line(today, "10:00", "user", "에러가 계속 납니다")
+        "{}\n10:05 | assistant | another error happened\n10:10 | user | still failed again",
+        build_memory_line(today, "10:00", "user", "error keeps happening")
     );
 
     let patterns = RelationshipContext::detect_patterns(&memory);
 
-    assert!(patterns.iter().any(|pattern| pattern.contains("잠깐 쉬었다")));
+    assert!(patterns.iter().any(|pattern| pattern == "error_streak_detected"));
 }
 
 #[test]
@@ -293,12 +293,12 @@ fn relationship_detects_progress_streak() {
     let today = Local::now().date_naive();
     let memory = format!(
         "{}\n09:20 | assistant | commit까지 끝났네요",
-        build_memory_line(today, "09:00", "user", "Phase 14 완료 직전입니다")
+        build_memory_line(today, "09:00", "user", "Phase 14 completed and ready to push")
     );
 
     let patterns = RelationshipContext::detect_patterns(&memory);
 
-    assert!(patterns.iter().any(|pattern| pattern.contains("진도가 정말 빠르십니다")));
+    assert!(patterns.iter().any(|pattern| pattern == "progress_streak_detected"));
 }
 
 #[tokio::test]

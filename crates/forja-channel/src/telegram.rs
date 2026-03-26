@@ -12,7 +12,7 @@ use teloxide::dispatching::UpdateFilterExt;
 #[cfg(feature = "telegram")]
 use teloxide::types::Update;
 
-/// Telegram 봇 채널의 핵심 인터페이스.
+/// Core interface for the Telegram bot channel.
 #[cfg(feature = "telegram")]
 pub struct TelegramChannel {
     bot: Bot,
@@ -25,24 +25,24 @@ pub struct TelegramChannel {
 
 #[cfg(feature = "telegram")]
 impl TelegramChannel {
-    /// TelegramChannel 생성자. 내부적으로 백그라운드 태스크에서 봇 롱폴링을 시작합니다.
+    /// Constructor. Starts bot long-polling in a background task.
     pub async fn new(bot_token: String, allowed_chat_ids: Vec<i64>) -> Self {
         let bot = Bot::new(bot_token);
-        // 채널 버퍼는 여유롭게 100 할당 (추가 최적화 가능)
+        // Channel buffer size 100 (can be optimized)
         let (tx, rx) = mpsc::channel::<(i64, CoreMessage)>(100);
 
-        // 허용 ID 리스트 복제
+        // Clone allowed ID list
         let allowed_cloned = allowed_chat_ids.clone();
 
-        // 텔레그램 디스패처 설정
+        // Configure Telegram dispatcher
         let handler = Update::filter_message().endpoint(
             move |msg: teloxide::types::Message, bot: Bot, tx: mpsc::Sender<(i64, CoreMessage)>| {
                 let allowed = allowed_cloned.clone();
                 async move {
-                    let chat_id = msg.chat.id.0; // i64 타입 추출
+                    let chat_id = msg.chat.id.0; // Extract i64 chat ID
 
                     if !allowed.contains(&chat_id) {
-                        // 화이트리스트 외 접근 차단: 안내 문구 전송 후 버림
+                        // Block access outside whitelist: send notice and discard
                         let _ = bot.send_message(
                             msg.chat.id, 
                             "[DENIED] Authorized users only."
@@ -53,7 +53,7 @@ impl TelegramChannel {
                     if let Some(text) = msg.text() {
                         let core_msg = CoreMessage::text(Role::User, text.to_string(), None);
                         
-                        // 송신 실패 (채널 파괴 등) 시도 캐치 (현재는 무시)
+                        // Send failure catch (ignored for now)
                         let _ = tx.send((chat_id, core_msg)).await;
                     }
 
@@ -64,7 +64,7 @@ impl TelegramChannel {
 
         let bot_clone = bot.clone();
         
-        // 백그라운드 태스크에서 비동식 봇 수신 처리 구동
+        // Start async bot receive handler in background task
         tokio::spawn(async move {
             Dispatcher::builder(bot_clone, handler)
                 .dependencies(dptree::deps![tx])
@@ -90,12 +90,12 @@ impl Channel for TelegramChannel {
     async fn receive(&self) -> forja_core::error::Result<CoreMessage> {
         let mut rx = self.receiver.lock().await;
 
-        // mpsc::Receiver에서 들어오는 메시지를 무한 대기
+        // Wait for incoming messages from mpsc::Receiver
         if let Some((chat_id, msg)) = rx.recv().await {
             let mut last_id = self.last_chat_id.lock().await;
             *last_id = Some(chat_id);
 
-            // "입력 중..." 백그라운드 반복 전송 시작
+            // Start typing indicator background loop
             let bot_clone = self.bot.clone();
             let tid = chat_id;
             let handle = tokio::spawn(async move {
@@ -108,7 +108,7 @@ impl Channel for TelegramChannel {
             });
             *self.typing_handle.lock().await = Some(handle);
 
-            // 터미널에 수신 로그 출력
+            // Print receive log to terminal
             if let Content::Text { ref text, .. } = msg.content {
                 print!("\r\x1b[K");
                 println!("[TG] {}", text);
@@ -122,7 +122,7 @@ impl Channel for TelegramChannel {
     }
 
     async fn send(&self, message: CoreMessage) -> forja_core::error::Result<()> {
-        // 전송 시작 시 typing 액션 중지
+        // Stop typing action when starting to send
         if let Some(handle) = self.typing_handle.lock().await.take() {
             handle.abort();
         }
@@ -137,7 +137,7 @@ impl Channel for TelegramChannel {
                     .await;
 
                 if send_res.is_err() {
-                    // 마크다운 파싱 실패 시 plain text로 폴백
+                    // Fallback to plain text if markdown parsing fails
                     self.bot
                         .send_message(teloxide::types::ChatId(chat_id), text.to_string())
                         .await
@@ -146,7 +146,7 @@ impl Channel for TelegramChannel {
                         )))?;
                 }
 
-                // 터미널에 전송 로그 출력
+                // Print send log to terminal
                 let log_text = text.clone();
                 let _ = tokio::task::spawn_blocking(move || {
                     use std::io::Write;
@@ -156,7 +156,7 @@ impl Channel for TelegramChannel {
                 }).await;
             }
         } else {
-            // 시스템 단독 실행 초기화 등, 대상자가 아직 없는 경우는 그냥 스킵하거나 경고 로깅
+            // Skip or log warning if no target chat exists yet
             eprintln!("[WARN] Telegram send drop: Empty last_chat_id");
         }
 
@@ -167,8 +167,6 @@ impl Channel for TelegramChannel {
 #[cfg(feature = "telegram")]
 #[allow(dead_code)]
 fn escape_markdown_v2(text: &str) -> String {
-    // MarkdownV2에서 이스케이프 필요한 문자들
-    // 단, **, `, ``` 등 포매팅 기호는 유지해야 하므로
-    // 간단한 접근: HTML 모드 사용 (이스케이프가 훨씬 단순)
+    // MarkdownV2 escape characters. Using HTML mode for simpler escaping.
     text.to_string()
 }

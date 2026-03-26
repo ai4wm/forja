@@ -261,7 +261,7 @@ async fn serendipity_appends_suggestion_to_response_end() {
     let sent = channel.sent_texts().await;
     assert_eq!(
         sent,
-        vec!["assistant reply\n\n참고: Resume Phase 16 from the remaining knowledge tests.".to_string()]
+        vec!["assistant reply\n\nResume Phase 16 from the remaining knowledge tests.".to_string()]
     );
 }
 

@@ -67,7 +67,7 @@ impl Tool for CodexTool {
 
         if !Self::is_installed().await {
             return Ok(serde_json::json!({
-                "error": "codex CLI가 설치되어 있지 않습니다"
+                "error": "codex CLI is not installed"
             }));
         }
 

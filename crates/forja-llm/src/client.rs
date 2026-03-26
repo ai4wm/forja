@@ -9,10 +9,11 @@ use reqwest::header::{HeaderMap, HeaderValue};
 use std::pin::Pin;
 use tokio_stream::Stream;
 
-/// OpenAI Chat Completions 포맷을 사용하는 범용 LlmClient
+/// Generic LlmClient using the OpenAI Chat Completions format.
 ///
-/// LlmConfig를 통해 base_url, api_key, model, 헤더 등을 동적으로 외부 주입받아
-/// 다양한 파운데이션 모델(OpenAI, Anthropic, DeepSeek, GLM, 로컬 Ollama)과 통신합니다.
+/// Receives base_url, api_key, model, and headers through LlmConfig
+/// to communicate with multiple foundation models such as OpenAI,
+/// Anthropic, DeepSeek, GLM, and local Ollama.
 #[cfg(feature = "anthropic")]
 pub struct LlmClient {
     client: reqwest::Client,
@@ -20,18 +21,17 @@ pub struct LlmClient {
 }
 
 impl LlmClient {
-    /// 설정을 받아 HTTP 클라이언트를 빌드하며 인스턴스를 생성합니다.
+    /// Builds the HTTP client from config and creates a new instance.
     pub fn new(config: LlmConfig) -> Result<Self> {
         let mut headers = HeaderMap::new();
 
-        // 1. Authorization: Bearer {API_KEY} (대부분의 OpenAI 호환 스펙의 기본 표준 방식)
+        // 1. Authorization: Bearer {API_KEY}
         let auth_val = format!("Bearer {}", config.api_key);
         if let Ok(val) = HeaderValue::from_str(&auth_val) {
             headers.insert("Authorization", val);
         }
 
-        // 2. Custom Extra Headers 반영
-        // Anthropic의 `x-api-key`, `anthropic-version` 처럼 각 벤더별 고유 헤더 값을 삽입.
+        // 2. Apply custom extra headers such as vendor-specific auth/version headers.
         for (k, v) in &config.extra_headers {
             if let Ok(hdr_name) = reqwest::header::HeaderName::from_bytes(k.as_bytes())
                 && let Ok(hdr_val) = HeaderValue::from_str(v) {
@@ -39,7 +39,7 @@ impl LlmClient {
                 }
         }
 
-        // Content-Type은 builder 기본값이지만 강제로 명시
+        // Content-Type is already set by the builder, but keep it explicit.
         headers.insert("content-type", HeaderValue::from_static("application/json"));
 
         let client = reqwest::Client::builder()
@@ -50,7 +50,7 @@ impl LlmClient {
         Ok(Self { client, config })
     }
 
-    /// `forja_core::Message` 배열을 OpenAI ChatCompletion 요청(Post Body) 포맷으로 변환.
+    /// Converts `forja_core::Message` slices into an OpenAI-style request payload.
     fn prepare_payload<'a>(
         &'a self,
         messages: &'a [Message],
@@ -79,8 +79,8 @@ impl LlmClient {
                     Content::ToolCall { call_id, tool_name, arguments, reasoning_content, thought_signature: _ } => {
                         ChatCompletionMessage {
                             role: "assistant".to_string(),
-                            content: None, // 일반 응답 내용 (비원시적 모델은 추론을 여기에 담을 수 있음, 우선 None 유지)
-                            reasoning_content: reasoning_content.clone(), // Moonshot 요구사항 대응
+                            content: None, // Reserved for plain text content in assistant messages
+                            reasoning_content: reasoning_content.clone(), // Preserve Moonshot reasoning content
                             tool_calls: Some(vec![crate::models::ToolCall {
                                 id: call_id.clone(),
                                 call_type: "function".to_string(),
@@ -127,7 +127,7 @@ impl LlmClient {
         }
     }
 
-    /// Responses API (/v1/responses) 전용 페이로드 생성
+    /// Builds a payload for the Responses API (/v1/responses).
     fn prepare_responses_payload(
         &self,
         messages: &[Message],
@@ -207,16 +207,16 @@ impl LlmClient {
         payload
     }
 
-    /// Gemini Native API (v1internal:streamGenerateContent) 전용 페이로드 생성
+    /// Builds a payload for Gemini Native API (v1internal:streamGenerateContent).
     fn prepare_gemini_native_payload(
         &self,
         messages: &[Message],
         tools: Option<&[ToolDefinition]>,
     ) -> serde_json::Value {
-        // 1. system_instruction 추출
+        // 1. Extract system_instruction
         let mut system_parts: Vec<serde_json::Value> = Vec::new();
         
-        // 2. 메시지 변환 (Gemini Native "contents" 포맷)
+        // 2. Convert messages into Gemini Native "contents" format
         let mut contents: Vec<serde_json::Value> = Vec::new();
         
         for m in messages {
@@ -257,7 +257,7 @@ impl LlmClient {
                     }));
                 }
                 (Role::Tool, Content::ToolResult { call_id, result }) => {
-                    // Gemini는 툴 결과를 유저 역할의 functionResponse 파트로 전달
+                    // Gemini expects tool results as a user-side functionResponse part.
                     contents.push(serde_json::json!({
                         "role": "user",
                         "parts": [{
@@ -272,7 +272,7 @@ impl LlmClient {
             }
         }
         
-        // 3. 도구 정의 변환 (Gemini functionDeclarations 포맷)
+        // 3. Convert tool definitions into Gemini functionDeclarations format
         let gemini_tools: Option<Vec<serde_json::Value>> = tools.map(|ts| {
             let decls: Vec<serde_json::Value> = ts.iter().map(|t| {
                 serde_json::json!({
@@ -284,7 +284,7 @@ impl LlmClient {
             vec![serde_json::json!({"functionDeclarations": decls})]
         });
         
-        // 4. 최종 페이로드 구성
+        // 4. Assemble the final payload
         let mut payload = serde_json::json!({
             "contents": contents,
             "generationConfig": {},
@@ -344,7 +344,7 @@ impl LlmProvider for LlmClient {
                 let chunk_str = String::from_utf8_lossy(&chunk);
                 raw.push_str(&chunk_str);
                 
-                // finishReason이 포함되면 응답 완료
+                // Stop once finishReason appears in the response
                 if raw.contains("\"finishReason\"") {
                     break;
                 }
@@ -369,7 +369,7 @@ impl LlmProvider for LlmClient {
 
                         if let Some(parts) = parts {
                             for part in parts {
-                                // 도구 호출 확인
+                                // Detect tool calls
                                 if let Some(fc) = part.get("functionCall") {
                                     let call_id = fc.get("id")
                                         .or_else(|| fc.get("name"))
@@ -393,7 +393,7 @@ impl LlmProvider for LlmClient {
                                     ));
                                 }
 
-                                // 텍스트 확인 (생각 중인 부분 건너뜀)
+                                // Collect text parts, skipping thoughts
                                 if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) {
                                     continue;
                                 }
@@ -432,7 +432,7 @@ impl LlmProvider for LlmClient {
                 return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
             }
 
-            // SSE 텍스트를 통째로 받아서 파싱
+            // Read and parse the full SSE text body
                         let raw = response.text().await
                 .map_err(|e| ForjaError::LlmError(e.to_string()))?;
 
@@ -450,7 +450,7 @@ impl LlmProvider for LlmClient {
                             if let Some(id) = ev["item"]["id"].as_str() {
                                 last_item_id = id.to_string();
                             }
-                            // 도구 이름이 여기에 포함되어 있을 수 있음
+                            // Tool name may be included here
                             if let Some(name) = ev["item"]["name"].as_str() {
                                 last_tool_name = name.to_string();
                             }
@@ -508,7 +508,7 @@ impl LlmProvider for LlmClient {
         let parsed: ChatCompletionResponse = serde_json::from_str(&response_text)
             .map_err(|e| ForjaError::LlmError(format!("JSON parsing error: {}. Raw: {}", e, response_text)))?;
 
-        // Choices 배열에서 첫 번째 항목의 message 객체 추출
+        // Extract the first choice message object
         let choice = parsed
             .choices
             .into_iter()
@@ -518,7 +518,7 @@ impl LlmProvider for LlmClient {
         let chat_msg = choice.message
             .ok_or_else(|| ForjaError::LlmError("Missing message in LLM response".into()))?;
 
-        // 1. Tool Calls가 있는지 확인
+        // 1. Check for tool calls
         if let Some(tool_calls) = chat_msg.tool_calls.clone()
             && let Some(tool_call) = tool_calls.first() {
                 let args_json: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
@@ -533,7 +533,7 @@ impl LlmProvider for LlmClient {
                 ));
             }
 
-        // 2. 없으면 일반 텍스트
+        // 2. Otherwise return plain text
         let content = chat_msg.content.unwrap_or_default();
         Ok(Message::text(Role::Assistant, content, None))
     }
@@ -640,7 +640,7 @@ impl LlmProvider for LlmClient {
         Ok(Box::pin(stream))
     }
 
-    // 스트림 피쳐가 꺼진 환경의 Fallback 코드
+    // Fallback when the streaming feature is disabled
     #[cfg(not(feature = "anthropic"))]
     async fn stream(
         &self,

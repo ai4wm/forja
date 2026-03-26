@@ -3,7 +3,7 @@ use crate::provider_registry::MODEL_TABLE;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-// ─── 구조체 ──────────────────────────────────────────────────────────────────
+// Structures
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct ForjaConfig {
@@ -97,24 +97,24 @@ pub struct TelegramChannelConfig {
     pub allowed_chat_ids: Vec<i64>,
 }
 
-// ─── 경로 헬퍼 ───────────────────────────────────────────────────────────────
+// Path helpers
 
 pub fn config_path() -> PathBuf {
     let base = dirs_next::home_dir().unwrap_or_else(|| PathBuf::from("."));
     base.join(".forja").join("config.toml")
 }
 
-// ─── 로드 ────────────────────────────────────────────────────────────────────
+// Load
 
 pub fn load_config() -> ForjaConfig {
     let mut config = load_from_file().unwrap_or_default();
 
-    // 환경변수 오버라이드
+    // Environment variable overrides
     if let Ok(v) = std::env::var("FORJA_PROVIDER") { config.active.provider = Some(v); }
     if let Ok(v) = std::env::var("FORJA_MODEL")    { config.active.model = Some(v); }
     if let Ok(v) = std::env::var("FORJA_SYSTEM_PROMPT") { config.agent.system_prompt = Some(v); }
 
-    // API 키 환경변수 오버라이드 (현재 프로바이더 용)
+    // API key environment override for the current provider
     if let Ok(key) = std::env::var("FORJA_API_KEY")
         && let Some(p) = &config.active.provider {
             config.keys.set_for(p, key);
@@ -129,7 +129,7 @@ pub fn load_from_file() -> Option<ForjaConfig> {
     toml::from_str(&text).ok()
 }
 
-// ─── 저장 ────────────────────────────────────────────────────────────────────
+// Save
 
 pub fn save_config(config: &ForjaConfig) -> std::io::Result<()> {
     let path = config_path();
@@ -141,23 +141,23 @@ pub fn save_config(config: &ForjaConfig) -> std::io::Result<()> {
     std::fs::write(&path, text)
 }
 
-// ─── 온보딩 ──────────────────────────────────────────────────────────────────
+// Onboarding
 
-/// 프로바이더 정의: (key, 회사명)  — 모델명은 Step 3에서 별도 표시
+/// Provider definitions: (key, company label). Model names are shown later.
 const PROVIDERS: &[(&str, &str)] = &[
-    ("openai",       "OpenAI (API 키)"),
-    ("openai_oauth", "OpenAI Codex (구독 OAuth)"),
-    ("anthropic",    "Anthropic (API 키)"),
-    ("gemini",       "Google Gemini (API 키)"),
-    ("gemini_oauth", "Google Gemini CLI (구독 OAuth)"),
+    ("openai",       "OpenAI (API key)"),
+    ("openai_oauth", "OpenAI Codex (OAuth subscription)"),
+    ("anthropic",    "Anthropic (API key)"),
+    ("gemini",       "Google Gemini (API key)"),
+    ("gemini_oauth", "Google Gemini CLI (OAuth subscription)"),
     ("deepseek",     "DeepSeek"),
     ("glm",          "GLM (Zhipu)"),
     ("moonshot",     "Moonshot (Kimi)"),
     ("xai",          "xAI (Grok)"),
-    ("ollama",       "Ollama (로컬, API 키 불필요)"),
+    ("ollama",       "Ollama (local, no API key required)"),
 ];
 
-/// 프로바이더별 모델 목록: (model_id, label)
+/// Model list by provider: (model_id, label)
 pub fn models_for(provider: &str) -> Vec<(&'static str, &'static str)> {
     MODEL_TABLE
         .iter()
@@ -173,80 +173,80 @@ fn mask_key(key: &str) -> String {
     format!("{}...{}", &key[..4], &key[key.len()-4..])
 }
 
-/// ForjaConfig 설정 위저드 — dialoguer 화살표 UI 사용
+/// ForjaConfig setup wizard using dialoguer arrow UI.
 ///
-/// 흐름:
-///   ① 프로바이더 등록 루프 (Select) → API 키 입력 (Input) → 등록
-///   ② "완료"  선택 → 기본 모델 Select → save_config() 한 번
+/// Flow:
+///   1. Provider registration loop (Select) -> API key input (Input) -> register
+///   2. "Done" -> choose default model -> save_config() once
 pub fn run_setup() -> ForjaConfig {
     use dialoguer::{Input, Select, theme::ColorfulTheme};
 
     let mut config = load_from_file().unwrap_or_default();
     let theme = ColorfulTheme::default();
 
-    println!("\n⚒️  Forja 프로바이더 설정\n");
+    println!("\n⚒️  Forja Provider Setup\n");
 
-    // ── ① 프로바이더 등록 루프 ────────────────────────────────────────────────
+    // 1. Provider registration loop
     loop {
-        // 목록 아이템 생성: "✅ Moonshot Kimi" / "   OpenAI" + "── 완료 후 저장 ──"
+        // Build menu items: "✅ Moonshot" / "  OpenAI" + "Done"
         let active_prov = config.active.provider.as_deref().unwrap_or("");
         let mut items: Vec<String> = PROVIDERS.iter().map(|(key, label)| {
             let has = *key == "ollama" || config.keys.get_for(key).is_some();
             let check = if has { "✅" } else { "  " };
-            let star  = if *key == active_prov { " ★기본" } else { "" };
+            let star  = if *key == active_prov { " ★default" } else { "" };
             format!("[{}] {}{}", check, label, star)
         }).collect();
-        items.push("── 완료 후 저장 ──".to_string());
+        items.push("── Save and continue ──".to_string());
 
         let sel = Select::with_theme(&theme)
-            .with_prompt("프로바이더 선택 (↑↓, Enter)")
+            .with_prompt("Select provider (↑↓, Enter)")
             .items(&items)
             .default(0)
             .interact_opt()
             .unwrap_or(None);
 
         let sel = match sel {
-            None => break,        // ESC → 완료
-            Some(i) if i == PROVIDERS.len() => break,  // "완료" 선택
+            None => break,
+            Some(i) if i == PROVIDERS.len() => break,
             Some(i) => i,
         };
 
         let (pkey, plabel) = PROVIDERS[sel];
 
-        // 인증 방식 선택 (Ollama 스킵)
+        // Select authentication method (skip for Ollama)
         if pkey == "ollama" {
-            println!("  ✅ {} 등록 완료 (API 키 불필요)", plabel);
+            println!("  ✅ {} configured (no API key required)", plabel);
         } else if pkey == "openai_oauth" || pkey == "gemini_oauth" {
-            // OAuth 전용 — 바로 브라우저 로그인
+            // OAuth-only path: open browser login immediately
             let login_provider = match pkey {
                 "openai_oauth" => "openai",
                 "gemini_oauth" => "gemini",
                 _ => pkey,
             };
-            println!("  🌐 {} OAuth 로그인 시작...", plabel);
+            println!("  🌐 Starting OAuth login for {}...", plabel);
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(crate::oauth::run_login(login_provider))
             });
-            println!("  ✅ {} OAuth 로그인 완료", plabel);
+            println!("  ✅ OAuth login completed for {}", plabel);
         } else {
             let auth_methods = vec![
-                format!("API 키 입력"),
-                format!("OAuth 로그인 (브라우저)"),
+                "Enter API key".to_string(),
+                "OAuth login (browser)".to_string(),
             ];
             let auth_sel = Select::with_theme(&theme)
-                .with_prompt(format!("{} 인증 방식", plabel))
+                .with_prompt(format!("Authentication method for {}", plabel))
                 .items(&auth_methods)
                 .default(0)
                 .interact()
                 .unwrap();
 
             if auth_sel == 0 {
-                // API 키 입력 (기존 로직)
+                // API key input
                 let existing = config.keys.get_for(pkey);
                 let hint = if let Some(ref k) = existing {
-                    format!("현재: {} — 빈 Enter로 유지", mask_key(k))
+                    format!("Current: {} — press Enter to keep it", mask_key(k))
                 } else {
-                    format!("{} API 키를 입력하세요", plabel)
+                    format!("Enter the API key for {}", plabel)
                 };
 
                 let key_in: String = Input::with_theme(&theme)
@@ -257,24 +257,24 @@ pub fn run_setup() -> ForjaConfig {
 
                 if !key_in.is_empty() {
                     config.keys.set_for(pkey, key_in);
-                    println!("  ✅ {} 키 저장됨", plabel);
+                    println!("  ✅ Saved key for {}", plabel);
                 } else if existing.is_some() {
-                    println!("  → {} 기존 키 유지", plabel);
+                    println!("  → Keeping existing key for {}", plabel);
                 } else {
-                    println!("  ⚠️  키 미입력 — 나중에 `forja setup`으로 추가 가능");
+                    println!("  ⚠️  No key entered — you can add it later with `forja setup`");
                 }
             } else {
-                // OAuth 로그인
-                println!("  🌐 {} OAuth 로그인 시작...", plabel);
+                // OAuth login
+                println!("  🌐 Starting OAuth login for {}...", plabel);
                 tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(crate::oauth::run_login(pkey))
                 });
-                println!("  ✅ {} OAuth 로그인 완료", plabel);
+                println!("  ✅ OAuth login completed for {}", plabel);
             }
         }
     }
 
-    // ── ② 기본 모델 선택 ─────────────────────────────────────────────────────
+    // 2. Choose the default model
     let auth_data = crate::oauth::AuthData::load();
     let registered_models: Vec<(&str, &str, &str)> = PROVIDERS.iter()
         .filter(|(k, _)| {
@@ -291,7 +291,7 @@ pub fn run_setup() -> ForjaConfig {
         .collect();
 
     if registered_models.is_empty() {
-        println!("\n⚠️  등록된 프로바이더가 없습니다. 기본 모델을 설정하지 않고 저장합니다.");
+        println!("\n⚠️  No providers are configured. Saving without a default model.");
     } else {
         let model_items: Vec<String> = registered_models.iter().map(|(prov, id, label)| {
             format!("[{}] {} — {}", prov, label, id)
@@ -299,7 +299,7 @@ pub fn run_setup() -> ForjaConfig {
 
         println!();
         let sel = Select::with_theme(&theme)
-            .with_prompt("기본 모델 선택 (↑↓, Enter)")
+            .with_prompt("Select default model (↑↓, Enter)")
             .items(&model_items)
             .default(0)
             .interact_opt()
@@ -309,44 +309,42 @@ pub fn run_setup() -> ForjaConfig {
             let (prov, model_id, label) = registered_models[i];
             config.active.provider = Some(prov.to_string());
             config.active.model    = Some(model_id.to_string());
-            println!("  ★ 기본 모델: {} — {}", label, model_id);
+            println!("  ★ Default model: {} — {}", label, model_id);
         }
     }
 
-    println!("\n🤖 어시스턴트 설정\n");
+    println!("\n🤖 Assistant Settings\n");
     let name: String = Input::with_theme(&theme)
-        .with_prompt("어시스턴트 이름 (기본: Forja)")
+        .with_prompt("Assistant name (default: Forja)")
         .default("Forja".to_string())
         .interact_text()
         .unwrap();
     config.assistant_name = Some(name);
 
     let title: String = Input::with_theme(&theme)
-        .with_prompt("사용자 호칭 (기본: 사용자님)")
-        .default("사용자님".to_string())
+        .with_prompt("User title (default: User)")
+        .default("User".to_string())
         .interact_text()
         .unwrap();
     config.user_title = Some(title);
 
-    // ── ③ 저장 (한 번만) ─────────────────────────────────────────────────────
+    // 3. Save once
     if let Err(e) = save_config(&config) {
-        eprintln!("\n⚠️  저장 실패: {}", e);
+        eprintln!("\n⚠️  Save failed: {}", e);
     } else {
-        println!("\n💾 저장 완료: {}", config_path().display());
+        println!("\n💾 Saved: {}", config_path().display());
     }
-    println!("✅ Forja가 {} 프로바이더로 시작됩니다.\n",
-        config.active.provider.as_deref().unwrap_or("미설정"));
+    println!("✅ Forja will start with provider: {}\n",
+        config.active.provider.as_deref().unwrap_or("unset"));
     config
 }
 
-
-
-// 하위 호환 alias
+// Backward-compatible alias
 pub fn run_onboarding() -> ForjaConfig {
     run_setup()
 }
 
-// ─── LlmConfig 변환 ──────────────────────────────────────────────────────────
+// LlmConfig conversion
 
 pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
     let provider = cfg.active.provider.as_deref().unwrap_or("moonshot");
@@ -378,7 +376,7 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
         if let Some(token) = oauth_key {
             api_key = token;
         } else {
-            return Err(format!("'{}' 프로바이더의 API 키가 설정되지 않았습니다.", provider));
+            return Err(format!("The API key for provider '{}' is not configured.", provider));
         }
     }
 
@@ -399,7 +397,7 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
         "xai"         => presets::xai(&api_key),
         "xai_mini"    => presets::xai_mini(&api_key),
         "ollama"      => presets::ollama(cfg.active.model.as_deref().unwrap_or("qwen3.5:9b")),
-        other         => return Err(format!("알 수 없는 프로바이더: {}", other)),
+        other         => return Err(format!("Unknown provider: {}", other)),
     };
 
     if let Some(model) = &cfg.active.model

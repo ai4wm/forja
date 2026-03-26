@@ -216,7 +216,7 @@ impl Storage {
             .map_err(|error| Error::Storage(format!("Failed to read memory file metadata: {error}")))?
             .len();
         println!(
-            "[Memory] 마이그레이션: sessions/*.md {file_count}개 파일 → memory.md ({})",
+            "[Memory] Migration: sessions/*.md {file_count} files -> memory.md ({})",
             format_byte_size(memory_size)
         );
 
@@ -226,9 +226,9 @@ impl Storage {
             .map_err(|error| Error::Storage(format!("Failed to rename sessions dir: {error}")))?;
 
         if backup_dir == self.sessions_backup_dir {
-            println!("[Memory] sessions/ → sessions.bak/ 완료");
+            println!("[Memory] sessions/ -> sessions.bak/ completed");
         } else if let Some(name) = backup_dir.file_name().and_then(|name| name.to_str()) {
-            println!("[Memory] sessions/ → {name}/ 완료");
+            println!("[Memory] sessions/ -> {name}/ completed");
         }
 
         Ok(())

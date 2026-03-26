@@ -4,7 +4,7 @@ use forja_core::traits::Tool;
 use serde_json::{json, Value};
 use tokio::fs;
 
-/// 파일시스템 읽기 및 덮어쓰기 기능을 제공하는 기본 FileTool
+/// Basic FileTool for filesystem read and overwrite operations.
 pub struct FileTool;
 
 impl FileTool {
