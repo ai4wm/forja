@@ -12,6 +12,7 @@ use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "vision")]
 use xcap::Monitor;
+use reqwest::Client;
 
 #[async_trait]
 pub trait ScreenCaptureBackend: Send + Sync + 'static {
@@ -230,17 +231,31 @@ impl VisionAnalyzer for MockVisionAnalyzer {
     }
 }
 
-pub struct GptVisionAnalyzer;
+pub struct GptVisionAnalyzer {
+    api_base: String,
+    auth_token: String,
+    model: String,
+    client: Client,
+}
 
 impl GptVisionAnalyzer {
-    pub fn new() -> Self {
-        Self
+    pub fn new(
+        api_base: impl Into<String>,
+        auth_token: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self {
+            api_base: api_base.into().trim_end_matches('/').to_string(),
+            auth_token: auth_token.into(),
+            model: model.into(),
+            client: Client::new(),
+        }
     }
 }
 
 impl Default for GptVisionAnalyzer {
     fn default() -> Self {
-        Self::new()
+        Self::new("https://api.openai.com/v1", "", "gpt-5.4")
     }
 }
 
@@ -248,10 +263,67 @@ impl Default for GptVisionAnalyzer {
 impl VisionAnalyzer for GptVisionAnalyzer {
     async fn analyze_image(
         &self,
-        _image_base64: &str,
-        _prompt: &str,
+        image_base64: &str,
+        prompt: &str,
     ) -> std::result::Result<String, String> {
-        Err("GptVisionAnalyzer is not implemented yet".to_string())
+        if self.auth_token.trim().is_empty() {
+            return Err("Vision analyzer auth token is empty".to_string());
+        }
+
+        let media_type = detect_media_type(image_base64);
+        let payload = json!({
+            "model": self.model,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {
+                        "url": format!("data:{media_type};base64,{image_base64}")
+                    }}
+                ]
+            }],
+            "max_tokens": 4096
+        });
+
+        let endpoint = format!("{}/chat/completions", self.api_base);
+        let response = self
+            .client
+            .post(&endpoint)
+            .bearer_auth(&self.auth_token)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|error| format!("Vision request failed: {error}"))?;
+
+        let status = response.status();
+        let body = response
+            .text()
+            .await
+            .map_err(|error| format!("Failed to read vision response body: {error}"))?;
+
+        if !status.is_success() {
+            return Err(format!("Vision HTTP {}: {}", status, body));
+        }
+
+        let json: Value = serde_json::from_str(&body)
+            .map_err(|error| format!("Failed to parse vision response JSON: {error}. Raw: {body}"))?;
+
+        if let Some(text) = json["choices"][0]["message"]["content"].as_str() {
+            return Ok(text.to_string());
+        }
+
+        if let Some(parts) = json["choices"][0]["message"]["content"].as_array() {
+            let text = parts
+                .iter()
+                .filter_map(|part| part.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n");
+            if !text.is_empty() {
+                return Ok(text);
+            }
+        }
+
+        Err("Vision response missing choices[0].message.content".to_string())
     }
 }
 
@@ -486,4 +558,21 @@ fn error_result(action: &str, data: String) -> Value {
         "action": action,
         "data": data,
     })
+}
+
+fn detect_media_type(image_base64: &str) -> &'static str {
+    let bytes = match BASE64_STANDARD.decode(image_base64) {
+        Ok(bytes) => bytes,
+        Err(_) => return "image/png",
+    };
+
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return "image/png";
+    }
+
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return "image/jpeg";
+    }
+
+    "image/png"
 }

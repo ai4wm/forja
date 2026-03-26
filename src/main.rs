@@ -471,13 +471,23 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // ── Mock 모드 or 실제 프로바이더 ──
     let use_mock = std::env::var("FORJA_USE_MOCK").is_ok();
+    let llm_config = if use_mock {
+        None
+    } else {
+        Some(
+            config::llm_config_from(&forja_cfg)
+                .map_err(forja_core::error::ForjaError::LlmError)?,
+        )
+    };
     let provider: Arc<dyn LlmProvider> = if use_mock {
         println!("[System] MockLlmProvider 모드 (실제 LLM 호출 없음)");
         Arc::new(MockLlmProvider)
     } else {
-        let llm_config = config::llm_config_from(&forja_cfg)
-            .map_err(forja_core::error::ForjaError::LlmError)?;
-        Arc::new(LlmClient::new(llm_config)?)
+        Arc::new(LlmClient::new(
+            llm_config
+                .clone()
+                .expect("llm_config must exist when not in mock mode"),
+        )?)
     };
     let exec_mode = parse_exec_mode();
     let think_level = parse_think_level();
@@ -630,7 +640,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let vision_analyzer_for_vision: Arc<dyn VisionAnalyzer> = if use_mock {
         Arc::new(MockVisionAnalyzer::new())
     } else {
-        Arc::new(GptVisionAnalyzer::new())
+        let llm_config = llm_config
+            .as_ref()
+            .expect("llm_config must exist when not in mock mode");
+        Arc::new(GptVisionAnalyzer::new(
+            llm_config.base_url.clone(),
+            llm_config.api_key.clone(),
+            llm_config.model.clone(),
+        ))
     };
 
 
