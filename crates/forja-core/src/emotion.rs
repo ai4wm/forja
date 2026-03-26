@@ -182,11 +182,30 @@ pub async fn generate_startup_greeting(
     memory_content: &str,
     skip: bool,
 ) -> Result<Option<String>> {
+    generate_startup_greeting_with_context(
+        provider,
+        identity_name,
+        user_name,
+        memory_content,
+        "",
+        skip,
+    )
+    .await
+}
+
+pub async fn generate_startup_greeting_with_context(
+    provider: &dyn LlmProvider,
+    identity_name: &str,
+    user_name: &str,
+    memory_content: &str,
+    knowledge_content: &str,
+    skip: bool,
+) -> Result<Option<String>> {
     if skip {
         return Ok(None);
     }
 
-    if memory_content.trim().is_empty() {
+    if memory_content.trim().is_empty() && knowledge_content.trim().is_empty() {
         return Ok(Some(default_startup_greeting(user_name)));
     }
 
@@ -201,16 +220,23 @@ pub async fn generate_startup_greeting(
                 Message::text(
                     Role::User,
                     format!(
-                        "당신은 {identity_name}입니다. {user_name}님이 방금 접속했습니다.\n\
-아래 memory.md 내용을 보고, 자연스럽게 건넬 인사를 한 문장으로 하세요.\n\
-특별히 할 말이 없으면 NONE으로만 응답하세요.\n\
-\n판단 기준:\n\
-- 마지막 대화 시간과 현재 시간 차이\n\
-- 어제 힘든 작업을 하다 끝났는가\n\
-- 연속 성과가 있는가\n\
-- 새벽 작업 여부\n\
-- 프로젝트 마일스톤 근접 여부\n\
-\nmemory.md:\n{memory_content}"
+                        "{user_name} just opened the app, and you are {identity_name}.\n\
+Write one natural greeting sentence.\n\
+Also, if there are unfinished tasks or a useful daily summary, include it naturally in your greeting.\n\
+If there is nothing worth mentioning, respond with NONE only.\n\
+\n\
+Consider:\n\
+- how long it has been since the last conversation\n\
+- whether there are unfinished tasks or pending follow-ups\n\
+- whether there was meaningful progress recently\n\
+- whether recurring issues or patterns matter today\n\
+- whether the knowledge base suggests a useful next step\n\
+\n\
+Memory:\n\
+{memory_content}\n\
+\n\
+Knowledge:\n\
+{knowledge_content}"
                     ),
                     None,
                 ),

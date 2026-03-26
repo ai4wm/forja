@@ -4,6 +4,7 @@ pub mod emotion;
 pub mod scheduler;
 pub mod error;
 pub mod knowledge;
+pub mod serendipity;
 pub mod traits;
 pub mod types;
 
@@ -11,6 +12,7 @@ pub mod types;
 pub use engine::Engine;
 pub use error::{ForjaError, Result};
 pub use knowledge::{KnowledgeManager, TopicEntry};
+pub use serendipity::SerendipityEngine;
 pub use traits::{Channel, LlmProvider, MemoryStore, Tool};
 pub use types::{Content, MemoryEntry, Message, Role, ToolDefinition};
 

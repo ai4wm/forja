@@ -4,10 +4,16 @@ mod oauth;
 mod bootstrap;
 
 use async_trait::async_trait;
-use forja_core::emotion::{EmotionEngine, MoodState, generate_startup_greeting};
+use forja_core::emotion::{
+    EmotionEngine, MoodState, generate_startup_greeting,
+    generate_startup_greeting_with_context,
+};
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::{LlmProvider, MemoryStore};
-use forja_core::{Channel, Content, Engine, KnowledgeManager, Message, Role, ToolDefinition};
+use forja_core::{
+    Channel, Content, Engine, KnowledgeManager, Message, Role, SerendipityEngine,
+    ToolDefinition,
+};
 use forja_llm::LlmClient;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -44,8 +50,16 @@ impl LlmProvider for MockLlmProvider {
             return Ok(Message::text(Role::Assistant, "NONE", None));
         }
 
+        if last.contains("Also, if there are unfinished tasks or a useful daily summary") {
+            return Ok(Message::text(Role::Assistant, "NONE", None));
+        }
+
         if last.contains("하루치 memory.md 기록을 한국어로 최대 3줄로 요약하세요.") {
             return Ok(Message::text(Role::Assistant, "Mock 요약", None));
+        }
+
+        if last.contains("Below is the user's recent memory and knowledge base.") {
+            return Ok(Message::text(Role::Assistant, "NONE", None));
         }
 
         Ok(Message::text(
@@ -362,7 +376,15 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| bootstrap_paths.forja_dir.join("knowledge"));
     let knowledge_manager = Arc::new(KnowledgeManager::new(knowledge_dir));
-    engine = engine.with_knowledge(knowledge_manager);
+    engine = engine.with_knowledge(knowledge_manager.clone());
+
+    let serendipity_enabled = !matches!(
+        std::env::var("FORJA_SERENDIPITY"),
+        Ok(value) if value.eq_ignore_ascii_case("false")
+    );
+    if serendipity_enabled {
+        engine = engine.with_serendipity(SerendipityEngine::new());
+    }
 
     // ── 메모리 스토어 초기화 ──
     let memory_dir = std::env::var("FORJA_MEMORY_DIR")
@@ -398,17 +420,37 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             String::new()
         }
     };
+    let knowledge_contents = match knowledge_manager.load_all_context() {
+        Ok(contents) => contents,
+        Err(error) => {
+            eprintln!("[Knowledge] failed to load knowledge for startup greeting: {error}");
+            String::new()
+        }
+    };
     let restored_mood = EmotionEngine::restore_from_memory(&memory_contents)
         .unwrap_or_else(MoodState::neutral);
-    let startup_greeting = generate_startup_greeting(
-        provider.as_ref(),
-        &bootstrap_outcome.profile.identity.name,
-        &bootstrap_outcome.profile.user.name,
-        &memory_contents,
-        bootstrap_outcome.greeting.is_some(),
-    )
-    .await
-    .unwrap_or(None);
+    let startup_greeting = if serendipity_enabled {
+        generate_startup_greeting_with_context(
+            provider.as_ref(),
+            &bootstrap_outcome.profile.identity.name,
+            &bootstrap_outcome.profile.user.name,
+            &memory_contents,
+            &knowledge_contents,
+            bootstrap_outcome.greeting.is_some(),
+        )
+        .await
+        .unwrap_or(None)
+    } else {
+        generate_startup_greeting(
+            provider.as_ref(),
+            &bootstrap_outcome.profile.identity.name,
+            &bootstrap_outcome.profile.user.name,
+            &memory_contents,
+            bootstrap_outcome.greeting.is_some(),
+        )
+        .await
+        .unwrap_or(None)
+    };
     engine = engine.with_emotion(EmotionEngine::new(restored_mood));
 
 

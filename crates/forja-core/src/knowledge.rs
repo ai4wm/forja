@@ -98,27 +98,20 @@ impl KnowledgeManager {
             return Ok(String::new());
         }
 
-        let mut sections = Vec::new();
-        for file_name in self.list_files() {
-            if !file_matches_query(&file_name, &normalized_query) {
-                continue;
-            }
+        let file_names = self
+            .list_files()
+            .into_iter()
+            .filter(|file_name| file_matches_query(file_name, &normalized_query))
+            .collect::<Vec<_>>();
 
-            let path = self.base_dir.join(&file_name);
-            let contents = fs::read_to_string(path).map_err(storage_error)?;
-            let trimmed = contents.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
+        self.load_context_for_files(&file_names)
+    }
 
-            sections.push(format!("## {file_name}\n{trimmed}"));
-        }
+    pub fn load_all_context(&self) -> Result<String> {
+        self.ensure_base_dir()?;
+        let file_names = self.list_files();
 
-        if sections.is_empty() {
-            return Ok(String::new());
-        }
-
-        Ok(format!("{KNOWLEDGE_HEADER}\n\n{}", sections.join("\n\n")))
+        self.load_context_for_files(&file_names)
     }
 
     pub fn list_files(&self) -> Vec<String> {
@@ -177,6 +170,26 @@ Message:\n\
 
     fn ensure_base_dir(&self) -> Result<()> {
         fs::create_dir_all(&self.base_dir).map_err(storage_error)
+    }
+
+    fn load_context_for_files(&self, file_names: &[String]) -> Result<String> {
+        let mut sections = Vec::new();
+        for file_name in file_names {
+            let path = self.base_dir.join(file_name);
+            let contents = fs::read_to_string(path).map_err(storage_error)?;
+            let trimmed = contents.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            sections.push(format!("## {file_name}\n{trimmed}"));
+        }
+
+        if sections.is_empty() {
+            return Ok(String::new());
+        }
+
+        Ok(format!("{KNOWLEDGE_HEADER}\n\n{}", sections.join("\n\n")))
     }
 }
 

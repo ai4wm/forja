@@ -1,7 +1,14 @@
 use super::Engine;
+use crate::knowledge::KnowledgeManager;
 use crate::types::{Content, Message};
+use std::sync::Arc;
 
 impl Engine {
+    pub fn with_knowledge(mut self, knowledge: Arc<KnowledgeManager>) -> Self {
+        self.knowledge = Some(knowledge);
+        self
+    }
+
     pub(super) async fn refresh_turn_knowledge_context(&mut self, user_msg: &Message) {
         self.turn_knowledge_context = None;
 

@@ -1,13 +1,16 @@
 use crate::error::{ForjaError, Result};
 use crate::emotion::EmotionEngine;
 use crate::knowledge::KnowledgeManager;
+use crate::serendipity::SerendipityEngine;
 use crate::traits::{Channel, LlmProvider, Tool};
 use crate::types::{Content, Message, Role, ToolDefinition};
+use chrono::{DateTime, Local};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 mod emotion;
 mod knowledge;
+mod serendipity;
 
 #[cfg(feature = "memory")]
 mod memory;
@@ -48,6 +51,9 @@ pub struct Engine {
     turn_relationship_context: Option<String>,
     knowledge: Option<Arc<KnowledgeManager>>,
     turn_knowledge_context: Option<String>,
+    serendipity: Option<SerendipityEngine>,
+    turn_count: u32,
+    last_serendipity_triggered_at: Option<DateTime<Local>>,
 
     #[cfg(feature = "memory")]
     memory: Option<Arc<dyn MemoryStore>>,
@@ -57,9 +63,8 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(provider: Arc<dyn LlmProvider>, channel: Arc<dyn Channel>) -> Self {
-        
         Self {
-            provider: provider.clone(),
+            provider,
             channel,
             tools: HashMap::new(),
             conversation_history: Vec::new(),
@@ -71,6 +76,9 @@ impl Engine {
             turn_relationship_context: None,
             knowledge: None,
             turn_knowledge_context: None,
+            serendipity: None,
+            turn_count: 0,
+            last_serendipity_triggered_at: None,
             #[cfg(feature = "memory")]
             memory: None,
             #[cfg(feature = "memory")]
@@ -81,16 +89,6 @@ impl Engine {
     /// 커스텀 System Prompt를 설정합니다. (history 주입은 메시지 수신 시 처리)
     pub fn with_system_prompt(mut self, prompt: String) -> Self {
         self.system_prompt = Some(prompt);
-        self
-    }
-
-    pub fn with_emotion(mut self, emotion: EmotionEngine) -> Self {
-        self.emotion = Some(emotion);
-        self
-    }
-
-    pub fn with_knowledge(mut self, knowledge: Arc<KnowledgeManager>) -> Self {
-        self.knowledge = Some(knowledge);
         self
     }
 
@@ -124,7 +122,6 @@ impl Engine {
         // 단순 감지만 수행, 실제 처리는 호출자가 담당
         if text.trim_start().starts_with('/') { Some("") } else { None }
     }
-
 
     /// 대화 히스토리에 새 메시지를 추가하고,
     /// 허용된 윈도우(max_history) 초과 시 System 메시지를 보존한 채로 컴팩션합니다.
@@ -283,6 +280,7 @@ impl Engine {
 
                     #[cfg(feature = "memory")]
                     self.push_message(user_msg.clone());
+                    self.begin_user_turn();
                     self.refresh_turn_emotion_context().await;
                     self.refresh_turn_knowledge_context(&user_msg).await;
 
@@ -291,6 +289,7 @@ impl Engine {
 
                     // LLM 프로바이더로 전달하여 한 턴 평가 (handle_step 내부에서 도구 명세 수집함)
                     let response = self.handle_step(0).await?;
+                    let response = self.maybe_append_serendipity_to_message(response).await;
 
                     // 채널로 최종 출력 결과 반환
                     self.channel.send(response.clone()).await?;
@@ -370,6 +369,7 @@ impl Engine {
 
                     #[cfg(feature = "memory")]
                     self.push_message(user_msg.clone());
+                    self.begin_user_turn();
                     self.refresh_turn_emotion_context().await;
                     self.refresh_turn_knowledge_context(&user_msg).await;
 
@@ -384,6 +384,10 @@ impl Engine {
 
                         match streaming_result {
                             Some(text) => {
+                                let streamed_text = text;
+                                let text = self
+                                    .maybe_append_serendipity_to_text(streamed_text.clone())
+                                    .await;
                                 // 텍스트 스트리밍 성공
                                 let response_msg = crate::types::Message::text(
                                     crate::types::Role::Assistant, &text, None
@@ -391,6 +395,11 @@ impl Engine {
                                 self.push_message(response_msg.clone());
                                 
                                 if self.channel.is_cli_source() {
+                                    if let Some(suffix) = text.strip_prefix(&streamed_text)
+                                        && !suffix.is_empty() {
+                                            print!("{suffix}");
+                                            std::io::Write::flush(&mut std::io::stdout()).ok();
+                                        }
                                     // CLI는 이미 스트리밍으로 출력됨 → 프롬프트만 복원
                                     let _ = tokio::task::spawn_blocking(|| {
                                         use std::io::Write;
@@ -422,6 +431,7 @@ impl Engine {
 
                                 // 순수 텍스트 chat 폴백 호출 연산 (무거운 작업)
                                 let final_msg = self.handle_step(0).await?;
+                                let final_msg = self.maybe_append_serendipity_to_message(final_msg).await;
                                 
                                 // 응답 도착 후 스피너 종료
                                 spinner.finish_and_clear();

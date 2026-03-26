@@ -1,10 +1,16 @@
 use super::Engine;
 use crate::emotion::{MoodState, RelationshipContext};
+use crate::emotion::EmotionEngine;
 use crate::types::{MemoryEntry, Message, Role};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 impl Engine {
+    pub fn with_emotion(mut self, emotion: EmotionEngine) -> Self {
+        self.emotion = Some(emotion);
+        self
+    }
+
     pub(super) async fn refresh_turn_emotion_context(&mut self) {
         self.turn_tone_context = None;
         self.turn_relationship_context = None;
@@ -29,7 +35,7 @@ impl Engine {
 
         self.turn_tone_context = Some(format!("[tone]\n{}", analyzed.tone_instruction));
 
-        let patterns = RelationshipContext::detect_patterns(&self.load_emotion_memory_contents().await);
+        let patterns = RelationshipContext::detect_patterns(&self.load_memory_contents_or_empty().await);
         if !patterns.is_empty() {
             self.turn_relationship_context = Some(format!(
                 "[relationship]\n{}",
@@ -54,27 +60,6 @@ impl Engine {
             .cloned()
             .collect()
     }
-
-    #[cfg(feature = "memory")]
-    async fn load_emotion_memory_contents(&self) -> String {
-        let Some(memory) = &self.memory else {
-            return String::new();
-        };
-
-        match memory.load_all().await {
-            Ok(contents) => contents,
-            Err(error) => {
-                eprintln!("[Emotion] load_all failed: {error}");
-                String::new()
-            }
-        }
-    }
-
-    #[cfg(not(feature = "memory"))]
-    async fn load_emotion_memory_contents(&self) -> String {
-        String::new()
-    }
-
     async fn persist_mood_change(&self, mood: &MoodState) {
         #[cfg(feature = "memory")]
         {

@@ -77,21 +77,27 @@ impl Engine {
     }
 
     async fn build_turn_memory_context(&self) -> Option<String> {
-        let memory = self.memory.as_ref()?;
-        let contents = match memory.load_all().await {
-            Ok(contents) => contents,
-            Err(error) => {
-                eprintln!("[Memory] load_all failed: {error}");
-                return None;
-            }
-        };
-
+        let contents = self.load_memory_contents_or_empty().await;
         let trimmed = contents.trim();
         if trimmed.is_empty() {
             return None;
         }
 
         Some(format_memory_context(trimmed))
+    }
+
+    pub(super) async fn load_memory_contents_or_empty(&self) -> String {
+        let Some(memory) = &self.memory else {
+            return String::new();
+        };
+
+        match memory.load_all().await {
+            Ok(contents) => contents,
+            Err(error) => {
+                eprintln!("[Memory] load_all failed: {error}");
+                String::new()
+            }
+        }
     }
 }
 
