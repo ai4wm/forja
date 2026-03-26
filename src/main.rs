@@ -762,10 +762,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     })
                 });
 
-                return Some(forja_core::engine::SlashCommandResult::Reply(match result {
-                    Ok(reply) => reply,
-                    Err(error) => format!("❌ Vision analysis failed: {error}"),
-                }));
+                return Some(forja_core::engine::SlashCommandResult::ReplyAndSave {
+                    user_text: text.to_string(),
+                    reply: match result {
+                        Ok(reply) => reply,
+                        Err(error) => format!("❌ Vision analysis failed: {error}"),
+                    },
+                });
             }
 
             if let Some((path, prompt)) = parse_image_command(text) {
@@ -788,10 +791,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     })
                 });
 
-                return Some(forja_core::engine::SlashCommandResult::Reply(match result {
-                    Ok(reply) => reply,
-                    Err(error) => format!("❌ Vision analysis failed: {error}"),
-                }));
+                return Some(forja_core::engine::SlashCommandResult::ReplyAndSave {
+                    user_text: text.to_string(),
+                    reply: match result {
+                        Ok(reply) => reply,
+                        Err(error) => format!("❌ Vision analysis failed: {error}"),
+                    },
+                });
             }
 
             if let Some((path, prompt)) = detect_image_path(text) {
@@ -808,10 +814,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             })
                         });
 
-                        return Some(forja_core::engine::SlashCommandResult::Reply(match result {
-                            Ok(reply) => reply,
-                            Err(error) => format!("❌ Vision analysis failed: {error}"),
-                        }));
+                        return Some(forja_core::engine::SlashCommandResult::ReplyAndSave {
+                            user_text: text.to_string(),
+                            reply: match result {
+                                Ok(reply) => reply,
+                                Err(error) => format!("❌ Vision analysis failed: {error}"),
+                            },
+                        });
                     }
                     Err(error) => {
                         eprintln!(

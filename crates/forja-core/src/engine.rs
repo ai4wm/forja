@@ -23,6 +23,7 @@ const MAX_TOOL_DEPTH: usize = 10;
 
 pub enum SlashCommandResult {
     Reply(String),
+    ReplyAndSave { user_text: String, reply: String },
     UpdateSystemPrompt {
         reply: String,
         system_prompt: Option<String>,
@@ -182,11 +183,8 @@ impl Engine {
         }
     }
 
-    /// 한 턴(step)을 평가하고 처리합니다.
-    /// LLM의 응답이 ToolCall일 경우, 등록된 Tool을 실행한 뒤 결과를 추가하여
-    /// LLM을 재귀 호출(handle_step)합니다.
-    ///
-    /// `MAX_TOOL_DEPTH`로 무한루프를 방어합니다.
+    /// 한 턴(step)을 평가하고 처리합니다. ToolCall이면 도구 실행 결과를 추가한 뒤
+    /// LLM을 재귀 호출(handle_step)하며 `MAX_TOOL_DEPTH`로 무한루프를 방어합니다.
     #[async_recursion::async_recursion]
     pub async fn handle_step(&mut self, depth: usize) -> Result<Message> {
         if depth >= MAX_TOOL_DEPTH {
@@ -235,9 +233,7 @@ impl Engine {
         }
     }
 
-    /// 메인 이벤트 순환 루프.
-    /// `runtime` feature 설정 시 제공되는 편의 메서드입니다.
-    /// shutdown future 시그널을 통해 graceful하게 빠져나갑니다.
+    /// 메인 이벤트 순환 루프. `runtime` feature에서 제공되며 shutdown future로 종료합니다.
     #[cfg(feature = "runtime")]
     pub async fn run<F>(&mut self, shutdown: F) -> Result<()>
     where
@@ -294,9 +290,7 @@ impl Engine {
         Ok(())
     }
 
-    /// 스트리밍 전용 메인 루프.
-    /// 토큰이 하나씩 도착할 때마다 stdout에 즉시 출력칙(Claude Code 스타일).
-    /// 스트리밍 실패 시 chat()으로 자동 폴백.
+    /// 스트리밍 전용 메인 루프. 토큰을 즉시 출력하고 실패 시 chat()으로 자동 폴백합니다.
     #[cfg(feature = "runtime")]
     pub async fn run_streaming<F>(&mut self, shutdown: F) -> Result<()>
     where
@@ -322,21 +316,24 @@ impl Engine {
                     };
 
                     if let Some(slash_result) = slash_reply {
-                        let reply = match slash_result {
-                            SlashCommandResult::Reply(reply) => reply,
-                            SlashCommandResult::UpdateSystemPrompt {
-                                reply,
-                                system_prompt,
-                                reset_history,
-                            } => {
-                                self.apply_system_prompt_update(system_prompt, reset_history);
-                                reply
+                        match slash_result {
+                            SlashCommandResult::Reply(reply) => {
+                                let reply_msg = Message::text(Role::Assistant, &reply, None);
+                                let _ = self.channel.send(reply_msg).await;
                             }
-                        };
-
-                        let reply_msg = Message::text(Role::Assistant, &reply, None);
-                        let _ = self.channel.send(reply_msg).await;
-                        // 슬래시 명령은 대화 히스토리에 추가하지 않음
+                            SlashCommandResult::ReplyAndSave { user_text, reply } => {
+                                let user_msg_save = Message::text(Role::User, &user_text, None);
+                                let reply_msg = Message::text(Role::Assistant, &reply, None);
+                                let _ = self.channel.send(reply_msg.clone()).await;
+                                self.push_message(user_msg_save);
+                                self.push_message(reply_msg);
+                            }
+                            SlashCommandResult::UpdateSystemPrompt { reply, system_prompt, reset_history } => {
+                                self.apply_system_prompt_update(system_prompt, reset_history);
+                                let reply_msg = Message::text(Role::Assistant, &reply, None);
+                                let _ = self.channel.send(reply_msg).await;
+                            }
+                        }
                         continue;
                     }
 
