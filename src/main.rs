@@ -433,10 +433,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let info = config::provider_info(&forja_cfg);
     print_banner(&info);
-    let assistant_name = std::env::var("FORJA_ASSISTANT_NAME")
-        .unwrap_or_else(|_| "Forja".to_string());
-    let user_title = std::env::var("FORJA_USER_TITLE")
-        .unwrap_or_else(|_| "사용자님".to_string());
+    let assistant_name = forja_cfg.assistant_name.clone()
+        .or_else(|| std::env::var("FORJA_ASSISTANT_NAME").ok())
+        .unwrap_or_else(|| "Forja".to_string());
+    let user_title = forja_cfg.user_title.clone()
+        .or_else(|| std::env::var("FORJA_USER_TITLE").ok())
+        .unwrap_or_else(|| "사용자님".to_string());
 
     let shell_enabled = !matches!(
         std::env::var("FORJA_SHELL"),

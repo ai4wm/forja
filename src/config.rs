@@ -11,6 +11,8 @@ pub struct ForjaConfig {
     pub active: ActiveSection,
     #[serde(default)]
     pub keys: KeysSection,
+    pub assistant_name: Option<String>,
+    pub user_title: Option<String>,
     #[serde(default)]
     pub agent: AgentSection,
     #[serde(default)]
@@ -310,6 +312,21 @@ pub fn run_setup() -> ForjaConfig {
             println!("  ★ 기본 모델: {} — {}", label, model_id);
         }
     }
+
+    println!("\n🤖 어시스턴트 설정\n");
+    let name: String = Input::with_theme(&theme)
+        .with_prompt("어시스턴트 이름 (기본: Forja)")
+        .default("Forja".to_string())
+        .interact_text()
+        .unwrap();
+    config.assistant_name = Some(name);
+
+    let title: String = Input::with_theme(&theme)
+        .with_prompt("사용자 호칭 (기본: 사용자님)")
+        .default("사용자님".to_string())
+        .interact_text()
+        .unwrap();
+    config.user_title = Some(title);
 
     // ── ③ 저장 (한 번만) ─────────────────────────────────────────────────────
     if let Err(e) = save_config(&config) {
