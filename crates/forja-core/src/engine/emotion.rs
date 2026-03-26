@@ -67,6 +67,10 @@ impl Engine {
     async fn persist_mood_change(&self, mood: &MoodState) {
         #[cfg(feature = "memory")]
         {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            use crate::types::MemoryEntry;
+            use uuid::Uuid;
+
             let Some(memory) = &self.memory else {
                 return;
             };
@@ -99,5 +103,6 @@ fn mood_has_changed(previous: &MoodState, next: &MoodState) -> bool {
         || previous.intensity != next.intensity
         || previous.reason != next.reason
 }
+
 
 
