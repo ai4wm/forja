@@ -335,14 +335,12 @@ impl VisionAnalyzer for GptVisionAnalyzer {
             // SSE stream response: collect text from response.output_text.delta events
             let mut collected_text = String::new();
             for line in body.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if let Ok(ev) = serde_json::from_str::<Value>(data) {
-                        if ev["type"].as_str() == Some("response.output_text.delta") {
-                            if let Some(d) = ev["delta"].as_str() {
-                                collected_text.push_str(d);
-                            }
-                        }
-                    }
+                if let Some(data) = line.strip_prefix("data: ")
+                    && let Ok(ev) = serde_json::from_str::<Value>(data)
+                    && ev["type"].as_str() == Some("response.output_text.delta")
+                    && let Some(d) = ev["delta"].as_str()
+                {
+                    collected_text.push_str(d);
                 }
             }
             if !collected_text.is_empty() {

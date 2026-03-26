@@ -433,6 +433,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let info = config::provider_info(&forja_cfg);
     print_banner(&info);
+    let assistant_name = std::env::var("FORJA_ASSISTANT_NAME")
+        .unwrap_or_else(|_| "Forja".to_string());
+    let user_title = std::env::var("FORJA_USER_TITLE")
+        .unwrap_or_else(|_| "사용자님".to_string());
 
     let shell_enabled = !matches!(
         std::env::var("FORJA_SHELL"),
@@ -539,6 +543,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // ── System Prompt 설정 ──
     let mut engine = Engine::new(provider.clone(), channel.clone());
     engine = engine.with_mode(mode_state.clone()).with_tool_prompt(tool_prompt);
+    engine = engine.with_assistant_profile(assistant_name.clone(), user_title.clone());
 
     if !combined_prompt.is_empty() {
         engine = engine.with_system_prompt(combined_prompt);
@@ -944,6 +949,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         think_level_label(think_level),
         role_label(ModeRole::Auto)
     );
+    println!("[System] Assistant: {assistant_name}");
     println!("[System] Engine is ready. Type /models to list models, /model <name> to switch.");
     if let Some(greeting) = displayed_greeting {
         println!();

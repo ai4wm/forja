@@ -345,7 +345,7 @@ async fn tone_instruction_is_injected_into_system_prompt() {
     let requests = provider.chat_texts().await;
     let main_request = &requests[1];
 
-    assert!(main_request.contains("System:You are 황비서, a personal AI assistant."));
+    assert!(main_request.contains("System:You are Forja, a personal AI assistant."));
     assert!(main_request.contains("base system prompt"));
     assert!(main_request.contains("[tone]"));
     assert!(main_request.contains("짧고 또렷하게 안내하세요"));

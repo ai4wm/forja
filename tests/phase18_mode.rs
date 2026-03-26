@@ -2,6 +2,7 @@ use forja_core::mode::{
     detect_image_path, detect_role, parse_image_command, parse_screenshot_command,
     parse_slash_command, ExecMode, ModeState, Role, SlashCommand, ThinkLevel,
 };
+use forja_core::prompt::base::base_prompt;
 use forja_core::prompt::assemble_system_prompt;
 use forja_core::prompt::think::think_prompt;
 use forja_tools::confirm::StdinConfirmation;
@@ -93,6 +94,8 @@ fn assemble_system_prompt_includes_base_prompt() {
     let mode_state = ModeState::default();
     let prompt = assemble_system_prompt(
         &mode_state,
+        "Forja",
+        "사용자님",
         "[identity]\nidentity",
         "[user]\nuser",
         "[tools]\ntools",
@@ -102,14 +105,26 @@ fn assemble_system_prompt_includes_base_prompt() {
         "",
     );
 
-    assert!(prompt.contains("You are 황비서, a personal AI assistant."));
+    assert!(prompt.contains("You are Forja, a personal AI assistant."));
+    assert_eq!(base_prompt("Forja", "사용자님").contains("address user as \"사용자님\""), true);
 }
 
 #[test]
 fn assemble_system_prompt_includes_think_prompt_when_not_mid() {
     let mut mode_state = ModeState::default();
     mode_state.update_think_level(ThinkLevel::Max);
-    let prompt = assemble_system_prompt(&mode_state, "", "", "", "", "", "", "");
+    let prompt = assemble_system_prompt(
+        &mode_state,
+        "Forja",
+        "사용자님",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+    );
 
     assert!(prompt.contains("Think extremely thoroughly before responding."));
 }
@@ -119,7 +134,18 @@ fn assemble_system_prompt_includes_role_prompt_when_role_detected() {
     let mut mode_state = ModeState::default();
     mode_state.update_role(Role::Auto);
     mode_state.update_detected_role(Role::Coder);
-    let prompt = assemble_system_prompt(&mode_state, "", "", "", "", "", "", "");
+    let prompt = assemble_system_prompt(
+        &mode_state,
+        "Forja",
+        "사용자님",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+    );
 
     assert!(prompt.contains("## Coding Mode Active"));
 }
@@ -132,6 +158,8 @@ fn assemble_system_prompt_respects_section_order() {
 
     let prompt = assemble_system_prompt(
         &mode_state,
+        "Forja",
+        "사용자님",
         "[identity]",
         "[user]",
         "[tools]",
@@ -141,7 +169,7 @@ fn assemble_system_prompt_respects_section_order() {
         "[memory]",
     );
 
-    let base_index = prompt.find("You are 황비서").unwrap();
+    let base_index = prompt.find("You are Forja").unwrap();
     let think_index = prompt.find("Be concise.").unwrap();
     let role_index = prompt.find("## Writing Mode Active").unwrap();
     let tools_index = prompt.find("[tools]").unwrap();

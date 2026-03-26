@@ -8,6 +8,12 @@ impl Engine {
         self
     }
 
+    pub fn with_assistant_profile(mut self, assistant_name: String, user_title: String) -> Self {
+        self.assistant_name = assistant_name;
+        self.user_title = user_title;
+        self
+    }
+
     pub fn with_tool_prompt(mut self, prompt: String) -> Self {
         self.tool_prompt = Some(prompt);
         self

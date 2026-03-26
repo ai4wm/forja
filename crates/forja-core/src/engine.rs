@@ -49,6 +49,8 @@ pub struct Engine {
     max_history: usize,
     system_prompt: Option<String>,
     tool_prompt: Option<String>,
+    assistant_name: String,
+    user_title: String,
     slash_handler: Option<SlashHandler>,
     mode_state: ModeState,
     emotion: Option<EmotionEngine>,
@@ -76,6 +78,8 @@ impl Engine {
             max_history: 100,
             system_prompt: None,
             tool_prompt: None,
+            assistant_name: "Forja".to_string(),
+            user_title: "사용자님".to_string(),
             slash_handler: None,
             mode_state: ModeState::default(),
             emotion: None,
@@ -147,6 +151,8 @@ impl Engine {
         let mut messages = Vec::new();
         let prompt = assemble_system_prompt(
             &self.mode_state,
+            &self.assistant_name,
+            &self.user_title,
             self.system_prompt.as_deref().unwrap_or_default(),
             "",
             self.tool_prompt.as_deref().unwrap_or_default(),

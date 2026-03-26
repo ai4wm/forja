@@ -10,6 +10,8 @@ use crate::mode::{ModeState, Role};
 #[allow(clippy::too_many_arguments)]
 pub fn assemble_system_prompt(
     mode_state: &ModeState,
+    assistant_name: &str,
+    user_title: &str,
     identity: &str,
     user: &str,
     tools: &str,
@@ -18,7 +20,7 @@ pub fn assemble_system_prompt(
     knowledge: &str,
     memory: &str,
 ) -> String {
-    let mut sections = vec![base::BASE_PROMPT.to_string()];
+    let mut sections = vec![base::base_prompt(assistant_name, user_title)];
 
     let think = think::think_prompt(mode_state.think_level);
     if !think.is_empty() {
