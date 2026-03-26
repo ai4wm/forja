@@ -321,8 +321,10 @@ impl Engine {
                                 let user_msg_save = Message::text(Role::User, &user_text, None);
                                 let reply_msg = Message::text(Role::Assistant, &reply, None);
                                 let _ = self.channel.send(reply_msg.clone()).await;
-                                self.push_message(user_msg_save);
+                                self.push_message(user_msg_save.clone());
                                 self.push_message(reply_msg);
+                                #[cfg(feature = "memory")]
+                                self.save_turn_memory_entries(&user_msg_save, Some(&reply)).await;
                             }
                             SlashCommandResult::UpdateSystemPrompt { reply, system_prompt, reset_history } => {
                                 self.apply_system_prompt_update(system_prompt, reset_history);
@@ -548,3 +550,4 @@ fn start_pre_spinner() -> indicatif::ProgressBar {
     spinner.enable_steady_tick(Duration::from_millis(80));
     spinner
 }
+
