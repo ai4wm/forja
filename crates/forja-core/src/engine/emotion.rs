@@ -1,9 +1,9 @@
 use super::Engine;
 use crate::emotion::{MoodState, RelationshipContext};
 use crate::emotion::EmotionEngine;
-use crate::types::{MemoryEntry, Message, Role};
-use std::time::{SystemTime, UNIX_EPOCH};
-use uuid::Uuid;
+use crate::types::{Message, Role};
+
+
 
 impl Engine {
     pub fn with_emotion(mut self, emotion: EmotionEngine) -> Self {
@@ -35,12 +35,16 @@ impl Engine {
 
         self.turn_tone_context = Some(format!("[tone]\n{}", analyzed.tone_instruction));
 
-        let patterns = RelationshipContext::detect_patterns(&self.load_memory_contents_or_empty().await);
-        if !patterns.is_empty() {
-            self.turn_relationship_context = Some(format!(
-                "[relationship]\n{}",
-                patterns.join("\n")
-            ));
+        #[cfg(feature = "memory")]
+        {
+            let memory_contents = self.load_memory_contents_or_empty().await;
+            let patterns = RelationshipContext::detect_patterns(&memory_contents);
+            if !patterns.is_empty() {
+                self.turn_relationship_context = Some(format!(
+                    "[relationship]\n{}",
+                    patterns.join("\n")
+                ));
+            }
         }
 
         if mood_has_changed(&previous, &analyzed) {
@@ -95,3 +99,5 @@ fn mood_has_changed(previous: &MoodState, next: &MoodState) -> bool {
         || previous.intensity != next.intensity
         || previous.reason != next.reason
 }
+
+
