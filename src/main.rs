@@ -131,6 +131,7 @@ fn load_project_prompt() -> Option<(String, String)> {
 
 fn build_system_prompt(
     bootstrap_paths: &bootstrap::BootstrapPaths,
+    shell_enabled: bool,
 ) -> std::io::Result<(String, Option<String>)> {
     let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
     let bootstrap_prompt = bootstrap::compose_system_prompt_prefix(bootstrap_paths)?;
@@ -154,6 +155,23 @@ fn build_system_prompt(
         combined_prompt.push_str(&format!(
             "\n\n오늘 날짜는 {today}입니다. 이 날짜는 정확하며 의심하지 마세요. 검색 결과의 날짜가 오늘과 일치하면 최신 정보입니다."
         ));
+    }
+
+    if shell_enabled {
+        if !combined_prompt.is_empty() {
+            combined_prompt.push_str("\n\n---\n\n");
+        }
+        combined_prompt.push_str(
+            "You have access to a shell tool that can execute OS commands.\n\
+When the user asks you to perform a system task (open app,\n\
+manage files, check system info, etc.), use the shell tool.\n\
+For Windows, use PowerShell commands.\n\
+For macOS/Linux, use bash commands.\n\
+Always prefer safe, non-destructive commands.\n\
+Example: user says 'open notepad' -> shell: Start-Process notepad\n\
+Example: user says 'what time is it' -> shell: Get-Date\n\
+Example: user says 'list files' -> shell: Get-ChildItem"
+        );
     }
 
     Ok((combined_prompt, loaded_project_file))
@@ -299,9 +317,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let info = config::provider_info(&forja_cfg);
     print_banner(&info);
 
+    let shell_enabled = !matches!(
+        std::env::var("FORJA_SHELL"),
+        Ok(value) if value.eq_ignore_ascii_case("false")
+    );
     let bootstrap_paths = bootstrap::default_paths();
     let bootstrap_outcome = bootstrap::ensure_bootstrap(&bootstrap_paths)?;
-    let (combined_prompt, loaded_project_file) = build_system_prompt(&bootstrap_paths)?;
+    let (combined_prompt, loaded_project_file) =
+        build_system_prompt(&bootstrap_paths, shell_enabled)?;
     if let Some(file_name) = loaded_project_file {
         println!("[System] {file_name} 로드됨");
     }
@@ -457,8 +480,6 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // ── 도구 등록 ──
     let file_tool = Arc::new(FileTool::new());
     let web_tool = Arc::new(WebTool::new());
-    let shell_tool = Arc::new(ShellTool::new(Arc::new(StdinConfirmation::new())));
-
     let search_provider = match forja_cfg.tools.search.provider.as_deref() {
         Some("brave") => {
             let key = forja_cfg.tools.search.brave_api_key.clone().unwrap_or_default();
@@ -474,8 +495,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     engine.register_tool(file_tool);
     engine.register_tool(web_tool);
-    engine.register_tool(shell_tool);
     engine.register_tool(search_tool);
+    if shell_enabled {
+        let shell_tool = Arc::new(ShellTool::new(Arc::new(StdinConfirmation::new())));
+        engine.register_tool(shell_tool);
+    } else {
+        println!("[System] Shell tool disabled by FORJA_SHELL=false.");
+    }
 
     if ClaudeCodeTool::is_installed().await {
         engine.register_tool(Arc::new(ClaudeCodeTool::new()));
@@ -494,6 +520,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let registry = std::sync::Mutex::new(registry);
     let channel_for_slash = channel.clone();
     let bootstrap_paths_for_slash = bootstrap_paths.clone();
+    let shell_enabled_for_slash = shell_enabled;
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(move |text: &str, provider: &mut Arc<dyn LlmProvider>| {
         let text = text.trim();
 
@@ -567,7 +594,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            let system_prompt = match build_system_prompt(&bootstrap_paths_for_slash) {
+            let system_prompt = match build_system_prompt(&bootstrap_paths_for_slash, shell_enabled_for_slash) {
                 Ok((system_prompt, _)) => system_prompt,
                 Err(error) => {
                     return Some(forja_core::engine::SlashCommandResult::Reply(format!(
