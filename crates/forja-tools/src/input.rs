@@ -67,6 +67,10 @@ pub struct EnigoBackend {
     enigo: Mutex<Enigo>,
 }
 
+// Safety: Enigo is only accessed through Mutex, ensuring single-threaded access
+unsafe impl Send for EnigoBackend {}
+unsafe impl Sync for EnigoBackend {}
+
 impl EnigoBackend {
     pub fn new() -> Result<Self> {
         let enigo = Enigo::new(&Settings::default()).map_err(|error| {
@@ -549,3 +553,4 @@ fn blocked_result(action: &str, detail: String) -> Value {
         "detail": detail,
     })
 }
+
