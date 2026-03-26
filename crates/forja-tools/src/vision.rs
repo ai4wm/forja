@@ -278,7 +278,7 @@ impl VisionAnalyzer for GptVisionAnalyzer {
         let media_type = detect_media_type(image_base64);
         let (endpoint, payload) = if self.is_responses_api() {
             (
-                format!("{}/responses", self.api_base),
+                format!("{}/codex/responses", self.api_base),
                 json!({
                     "model": self.model,
                     "input": [{
@@ -288,8 +288,9 @@ impl VisionAnalyzer for GptVisionAnalyzer {
                             {"type": "input_image", "image_url": format!("data:{media_type};base64,{image_base64}")}
                         ]
                     }],
-                    "max_output_tokens": 4096
-                }),
+                    "instructions": "You are a helpful vision assistant. Analyze the image and respond in the same language as the user prompt.",
+                "store": false,
+                "stream": true,}),
             )
         } else {
             (
@@ -314,6 +315,7 @@ impl VisionAnalyzer for GptVisionAnalyzer {
             .client
             .post(&endpoint)
             .bearer_auth(&self.auth_token)
+            .header("Accept", "text/event-stream")
             .json(&payload)
             .send()
             .await
@@ -329,16 +331,28 @@ impl VisionAnalyzer for GptVisionAnalyzer {
             return Err(format!("Vision HTTP {}: {}", status, body));
         }
 
+        if self.is_responses_api() {
+            // SSE stream response: collect text from response.output_text.delta events
+            let mut collected_text = String::new();
+            for line in body.lines() {
+                if let Some(data) = line.strip_prefix("data: ") {
+                    if let Ok(ev) = serde_json::from_str::<Value>(data) {
+                        if ev["type"].as_str() == Some("response.output_text.delta") {
+                            if let Some(d) = ev["delta"].as_str() {
+                                collected_text.push_str(d);
+                            }
+                        }
+                    }
+                }
+            }
+            if !collected_text.is_empty() {
+                return Ok(collected_text);
+            }
+            return Err(format!("Vision SSE response contained no text. Raw: {}", &body[..body.len().min(300)]));
+        }
+
         let json: Value = serde_json::from_str(&body)
             .map_err(|error| format!("Failed to parse vision response JSON: {error}. Raw: {body}"))?;
-
-        if self.is_responses_api() {
-            if let Some(text) = json["output"][0]["content"][0]["text"].as_str() {
-                return Ok(text.to_string());
-            }
-
-            return Err("Vision response missing output[0].content[0].text".to_string());
-        }
 
         if let Some(text) = json["choices"][0]["message"]["content"].as_str() {
             return Ok(text.to_string());
@@ -608,3 +622,13 @@ fn detect_media_type(image_base64: &str) -> &'static str {
 
     "image/png"
 }
+
+
+
+
+
+
+
+
+
+
