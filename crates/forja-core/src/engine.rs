@@ -1,11 +1,13 @@
 use crate::error::{ForjaError, Result};
 use crate::emotion::EmotionEngine;
+use crate::knowledge::KnowledgeManager;
 use crate::traits::{Channel, LlmProvider, Tool};
 use crate::types::{Content, Message, Role, ToolDefinition};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 mod emotion;
+mod knowledge;
 
 #[cfg(feature = "memory")]
 mod memory;
@@ -44,6 +46,8 @@ pub struct Engine {
     emotion: Option<EmotionEngine>,
     turn_tone_context: Option<String>,
     turn_relationship_context: Option<String>,
+    knowledge: Option<Arc<KnowledgeManager>>,
+    turn_knowledge_context: Option<String>,
 
     #[cfg(feature = "memory")]
     memory: Option<Arc<dyn MemoryStore>>,
@@ -65,6 +69,8 @@ impl Engine {
             emotion: None,
             turn_tone_context: None,
             turn_relationship_context: None,
+            knowledge: None,
+            turn_knowledge_context: None,
             #[cfg(feature = "memory")]
             memory: None,
             #[cfg(feature = "memory")]
@@ -80,6 +86,11 @@ impl Engine {
 
     pub fn with_emotion(mut self, emotion: EmotionEngine) -> Self {
         self.emotion = Some(emotion);
+        self
+    }
+
+    pub fn with_knowledge(mut self, knowledge: Arc<KnowledgeManager>) -> Self {
+        self.knowledge = Some(knowledge);
         self
     }
 
@@ -147,6 +158,14 @@ impl Engine {
             messages.insert(
                 insertion_index,
                 Message::text(Role::System, relationship_context.clone(), None),
+            );
+            insertion_index += 1;
+        }
+
+        if let Some(knowledge_context) = &self.turn_knowledge_context {
+            messages.insert(
+                insertion_index,
+                Message::text(Role::System, knowledge_context.clone(), None),
             );
             insertion_index += 1;
         }
@@ -265,6 +284,7 @@ impl Engine {
                     #[cfg(feature = "memory")]
                     self.push_message(user_msg.clone());
                     self.refresh_turn_emotion_context().await;
+                    self.refresh_turn_knowledge_context(&user_msg).await;
 
                     #[cfg(feature = "memory")]
                     self.refresh_turn_memory_context(&user_msg).await;
@@ -286,6 +306,7 @@ impl Engine {
                         self.check_and_flush_context().await?;
                     }
 
+                    self.clear_turn_knowledge_context();
                     self.clear_turn_emotion_context();
                 }
             }
@@ -350,6 +371,7 @@ impl Engine {
                     #[cfg(feature = "memory")]
                     self.push_message(user_msg.clone());
                     self.refresh_turn_emotion_context().await;
+                    self.refresh_turn_knowledge_context(&user_msg).await;
 
                     #[cfg(feature = "memory")]
                     self.refresh_turn_memory_context(&user_msg).await;
@@ -442,6 +464,7 @@ impl Engine {
                         self.check_and_flush_context().await?;
                     }
 
+                    self.clear_turn_knowledge_context();
                     self.clear_turn_emotion_context();
                 }
             }

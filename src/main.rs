@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use forja_core::emotion::{EmotionEngine, MoodState, generate_startup_greeting};
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::{LlmProvider, MemoryStore};
-use forja_core::{Channel, Content, Engine, Message, Role, ToolDefinition};
+use forja_core::{Channel, Content, Engine, KnowledgeManager, Message, Role, ToolDefinition};
 use forja_llm::LlmClient;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -357,6 +357,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     if !combined_prompt.is_empty() {
         engine = engine.with_system_prompt(combined_prompt);
     }
+
+    let knowledge_dir = std::env::var("FORJA_KNOWLEDGE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| bootstrap_paths.forja_dir.join("knowledge"));
+    let knowledge_manager = Arc::new(KnowledgeManager::new(knowledge_dir));
+    engine = engine.with_knowledge(knowledge_manager);
 
     // ── 메모리 스토어 초기화 ──
     let memory_dir = std::env::var("FORJA_MEMORY_DIR")
