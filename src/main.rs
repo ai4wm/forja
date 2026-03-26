@@ -21,8 +21,10 @@ use tokio_stream::{Stream, StreamExt};
 use std::io::Write;
 use forja_tools::{
     browser::MockBrowserBackend, BrowserTool, ClaudeCodeTool, CodexTool, FileTool,
-    GeminiCliTool, InputTool, SearchProvider,
+    GeminiCliTool, GptVisionAnalyzer, InputTool, MockCaptureBackend, MockVisionAnalyzer,
+    SearchProvider,
     SearchTool, ShellTool, StdinConfirmation, WebTool,
+    VisionTool, XcapBackend,
 };
 use forja_memory::MarkdownMemoryStore;
 use provider_registry::ProviderRegistry;
@@ -138,6 +140,7 @@ fn build_system_prompt(
     shell_enabled: bool,
     input_enabled: bool,
     browser_enabled: bool,
+    vision_enabled: bool,
 ) -> std::io::Result<(String, Option<String>)> {
     let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
     let bootstrap_prompt = bootstrap::compose_system_prompt_prefix(bootstrap_paths)?;
@@ -207,6 +210,21 @@ Example: {\"tool\":\"browser\",\"action\":\"type_text\",\"selector\":\"input#sea
 Example: {\"tool\":\"browser\",\"action\":\"scroll\",\"direction\":\"down\",\"amount\":500}\n\
 Example: {\"tool\":\"browser\",\"action\":\"read_text\",\"selector\":\"h1\"}\n\
 Example: {\"tool\":\"browser\",\"action\":\"screenshot\"}"
+        );
+    }
+
+    if vision_enabled {
+        if !combined_prompt.is_empty() {
+            combined_prompt.push_str("\n\n---\n\n");
+        }
+        combined_prompt.push_str(
+            "Tool: vision\n\
+Actions: capture_screen, capture_region, analyze, analyze_region, find_element, ocr\n\
+Example: {\"tool\":\"vision\",\"action\":\"analyze\",\"prompt\":\"What is on the screen?\"}\n\
+Example: {\"tool\":\"vision\",\"action\":\"find_element\",\"description\":\"red login button\"}\n\
+Example: {\"tool\":\"vision\",\"action\":\"capture_region\",\"x\":100,\"y\":200,\"width\":500,\"height\":300}\n\
+Example: {\"tool\":\"vision\",\"action\":\"ocr\",\"x\":0,\"y\":0,\"width\":1920,\"height\":1080}\n\
+Note: Chain find_element result with input tool mouse_click to click visual elements."
         );
     }
 
@@ -365,10 +383,20 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         std::env::var("FORJA_BROWSER"),
         Ok(value) if value.eq_ignore_ascii_case("false")
     );
+    let vision_enabled = !matches!(
+        std::env::var("FORJA_VISION"),
+        Ok(value) if value.eq_ignore_ascii_case("false")
+    );
     let bootstrap_paths = bootstrap::default_paths();
     let bootstrap_outcome = bootstrap::ensure_bootstrap(&bootstrap_paths)?;
     let (combined_prompt, loaded_project_file) =
-        build_system_prompt(&bootstrap_paths, shell_enabled, input_enabled, browser_enabled)?;
+        build_system_prompt(
+            &bootstrap_paths,
+            shell_enabled,
+            input_enabled,
+            browser_enabled,
+            vision_enabled,
+        )?;
     if let Some(file_name) = loaded_project_file {
         println!("[System] {file_name} 로드됨");
     }
@@ -574,6 +602,24 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("[System] Browser tool disabled by FORJA_BROWSER=false.");
     }
+    if vision_enabled {
+        let vision_tool = if use_mock {
+            VisionTool::with_backends(
+                Arc::new(MockCaptureBackend::new()),
+                Arc::new(MockVisionAnalyzer::new()),
+                false,
+            )
+        } else {
+            VisionTool::with_backends(
+                Arc::new(XcapBackend::new()),
+                Arc::new(GptVisionAnalyzer::new()),
+                false,
+            )
+        };
+        engine.register_tool(Arc::new(vision_tool));
+    } else {
+        println!("[System] Vision tool disabled by FORJA_VISION=false.");
+    }
 
     if ClaudeCodeTool::is_installed().await {
         engine.register_tool(Arc::new(ClaudeCodeTool::new()));
@@ -595,6 +641,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let shell_enabled_for_slash = shell_enabled;
     let input_enabled_for_slash = input_enabled;
     let browser_enabled_for_slash = browser_enabled;
+    let vision_enabled_for_slash = vision_enabled;
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(move |text: &str, provider: &mut Arc<dyn LlmProvider>| {
         let text = text.trim();
 
@@ -673,6 +720,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 shell_enabled_for_slash,
                 input_enabled_for_slash,
                 browser_enabled_for_slash,
+                vision_enabled_for_slash,
             ) {
                 Ok((system_prompt, _)) => system_prompt,
                 Err(error) => {
