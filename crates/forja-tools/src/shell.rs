@@ -12,7 +12,7 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const DANGEROUS_PATTERNS: &[&str] = &[
     "rm -rf",
     "del /f",
-    "format",
+    "format c:", "format d:", "format e:",
     "fdisk",
     "shutdown",
     "reboot",
