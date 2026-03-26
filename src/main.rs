@@ -19,7 +19,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio_stream::{Stream, StreamExt};
 use std::io::Write;
-use forja_tools::{FileTool, WebTool, ShellTool, SearchTool, SearchProvider, StdinConfirmation, ClaudeCodeTool, CodexTool, GeminiCliTool};
+use forja_tools::{
+    ClaudeCodeTool, CodexTool, FileTool, GeminiCliTool, InputTool, SearchProvider,
+    SearchTool, ShellTool, StdinConfirmation, WebTool,
+};
 use forja_memory::MarkdownMemoryStore;
 use provider_registry::ProviderRegistry;
 
@@ -132,6 +135,7 @@ fn load_project_prompt() -> Option<(String, String)> {
 fn build_system_prompt(
     bootstrap_paths: &bootstrap::BootstrapPaths,
     shell_enabled: bool,
+    input_enabled: bool,
 ) -> std::io::Result<(String, Option<String>)> {
     let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
     let bootstrap_prompt = bootstrap::compose_system_prompt_prefix(bootstrap_paths)?;
@@ -171,6 +175,20 @@ Always prefer safe, non-destructive commands.\n\
 Example: user says 'open notepad' -> shell: Start-Process notepad\n\
 Example: user says 'what time is it' -> shell: Get-Date\n\
 Example: user says 'list files' -> shell: Get-ChildItem"
+        );
+    }
+
+    if input_enabled {
+        if !combined_prompt.is_empty() {
+            combined_prompt.push_str("\n\n---\n\n");
+        }
+        combined_prompt.push_str(
+            "Tool: input\n\
+Actions: type_text, key_press, hotkey, mouse_move, mouse_click, mouse_double_click, mouse_drag, scroll\n\
+Example: {\"tool\":\"input\",\"action\":\"type_text\",\"text\":\"hello\"}\n\
+Example: {\"tool\":\"input\",\"action\":\"hotkey\",\"keys\":[\"ctrl\",\"s\"]}\n\
+Example: {\"tool\":\"input\",\"action\":\"mouse_click\",\"button\":\"left\",\"x\":500,\"y\":300}\n\
+Example: {\"tool\":\"input\",\"action\":\"scroll\",\"direction\":\"down\",\"amount\":3}"
         );
     }
 
@@ -321,10 +339,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         std::env::var("FORJA_SHELL"),
         Ok(value) if value.eq_ignore_ascii_case("false")
     );
+    let input_enabled = !matches!(
+        std::env::var("FORJA_INPUT"),
+        Ok(value) if value.eq_ignore_ascii_case("false")
+    );
     let bootstrap_paths = bootstrap::default_paths();
     let bootstrap_outcome = bootstrap::ensure_bootstrap(&bootstrap_paths)?;
     let (combined_prompt, loaded_project_file) =
-        build_system_prompt(&bootstrap_paths, shell_enabled)?;
+        build_system_prompt(&bootstrap_paths, shell_enabled, input_enabled)?;
     if let Some(file_name) = loaded_project_file {
         println!("[System] {file_name} 로드됨");
     }
@@ -502,6 +524,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("[System] Shell tool disabled by FORJA_SHELL=false.");
     }
+    if input_enabled {
+        match InputTool::new(Arc::new(StdinConfirmation::new())) {
+            Ok(input_tool) => engine.register_tool(Arc::new(input_tool)),
+            Err(error) => eprintln!("[System] Input tool initialization failed: {error}"),
+        }
+    } else {
+        println!("[System] Input tool disabled by FORJA_INPUT=false.");
+    }
 
     if ClaudeCodeTool::is_installed().await {
         engine.register_tool(Arc::new(ClaudeCodeTool::new()));
@@ -521,6 +551,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let channel_for_slash = channel.clone();
     let bootstrap_paths_for_slash = bootstrap_paths.clone();
     let shell_enabled_for_slash = shell_enabled;
+    let input_enabled_for_slash = input_enabled;
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(move |text: &str, provider: &mut Arc<dyn LlmProvider>| {
         let text = text.trim();
 
@@ -594,7 +625,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            let system_prompt = match build_system_prompt(&bootstrap_paths_for_slash, shell_enabled_for_slash) {
+            let system_prompt = match build_system_prompt(
+                &bootstrap_paths_for_slash,
+                shell_enabled_for_slash,
+                input_enabled_for_slash,
+            ) {
                 Ok((system_prompt, _)) => system_prompt,
                 Err(error) => {
                     return Some(forja_core::engine::SlashCommandResult::Reply(format!(

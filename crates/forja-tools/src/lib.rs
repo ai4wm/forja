@@ -1,5 +1,6 @@
 pub mod confirm;
 pub mod file;
+pub mod input;
 pub mod web;
 pub mod shell;
 pub mod search;
@@ -9,6 +10,7 @@ pub mod gemini_cli;
 
 pub use confirm::StdinConfirmation;
 pub use file::FileTool;
+pub use input::InputTool;
 pub use web::WebTool;
 pub use shell::ShellTool;
 pub use search::{SearchTool, SearchProvider};
