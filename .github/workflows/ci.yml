@@ -17,7 +17,7 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Install system dependencies
-      run: sudo apt-get update && sudo apt-get install -y libxdo-dev libssl-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-composite0-dev libwayland-dev libwayland-client0 pkg-config libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-composite0-dev
+      run: sudo apt-get update && sudo apt-get install -y libxdo-dev libssl-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-composite0-dev libwayland-dev libwayland-client0 pkg-config libpipewire-0.3-dev libspa-0.2-dev libclang-dev
 
     - name: Install Rust stable
       uses: dtolnay/rust-toolchain@stable
