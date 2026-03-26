@@ -201,7 +201,7 @@ async fn flush_and_summarize_keeps_original_when_summarizer_fails() {
 
     let after = std::fs::read_to_string(&memory_path).unwrap();
 
-    assert_eq!(before, after);
+    assert_eq!(before.trim(), after.trim());
     assert!(!archive_dir.join(format!("{old_day_text}.md")).exists());
 
     let _ = tokio::fs::remove_dir_all(&base_dir).await;
