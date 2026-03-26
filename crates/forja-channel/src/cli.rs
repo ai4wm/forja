@@ -8,6 +8,17 @@ use tokio::io::{self, AsyncBufReadExt, BufReader};
 /// 표준 입력(stdin)과 표준 출력(stdout)을 사용하는 로컬 CLI 채널 구현체.
 pub struct CliChannel;
 
+pub fn process_line(line: &str, buffer: &mut String) -> bool {
+    if let Some(content) = line.strip_suffix('\\') {
+        buffer.push_str(content);
+        buffer.push('\n');
+        return true;
+    }
+
+    buffer.push_str(line);
+    false
+}
+
 impl CliChannel {
     pub fn new() -> Self {
         Self
@@ -32,21 +43,33 @@ impl Channel for CliChannel {
 
         let stdin = io::stdin();
         let mut reader = BufReader::new(stdin);
-        let mut line = String::new();
+        let mut buffer = String::new();
 
-        let bytes_read = reader.read_line(&mut line).await
-            .map_err(|e| ForjaError::ChannelError(format!("Failed to read stdin: {}", e)))?;
+        loop {
+            let mut line = String::new();
+            let bytes_read = reader.read_line(&mut line).await
+                .map_err(|e| ForjaError::ChannelError(format!("Failed to read stdin: {}", e)))?;
 
-        if bytes_read == 0 {
-            // EOF 도달 시 (예: Ctrl+D)
-            return Err(ForjaError::ChannelError("EOF reached".to_string()));
+            if bytes_read == 0 {
+                // EOF 도달 시 (예: Ctrl+D)
+                return Err(ForjaError::ChannelError("EOF reached".to_string()));
+            }
+
+            let trimmed = line.trim_end_matches(['\r', '\n']);
+            if process_line(trimmed, &mut buffer) {
+                print!("... ");
+                if let Err(e) = std::io::stdout().flush() {
+                    return Err(ForjaError::ChannelError(format!("Stdout flush failed: {}", e)));
+                }
+                continue;
+            }
+
+            break;
         }
-
-        let trimmed = line.trim().to_string();
         
         // 빈 입력은 무시하고 에러를 뱉기보단 다시 재귀호출 또는 래핑할 수 있으나,
         // 여기서는 엔진이 바로 재시도할 수 있도록 빈 메시지를 리턴합니다.
-        Ok(Message::text(Role::User, trimmed, None))
+        Ok(Message::text(Role::User, buffer, None))
     }
 
     /// 엔진이 생성한 메시지(Assistant 또는 System)를 채널(터미널)에 시각적으로 출력합니다.

@@ -10,7 +10,7 @@ struct AllowConfirmation;
 
 #[async_trait]
 impl ConfirmationHandler for AllowConfirmation {
-    async fn confirm(&self, _cmd: &str) -> bool {
+    async fn confirm(&self, _cmd: &str, _dangerous: bool) -> bool {
         true
     }
 }
@@ -19,7 +19,7 @@ struct DenyConfirmation;
 
 #[async_trait]
 impl ConfirmationHandler for DenyConfirmation {
-    async fn confirm(&self, _cmd: &str) -> bool {
+    async fn confirm(&self, _cmd: &str, _dangerous: bool) -> bool {
         false
     }
 }

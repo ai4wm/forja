@@ -189,13 +189,9 @@ pub struct InputTool {
 
 impl InputTool {
     pub fn new(handler: Arc<dyn ConfirmationHandler>) -> Result<Self> {
-        let unsafe_mode = matches!(
-            std::env::var("FORJA_INPUT_UNSAFE"),
-            Ok(value) if value.eq_ignore_ascii_case("true")
-        );
         let backend = Arc::new(EnigoBackend::new()?);
 
-        Ok(Self::with_backend_and_settings(backend, handler, unsafe_mode))
+        Ok(Self::with_backend_and_settings(backend, handler, false))
     }
 
     pub fn with_backend_and_settings(
@@ -304,15 +300,22 @@ impl Tool for InputTool {
             Err(detail) => return Ok(error_result(&action, detail)),
         };
 
+        let dangerous = matches!(&command, InputCommand::Hotkey { keys } if is_dangerous_hotkey(keys));
         if !self.unsafe_mode
-            && let InputCommand::Hotkey { keys } = &command
-            && is_dangerous_hotkey(keys)
-            && !self.confirmation_handler.confirm(&command.detail()).await
+            && !self.confirmation_handler.confirm(&command.detail(), dangerous).await
         {
-            return Ok(blocked_result(
-                command.action_name(),
-                format!("Blocked dangerous hotkey: {}", keys.join("+")),
-            ));
+            let detail = if dangerous {
+                format!(
+                    "Blocked dangerous hotkey: {}",
+                    match &command {
+                        InputCommand::Hotkey { keys } => keys.join("+"),
+                        _ => command.detail(),
+                    }
+                )
+            } else {
+                format!("Blocked input action: {}", command.detail())
+            };
+            return Ok(blocked_result(command.action_name(), detail));
         }
 
         match self.backend.execute(&command) {

@@ -4,6 +4,8 @@ pub mod emotion;
 pub mod scheduler;
 pub mod error;
 pub mod knowledge;
+pub mod mode;
+pub mod prompt;
 pub mod serendipity;
 pub mod traits;
 pub mod types;

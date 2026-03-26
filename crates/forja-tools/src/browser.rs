@@ -471,12 +471,7 @@ pub struct BrowserTool {
 
 impl BrowserTool {
     pub fn new(handler: Arc<dyn ConfirmationHandler>) -> Self {
-        let unsafe_mode = matches!(
-            std::env::var("FORJA_BROWSER_UNSAFE"),
-            Ok(value) if value.eq_ignore_ascii_case("true")
-        );
-
-        Self::with_backend_and_settings(Arc::new(ChromiumBackend::new()), handler, unsafe_mode)
+        Self::with_backend_and_settings(Arc::new(ChromiumBackend::new()), handler, false)
     }
 
     pub fn with_backend_and_settings(
@@ -532,12 +527,17 @@ impl Tool for BrowserTool {
                 Err(detail) => return Ok(error_result(&action, detail)),
             };
 
-            if !self.unsafe_mode && is_dangerous_javascript(js) {
+            let dangerous = is_dangerous_javascript(js);
+            if !self.unsafe_mode {
                 let prompt = format!("browser evaluate: {js}");
-                if !self.confirmation_handler.confirm(&prompt).await {
+                if !self.confirmation_handler.confirm(&prompt, dangerous).await {
                     return Ok(blocked_result(
                         &action,
-                        format!("Blocked dangerous browser evaluate: {js}"),
+                        if dangerous {
+                            format!("Blocked dangerous browser evaluate: {js}")
+                        } else {
+                            format!("Blocked browser evaluate: {js}")
+                        },
                     ));
                 }
             }
@@ -546,6 +546,18 @@ impl Tool for BrowserTool {
                 Ok(data) => ok_result(&action, data),
                 Err(detail) => error_result(&action, detail),
             });
+        }
+
+        if !self.unsafe_mode
+            && !self
+                .confirmation_handler
+                .confirm(&format!("browser action: {action}"), false)
+                .await
+        {
+            return Ok(blocked_result(
+                &action,
+                format!("Blocked browser action: {action}"),
+            ));
         }
 
         let result = match action.as_str() {

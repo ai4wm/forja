@@ -4,11 +4,16 @@ mod oauth;
 mod bootstrap;
 
 use async_trait::async_trait;
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use forja_core::emotion::{
     EmotionEngine, MoodState, generate_startup_greeting,
     generate_startup_greeting_with_context,
 };
 use forja_core::error::{ForjaError, Result};
+use forja_core::mode::{
+    ExecMode, ModeState, Role as ModeRole, SlashCommand, ThinkLevel, detect_image_path,
+    parse_image_command, parse_screenshot_command, parse_slash_command,
+};
 use forja_core::traits::{LlmProvider, MemoryStore};
 use forja_core::{
     Channel, Content, Engine, KnowledgeManager, Message, Role, SerendipityEngine,
@@ -26,10 +31,11 @@ use forja_tools::{
     GeminiCliTool, GptVisionAnalyzer, InputTool, MockCaptureBackend, MockVisionAnalyzer,
     SearchProvider,
     SearchTool, ShellTool, StdinConfirmation, WebTool,
-    VisionTool,
+    VisionAnalyzer, VisionTool,
 };
 use forja_memory::MarkdownMemoryStore;
 use provider_registry::ProviderRegistry;
+use std::path::Path;
 
 // ─── Mock LLM (API 키 없이 로컬 테스트용) ────────────────────────────────────
 
@@ -139,10 +145,6 @@ fn load_project_prompt() -> Option<(String, String)> {
 
 fn build_system_prompt(
     bootstrap_paths: &bootstrap::BootstrapPaths,
-    shell_enabled: bool,
-    input_enabled: bool,
-    browser_enabled: bool,
-    vision_enabled: bool,
 ) -> std::io::Result<(String, Option<String>)> {
     let today = chrono::Local::now().format("%Y년 %m월 %d일").to_string();
     let bootstrap_prompt = bootstrap::compose_system_prompt_prefix(bootstrap_paths)?;
@@ -168,11 +170,19 @@ fn build_system_prompt(
         ));
     }
 
+    Ok((combined_prompt, loaded_project_file))
+}
+
+fn build_tool_prompt(
+    shell_enabled: bool,
+    input_enabled: bool,
+    browser_enabled: bool,
+    vision_enabled: bool,
+) -> String {
+    let mut sections = Vec::new();
+
     if shell_enabled {
-        if !combined_prompt.is_empty() {
-            combined_prompt.push_str("\n\n---\n\n");
-        }
-        combined_prompt.push_str(
+        sections.push(
             "You have access to a shell tool that can execute OS commands.\n\
 When the user asks you to perform a system task (open app,\n\
 manage files, check system info, etc.), use the shell tool.\n\
@@ -182,28 +192,24 @@ Always prefer safe, non-destructive commands.\n\
 Example: user says 'open notepad' -> shell: Start-Process notepad\n\
 Example: user says 'what time is it' -> shell: Get-Date\n\
 Example: user says 'list files' -> shell: Get-ChildItem"
+                .to_string(),
         );
     }
 
     if input_enabled {
-        if !combined_prompt.is_empty() {
-            combined_prompt.push_str("\n\n---\n\n");
-        }
-        combined_prompt.push_str(
+        sections.push(
             "Tool: input\n\
 Actions: type_text, key_press, hotkey, mouse_move, mouse_click, mouse_double_click, mouse_drag, scroll\n\
 Example: {\"tool\":\"input\",\"action\":\"type_text\",\"text\":\"hello\"}\n\
 Example: {\"tool\":\"input\",\"action\":\"hotkey\",\"keys\":[\"ctrl\",\"s\"]}\n\
 Example: {\"tool\":\"input\",\"action\":\"mouse_click\",\"button\":\"left\",\"x\":500,\"y\":300}\n\
 Example: {\"tool\":\"input\",\"action\":\"scroll\",\"direction\":\"down\",\"amount\":3}"
+                .to_string(),
         );
     }
 
     if browser_enabled {
-        if !combined_prompt.is_empty() {
-            combined_prompt.push_str("\n\n---\n\n");
-        }
-        combined_prompt.push_str(
+        sections.push(
             "Tool: browser\n\
 Actions: open, goto, scroll, click, type_text, read_text, read_page, screenshot, evaluate, tab_list, tab_switch, tab_close, back, forward\n\
 Example: {\"tool\":\"browser\",\"action\":\"open\",\"url\":\"https://google.com\"}\n\
@@ -212,14 +218,12 @@ Example: {\"tool\":\"browser\",\"action\":\"type_text\",\"selector\":\"input#sea
 Example: {\"tool\":\"browser\",\"action\":\"scroll\",\"direction\":\"down\",\"amount\":500}\n\
 Example: {\"tool\":\"browser\",\"action\":\"read_text\",\"selector\":\"h1\"}\n\
 Example: {\"tool\":\"browser\",\"action\":\"screenshot\"}"
+                .to_string(),
         );
     }
 
     if vision_enabled {
-        if !combined_prompt.is_empty() {
-            combined_prompt.push_str("\n\n---\n\n");
-        }
-        combined_prompt.push_str(
+        sections.push(
             "Tool: vision\n\
 Actions: capture_screen, capture_region, analyze, analyze_region, find_element, ocr\n\
 Example: {\"tool\":\"vision\",\"action\":\"analyze\",\"prompt\":\"What is on the screen?\"}\n\
@@ -227,10 +231,67 @@ Example: {\"tool\":\"vision\",\"action\":\"find_element\",\"description\":\"red 
 Example: {\"tool\":\"vision\",\"action\":\"capture_region\",\"x\":100,\"y\":200,\"width\":500,\"height\":300}\n\
 Example: {\"tool\":\"vision\",\"action\":\"ocr\",\"x\":0,\"y\":0,\"width\":1920,\"height\":1080}\n\
 Note: Chain find_element result with input tool mouse_click to click visual elements."
+                .to_string(),
         );
     }
 
-    Ok((combined_prompt, loaded_project_file))
+    sections.join("\n\n")
+}
+
+fn parse_exec_mode() -> ExecMode {
+    match std::env::var("FORJA_MODE")
+        .unwrap_or_else(|_| "auto".to_string())
+        .to_lowercase()
+        .as_str()
+    {
+        "safe" => ExecMode::Safe,
+        "trust" => ExecMode::Trust,
+        _ => ExecMode::Auto,
+    }
+}
+
+fn parse_think_level() -> ThinkLevel {
+    match std::env::var("FORJA_THINK")
+        .unwrap_or_else(|_| "mid".to_string())
+        .to_lowercase()
+        .as_str()
+    {
+        "min" => ThinkLevel::Min,
+        "max" => ThinkLevel::Max,
+        _ => ThinkLevel::Mid,
+    }
+}
+
+fn exec_mode_label(mode: ExecMode) -> &'static str {
+    match mode {
+        ExecMode::Safe => "safe",
+        ExecMode::Auto => "auto",
+        ExecMode::Trust => "trust",
+    }
+}
+
+fn think_level_label(level: ThinkLevel) -> &'static str {
+    match level {
+        ThinkLevel::Min => "min",
+        ThinkLevel::Mid => "mid",
+        ThinkLevel::Max => "max",
+    }
+}
+
+fn role_label(role: ModeRole) -> &'static str {
+    match role {
+        ModeRole::Auto => "auto",
+        ModeRole::Coder => "coder",
+        ModeRole::Writer => "writer",
+        ModeRole::Assistant => "assistant",
+        ModeRole::Analyst => "analyst",
+        ModeRole::Default => "default",
+    }
+}
+
+fn load_image_base64(path: &Path) -> std::io::Result<String> {
+    let bytes = std::fs::read(path)?;
+    Ok(BASE64_STANDARD.encode(bytes))
 }
 
 fn auto_summarize_enabled() -> bool {
@@ -391,14 +452,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     let bootstrap_paths = bootstrap::default_paths();
     let bootstrap_outcome = bootstrap::ensure_bootstrap(&bootstrap_paths)?;
-    let (combined_prompt, loaded_project_file) =
-        build_system_prompt(
-            &bootstrap_paths,
-            shell_enabled,
-            input_enabled,
-            browser_enabled,
-            vision_enabled,
-        )?;
+    let (combined_prompt, loaded_project_file) = build_system_prompt(&bootstrap_paths)?;
+    let tool_prompt = build_tool_prompt(
+        shell_enabled,
+        input_enabled,
+        browser_enabled,
+        vision_enabled,
+    );
     if let Some(file_name) = loaded_project_file {
         println!("[System] {file_name} 로드됨");
     }
@@ -419,6 +479,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .map_err(forja_core::error::ForjaError::LlmError)?;
         Arc::new(LlmClient::new(llm_config)?)
     };
+    let exec_mode = parse_exec_mode();
+    let think_level = parse_think_level();
+    let mode_state = ModeState::new(exec_mode, think_level, ModeRole::Auto);
+    let exec_mode_handle = Arc::new(std::sync::Mutex::new(exec_mode));
 
     // ── 채널 설정 ──
     let (channel, interactive_identity_supported, print_initial_prompt): (
@@ -464,6 +528,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // ── System Prompt 설정 ──
     let mut engine = Engine::new(provider.clone(), channel.clone());
+    engine = engine.with_mode(mode_state.clone()).with_tool_prompt(tool_prompt);
 
     if !combined_prompt.is_empty() {
         engine = engine.with_system_prompt(combined_prompt);
@@ -550,6 +615,24 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
     engine = engine.with_emotion(EmotionEngine::new(restored_mood));
 
+    let capture_backend_for_vision: Arc<dyn forja_tools::ScreenCaptureBackend> = if use_mock {
+        Arc::new(MockCaptureBackend::new())
+    } else {
+        #[cfg(feature = "vision")]
+        {
+            Arc::new(XcapBackend::new())
+        }
+        #[cfg(not(feature = "vision"))]
+        {
+            Arc::new(MockCaptureBackend::new())
+        }
+    };
+    let vision_analyzer_for_vision: Arc<dyn VisionAnalyzer> = if use_mock {
+        Arc::new(MockVisionAnalyzer::new())
+    } else {
+        Arc::new(GptVisionAnalyzer::new())
+    };
+
 
     // ── 도구 등록 ──
     let file_tool = Arc::new(FileTool::new());
@@ -571,13 +654,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     engine.register_tool(web_tool);
     engine.register_tool(search_tool);
     if shell_enabled {
-        let shell_tool = Arc::new(ShellTool::new(Arc::new(StdinConfirmation::new())));
+        let shell_tool = Arc::new(ShellTool::new(Arc::new(StdinConfirmation::from_shared(
+            exec_mode_handle.clone(),
+        ))));
         engine.register_tool(shell_tool);
     } else {
         println!("[System] Shell tool disabled by FORJA_SHELL=false.");
     }
     if input_enabled {
-        match InputTool::new(Arc::new(StdinConfirmation::new())) {
+        match InputTool::new(Arc::new(StdinConfirmation::from_shared(
+            exec_mode_handle.clone(),
+        ))) {
             Ok(input_tool) => engine.register_tool(Arc::new(input_tool)),
             Err(error) => eprintln!("[System] Input tool initialization failed: {error}"),
         }
@@ -585,16 +672,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         println!("[System] Input tool disabled by FORJA_INPUT=false.");
     }
     if browser_enabled {
-        let confirmation = Arc::new(StdinConfirmation::new());
-        let browser_unsafe_mode = matches!(
-            std::env::var("FORJA_BROWSER_UNSAFE"),
-            Ok(value) if value.eq_ignore_ascii_case("true")
-        );
+        let confirmation = Arc::new(StdinConfirmation::from_shared(exec_mode_handle.clone()));
         if use_mock {
             let browser_tool = BrowserTool::with_backend_and_settings(
                 Arc::new(MockBrowserBackend::new()),
                 confirmation,
-                browser_unsafe_mode,
+                false,
             );
             engine.register_tool(Arc::new(browser_tool));
         } else {
@@ -605,30 +688,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         println!("[System] Browser tool disabled by FORJA_BROWSER=false.");
     }
     if vision_enabled {
-        let vision_tool = if use_mock {
-            VisionTool::with_backends(
-                Arc::new(MockCaptureBackend::new()),
-                Arc::new(MockVisionAnalyzer::new()),
-                false,
-            )
-        } else {
-            #[cfg(feature = "vision")]
-            {
-                VisionTool::with_backends(
-                    Arc::new(XcapBackend::new()),
-                    Arc::new(GptVisionAnalyzer::new()),
-                    false,
-                )
-            }
-            #[cfg(not(feature = "vision"))]
-            {
-                VisionTool::with_backends(
-                    Arc::new(MockCaptureBackend::new()),
-                    Arc::new(GptVisionAnalyzer::new()),
-                    false,
-                )
-            }
-        };
+        let vision_tool = VisionTool::with_backends(
+            capture_backend_for_vision.clone(),
+            vision_analyzer_for_vision.clone(),
+            false,
+        );
         engine.register_tool(Arc::new(vision_tool));
     } else {
         println!("[System] Vision tool disabled by FORJA_VISION=false.");
@@ -651,12 +715,118 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let registry = std::sync::Mutex::new(registry);
     let channel_for_slash = channel.clone();
     let bootstrap_paths_for_slash = bootstrap_paths.clone();
-    let shell_enabled_for_slash = shell_enabled;
-    let input_enabled_for_slash = input_enabled;
-    let browser_enabled_for_slash = browser_enabled;
+    let exec_mode_handle_for_slash = exec_mode_handle.clone();
     let vision_enabled_for_slash = vision_enabled;
-    let slash_handler: forja_core::engine::SlashHandler = Arc::new(move |text: &str, provider: &mut Arc<dyn LlmProvider>| {
+    let capture_backend_for_slash = capture_backend_for_vision.clone();
+    let vision_analyzer_for_slash = vision_analyzer_for_vision.clone();
+    let slash_handler: forja_core::engine::SlashHandler = Arc::new(move |text: &str, provider: &mut Arc<dyn LlmProvider>, mode_state: &mut ModeState| {
         let text = text.trim();
+
+        if vision_enabled_for_slash {
+            if let Some(prompt) = parse_screenshot_command(text) {
+                println!("[Vision] 화면을 캡처했습니다. 분석 중...");
+                let prompt = if prompt.trim().is_empty() {
+                    "Describe what you see on screen.".to_string()
+                } else {
+                    prompt
+                };
+                let result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        let capture = capture_backend_for_slash.capture_full().await?;
+                        let image_base64 = BASE64_STANDARD.encode(capture);
+                        vision_analyzer_for_slash.analyze_image(&image_base64, &prompt).await
+                    })
+                });
+
+                return Some(forja_core::engine::SlashCommandResult::Reply(match result {
+                    Ok(reply) => reply,
+                    Err(error) => format!("❌ Vision analysis failed: {error}"),
+                }));
+            }
+
+            if let Some((path, prompt)) = parse_image_command(text) {
+                let prompt = if prompt.trim().is_empty() {
+                    "Describe what you see in this image.".to_string()
+                } else {
+                    prompt
+                };
+                let image_base64 = match load_image_base64(&path) {
+                    Ok(image_base64) => image_base64,
+                    Err(error) => {
+                        return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                            "❌ 이미지 파일을 읽을 수 없습니다: {error}"
+                        )))
+                    }
+                };
+                let result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        vision_analyzer_for_slash.analyze_image(&image_base64, &prompt).await
+                    })
+                });
+
+                return Some(forja_core::engine::SlashCommandResult::Reply(match result {
+                    Ok(reply) => reply,
+                    Err(error) => format!("❌ Vision analysis failed: {error}"),
+                }));
+            }
+
+            if let Some((path, prompt)) = detect_image_path(text) {
+                match load_image_base64(&path) {
+                    Ok(image_base64) => {
+                        let prompt = if prompt.trim().is_empty() {
+                            "Describe what you see in this image.".to_string()
+                        } else {
+                            prompt
+                        };
+                        let result = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                vision_analyzer_for_slash.analyze_image(&image_base64, &prompt).await
+                            })
+                        });
+
+                        return Some(forja_core::engine::SlashCommandResult::Reply(match result {
+                            Ok(reply) => reply,
+                            Err(error) => format!("❌ Vision analysis failed: {error}"),
+                        }));
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "[Vision] failed to load image '{}': {error}",
+                            path.display()
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some(command) = parse_slash_command(text) {
+            match command {
+                SlashCommand::Mode(mode) => {
+                    mode_state.update_exec_mode(mode);
+                    if let Ok(mut shared_mode) = exec_mode_handle_for_slash.lock() {
+                        *shared_mode = mode;
+                    }
+                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                        "[System] Mode updated: {}",
+                        exec_mode_label(mode)
+                    )));
+                }
+                SlashCommand::Think(level) => {
+                    mode_state.update_think_level(level);
+                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                        "[System] Think updated: {}",
+                        think_level_label(level)
+                    )));
+                }
+                SlashCommand::Role(role) => {
+                    mode_state.update_role(role);
+                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                        "[System] Role updated: {}",
+                        role_label(role)
+                    )));
+                }
+            }
+        }
 
         if text == "/models" {
             let reg = registry.lock().unwrap();
@@ -728,13 +898,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 }
             };
 
-            let system_prompt = match build_system_prompt(
-                &bootstrap_paths_for_slash,
-                shell_enabled_for_slash,
-                input_enabled_for_slash,
-                browser_enabled_for_slash,
-                vision_enabled_for_slash,
-            ) {
+            let system_prompt = match build_system_prompt(&bootstrap_paths_for_slash) {
                 Ok((system_prompt, _)) => system_prompt,
                 Err(error) => {
                     return Some(forja_core::engine::SlashCommandResult::Reply(format!(
@@ -757,6 +921,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let displayed_greeting = bootstrap_outcome.greeting.or(startup_greeting);
     let mut engine = engine.with_memory(memory_store).with_slash_handler(slash_handler);
 
+    println!(
+        "[System] Mode: {} | Think: {} | Role: {}",
+        exec_mode_label(exec_mode),
+        think_level_label(think_level),
+        role_label(ModeRole::Auto)
+    );
     println!("[System] Engine is ready. Type /models to list models, /model <name> to switch.");
     if let Some(greeting) = displayed_greeting {
         println!();

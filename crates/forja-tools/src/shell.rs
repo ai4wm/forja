@@ -38,12 +38,8 @@ impl ShellTool {
             .filter(|value| *value > 0)
             .map(Duration::from_secs)
             .unwrap_or_else(|| Duration::from_secs(DEFAULT_TIMEOUT_SECS));
-        let unsafe_mode = matches!(
-            std::env::var("FORJA_SHELL_UNSAFE"),
-            Ok(value) if value.eq_ignore_ascii_case("true")
-        );
 
-        Self::with_settings(handler, timeout, unsafe_mode)
+        Self::with_settings(handler, timeout, false)
     }
 
     pub fn with_settings(
@@ -165,12 +161,17 @@ impl Tool for ShellTool {
             let warning = format!(
                 "[경고] 이 명령어는 시스템에 영향을 줄 수 있습니다: {command}\n실행하시겠습니까? (y/n)"
             );
-            if !self.confirmation_handler.confirm(command).await {
+            if !self.confirmation_handler.confirm(command, true).await {
                 return Ok(json!({
                     "status": "warning",
                     "output": warning,
                 }));
             }
+        } else if !self.unsafe_mode && !self.confirmation_handler.confirm(command, false).await {
+            return Ok(json!({
+                "status": "warning",
+                "output": format!("[경고] 실행 전 확인이 필요합니다: {command}\n실행하시겠습니까? (y/n)"),
+            }));
         }
 
         self.run_command(command).await

@@ -1,6 +1,8 @@
 use crate::error::{ForjaError, Result};
 use crate::emotion::EmotionEngine;
 use crate::knowledge::KnowledgeManager;
+use crate::mode::ModeState;
+use crate::prompt::assemble_system_prompt;
 use crate::serendipity::SerendipityEngine;
 use crate::traits::{Channel, LlmProvider, Tool};
 use crate::types::{Content, Message, Role, ToolDefinition};
@@ -10,6 +12,7 @@ use std::sync::Arc;
 
 mod emotion;
 mod knowledge;
+mod mode;
 mod serendipity;
 
 #[cfg(feature = "memory")]
@@ -31,7 +34,7 @@ pub enum SlashCommandResult {
 
 /// /models, /model 슬래시 명령 처리용 콜백 타입
 pub type SlashHandler =
-    Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>) -> Option<SlashCommandResult> + Send + Sync>;
+    Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>, &mut ModeState) -> Option<SlashCommandResult> + Send + Sync>;
 
 /// Forja의 핵심 엔진 코어
 ///
@@ -45,7 +48,9 @@ pub struct Engine {
     conversation_history: Vec<Message>,
     max_history: usize,
     system_prompt: Option<String>,
+    tool_prompt: Option<String>,
     slash_handler: Option<SlashHandler>,
+    mode_state: ModeState,
     emotion: Option<EmotionEngine>,
     turn_tone_context: Option<String>,
     turn_relationship_context: Option<String>,
@@ -70,7 +75,9 @@ impl Engine {
             conversation_history: Vec::new(),
             max_history: 100,
             system_prompt: None,
+            tool_prompt: None,
             slash_handler: None,
+            mode_state: ModeState::default(),
             emotion: None,
             turn_tone_context: None,
             turn_relationship_context: None,
@@ -137,44 +144,25 @@ impl Engine {
     }
 
     fn request_messages(&self) -> Vec<Message> {
-        let mut messages = self.conversation_history.clone();
-        let mut insertion_index = messages
-            .iter()
-            .take_while(|message| message.role == Role::System)
-            .count();
-
-        if let Some(tone_context) = &self.turn_tone_context {
-            messages.insert(
-                insertion_index,
-                Message::text(Role::System, tone_context.clone(), None),
-            );
-            insertion_index += 1;
+        let mut messages = Vec::new();
+        let prompt = assemble_system_prompt(
+            &self.mode_state,
+            self.system_prompt.as_deref().unwrap_or_default(),
+            "",
+            self.tool_prompt.as_deref().unwrap_or_default(),
+            self.turn_tone_context.as_deref().unwrap_or_default(),
+            self.turn_relationship_context.as_deref().unwrap_or_default(),
+            self.turn_knowledge_context.as_deref().unwrap_or_default(),
+            #[cfg(feature = "memory")]
+            self.turn_memory_context.as_deref().unwrap_or_default(),
+            #[cfg(not(feature = "memory"))]
+            "",
+        );
+        if !prompt.trim().is_empty() {
+            messages.push(Message::text(Role::System, prompt, None));
         }
 
-        if let Some(relationship_context) = &self.turn_relationship_context {
-            messages.insert(
-                insertion_index,
-                Message::text(Role::System, relationship_context.clone(), None),
-            );
-            insertion_index += 1;
-        }
-
-        if let Some(knowledge_context) = &self.turn_knowledge_context {
-            messages.insert(
-                insertion_index,
-                Message::text(Role::System, knowledge_context.clone(), None),
-            );
-            insertion_index += 1;
-        }
-
-        #[cfg(feature = "memory")]
-        if let Some(memory_context) = &self.turn_memory_context {
-            messages.insert(
-                insertion_index,
-                Message::text(Role::System, memory_context.clone(), None),
-            );
-        }
-
+        messages.extend(self.conversation_history.clone());
         messages
     }
 
@@ -188,13 +176,9 @@ impl Engine {
 
         if reset_history {
             self.conversation_history.clear();
-        } else {
-            self.conversation_history.retain(|message| message.role != Role::System);
         }
-
         if let Some(system_prompt) = next_system_prompt {
-            let system_message = Message::text(Role::System, system_prompt, None);
-            self.conversation_history.insert(0, system_message);
+            self.system_prompt = Some(system_prompt);
         }
     }
 
@@ -271,16 +255,10 @@ impl Engine {
                 result = self.channel.receive() => {
                     let user_msg = result?;
                     
-                    // 히스토리가 비어있으면 System 프롬프트 주입
-                    if self.conversation_history.is_empty()
-                        && let Some(prompt) = &self.system_prompt {
-                            let sys_msg = Message::text(Role::System, prompt, None);
-                            self.push_message(sys_msg);
-                        }
-
                     #[cfg(feature = "memory")]
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
+                    self.refresh_turn_role(&user_msg);
                     self.refresh_turn_emotion_context().await;
                     self.refresh_turn_knowledge_context(&user_msg).await;
 
@@ -333,7 +311,7 @@ impl Engine {
                     // ── 슬래시 명령 가로채기 ───────────────────────────
                     let slash_reply = if let Content::Text { text, .. } = &user_msg.content {
                         if let Some(handler) = &self.slash_handler.clone() {
-                            handler(text, &mut self.provider)
+                            handler(text, &mut self.provider, &mut self.mode_state)
                         } else {
                             None
                         }
@@ -360,16 +338,10 @@ impl Engine {
                         continue;
                     }
 
-                    // 히스토리가 비어있으면 System 프롬프트 주입
-                    if self.conversation_history.is_empty()
-                        && let Some(prompt) = &self.system_prompt {
-                            let sys_msg = Message::text(Role::System, prompt, None);
-                            self.push_message(sys_msg);
-                        }
-
                     #[cfg(feature = "memory")]
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
+                    self.refresh_turn_role(&user_msg);
                     self.refresh_turn_emotion_context().await;
                     self.refresh_turn_knowledge_context(&user_msg).await;
 
@@ -458,7 +430,7 @@ impl Engine {
                             // 토큰 초과 등의 경우 히스토리 초기화(System 봇 역할만 남김)
                             let err_str = e.to_string().to_lowercase();
                             if err_str.contains("token") || err_str.contains("limit") || err_str.contains("exceeded") || err_str.contains("context") {
-                                self.conversation_history.retain(|m| m.role == crate::types::Role::System);
+                                self.conversation_history.clear();
                             }
                             
                             // 텔레그램 등 채널로 에러 전송

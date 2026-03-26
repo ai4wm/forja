@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use forja_core::{Channel, Content, Role, Message as CoreMessage};
+use crate::cli::process_line;
 use std::io::Write;
 use tokio::sync::{mpsc, Mutex};
 
@@ -31,9 +32,21 @@ impl MultiChannel {
         tokio::spawn(async move {
             loop {
                 let line = tokio::task::spawn_blocking(|| {
-                    let mut input = String::new();
-                    std::io::stdin().read_line(&mut input).ok();
-                    input.trim().to_string()
+                    let mut buffer = String::new();
+                    loop {
+                        let mut input = String::new();
+                        if std::io::stdin().read_line(&mut input).ok().unwrap_or(0) == 0 {
+                            return String::new();
+                        }
+                        let trimmed = input.trim_end_matches(['\r', '\n']);
+                        if process_line(trimmed, &mut buffer) {
+                            print!("... ");
+                            std::io::stdout().flush().ok();
+                            continue;
+                        }
+
+                        return buffer;
+                    }
                 }).await.unwrap_or_default();
 
                 if line.is_empty() { continue; }
@@ -94,9 +107,21 @@ impl MultiChannel {
         tokio::spawn(async move {
             loop {
                 let line = tokio::task::spawn_blocking(|| {
-                    let mut input = String::new();
-                    std::io::stdin().read_line(&mut input).ok();
-                    input.trim().to_string()
+                    let mut buffer = String::new();
+                    loop {
+                        let mut input = String::new();
+                        if std::io::stdin().read_line(&mut input).ok().unwrap_or(0) == 0 {
+                            return String::new();
+                        }
+                        let trimmed = input.trim_end_matches(['\r', '\n']);
+                        if process_line(trimmed, &mut buffer) {
+                            print!("... ");
+                            std::io::stdout().flush().ok();
+                            continue;
+                        }
+
+                        return buffer;
+                    }
                 })
                 .await
                 .unwrap_or_default();

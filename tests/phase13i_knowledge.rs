@@ -332,8 +332,9 @@ async fn engine_injects_relevant_knowledge_into_system_prompt() {
     let requests = provider.chat_texts().await;
     let main_request = &requests[1];
 
-    assert!(main_request.contains("System:[identity.md]"));
-    assert!(main_request.contains("System:[knowledge - Topic-based Persistent Knowledge]"));
+    assert!(main_request.contains("System:You are 황비서, a personal AI assistant."));
+    assert!(main_request.contains("[identity.md]"));
+    assert!(main_request.contains("[knowledge - Topic-based Persistent Knowledge]"));
     assert!(main_request.contains("## projects.md"));
     assert!(main_request.contains("Forja tracks long-term project state"));
 
