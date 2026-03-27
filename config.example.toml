@@ -5,6 +5,7 @@ provider = "moonshot"
 moonshot = "sk-YOUR_MOONSHOT_API_KEY"
 
 [agent]
+# prompts_dir = "C:/Users/you/.forja/prompts"
 
 [channel]
 

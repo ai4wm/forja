@@ -1,11 +1,20 @@
 use forja_core::mode::{
-    detect_image_path, detect_role, parse_image_command, parse_screenshot_command,
-    parse_slash_command, ExecMode, ModeState, Role, SlashCommand, ThinkLevel,
+    ExecMode, ModeState, Role, SlashCommand, ThinkLevel, detect_image_path, detect_role,
+    parse_image_command, parse_screenshot_command, parse_slash_command,
 };
-use forja_core::prompt::base::base_prompt;
 use forja_core::prompt::assemble_system_prompt;
-use forja_core::prompt::think::think_prompt;
+use forja_core::prompt::loader::PromptLoader;
 use forja_tools::confirm::StdinConfirmation;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn fallback_prompt_loader() -> PromptLoader {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let prompts_dir = std::env::temp_dir().join(format!("forja_mode_prompts_{nanos}"));
+    PromptLoader::new(prompts_dir.as_path())
+}
 
 #[test]
 fn detect_role_prefers_coder_keywords_first() {
@@ -76,23 +85,31 @@ fn parse_slash_command_ignores_invalid_command() {
 
 #[test]
 fn think_prompt_min_contains_concise() {
-    assert!(think_prompt(ThinkLevel::Min).contains("concise"));
+    let prompt_loader = fallback_prompt_loader();
+
+    assert!(prompt_loader.load_think("min").contains("concise"));
 }
 
 #[test]
 fn think_prompt_mid_is_empty() {
-    assert_eq!(think_prompt(ThinkLevel::Mid), "");
+    let prompt_loader = fallback_prompt_loader();
+
+    assert_eq!(prompt_loader.load_think("mid"), "");
 }
 
 #[test]
 fn think_prompt_max_contains_thoroughly() {
-    assert!(think_prompt(ThinkLevel::Max).contains("thoroughly"));
+    let prompt_loader = fallback_prompt_loader();
+
+    assert!(prompt_loader.load_think("max").contains("thoroughly"));
 }
 
 #[test]
 fn assemble_system_prompt_includes_base_prompt() {
     let mode_state = ModeState::default();
+    let prompt_loader = fallback_prompt_loader();
     let prompt = assemble_system_prompt(
+        &prompt_loader,
         &mode_state,
         "Forja",
         "사용자님",
@@ -106,14 +123,20 @@ fn assemble_system_prompt_includes_base_prompt() {
     );
 
     assert!(prompt.contains("You are Forja, a personal AI assistant."));
-    assert!(base_prompt("Forja", "사용자님").contains("Address the user as \"사용자님\""));
+    assert!(
+        prompt_loader
+            .load_base("Forja", "사용자님")
+            .contains("Address the user as \"사용자님\"")
+    );
 }
 
 #[test]
 fn assemble_system_prompt_includes_think_prompt_when_not_mid() {
     let mut mode_state = ModeState::default();
     mode_state.update_think_level(ThinkLevel::Max);
+    let prompt_loader = fallback_prompt_loader();
     let prompt = assemble_system_prompt(
+        &prompt_loader,
         &mode_state,
         "Forja",
         "사용자님",
@@ -134,7 +157,9 @@ fn assemble_system_prompt_includes_role_prompt_when_role_detected() {
     let mut mode_state = ModeState::default();
     mode_state.update_role(Role::Auto);
     mode_state.update_detected_role(Role::Coder);
+    let prompt_loader = fallback_prompt_loader();
     let prompt = assemble_system_prompt(
+        &prompt_loader,
         &mode_state,
         "Forja",
         "사용자님",
@@ -155,8 +180,10 @@ fn assemble_system_prompt_respects_section_order() {
     let mut mode_state = ModeState::default();
     mode_state.update_think_level(ThinkLevel::Min);
     mode_state.update_role(Role::Writer);
+    let prompt_loader = fallback_prompt_loader();
 
     let prompt = assemble_system_prompt(
+        &prompt_loader,
         &mode_state,
         "Forja",
         "사용자님",

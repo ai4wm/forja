@@ -2,6 +2,7 @@ pub mod analyst;
 pub mod assistant;
 pub mod base;
 pub mod coder;
+pub mod loader;
 pub mod think;
 pub mod writer;
 
@@ -9,6 +10,7 @@ use crate::mode::{ModeState, Role};
 
 #[allow(clippy::too_many_arguments)]
 pub fn assemble_system_prompt(
+    prompt_loader: &loader::PromptLoader,
     mode_state: &ModeState,
     assistant_name: &str,
     user_title: &str,
@@ -20,25 +22,37 @@ pub fn assemble_system_prompt(
     knowledge: &str,
     memory: &str,
 ) -> String {
-    let mut sections = vec![base::base_prompt(assistant_name, user_title)];
+    let mut sections = vec![prompt_loader.load_base(assistant_name, user_title)];
 
-    let think = think::think_prompt(mode_state.think_level);
+    let think = prompt_loader.load_think(match mode_state.think_level {
+        crate::mode::ThinkLevel::Min => "min",
+        crate::mode::ThinkLevel::Mid => "mid",
+        crate::mode::ThinkLevel::Max => "max",
+    });
     if !think.is_empty() {
-        sections.push(think.to_string());
+        sections.push(think);
     }
 
     let role_prompt = match mode_state.effective_role() {
-        Role::Coder => coder::CODER_PROMPT,
-        Role::Writer => writer::WRITER_PROMPT,
-        Role::Assistant => assistant::ASSISTANT_PROMPT,
-        Role::Analyst => analyst::ANALYST_PROMPT,
-        Role::Auto | Role::Default => "",
+        Role::Coder => prompt_loader.load_role("coder"),
+        Role::Writer => prompt_loader.load_role("writer"),
+        Role::Assistant => prompt_loader.load_role("assistant"),
+        Role::Analyst => prompt_loader.load_role("analyst"),
+        Role::Auto | Role::Default => String::new(),
     };
     if !role_prompt.is_empty() {
-        sections.push(role_prompt.to_string());
+        sections.push(role_prompt);
     }
 
-    for section in [identity, user, tools, emotion_tone, relationship, knowledge, memory] {
+    for section in [
+        identity,
+        user,
+        tools,
+        emotion_tone,
+        relationship,
+        knowledge,
+        memory,
+    ] {
         let trimmed = section.trim();
         if !trimmed.is_empty() {
             sections.push(trimmed.to_string());

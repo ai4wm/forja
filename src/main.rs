@@ -1,41 +1,38 @@
-mod config;
-mod provider_registry;
-mod oauth;
 mod bootstrap;
+mod config;
+mod oauth;
+mod provider_registry;
 
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use forja_core::emotion::{
-    EmotionEngine, MoodState, generate_startup_greeting,
-    generate_startup_greeting_with_context,
+    EmotionEngine, MoodState, generate_startup_greeting, generate_startup_greeting_with_context,
 };
 use forja_core::error::{ForjaError, Result};
 use forja_core::mode::{
     ExecMode, ModeState, Role as ModeRole, SlashCommand, ThinkLevel, detect_image_path,
     parse_image_command, parse_screenshot_command, parse_slash_command,
 };
+use forja_core::prompt::loader::{PromptLoader, install_prompt_loader};
 use forja_core::traits::{LlmProvider, MemoryStore};
 use forja_core::{
-    Channel, Content, Engine, KnowledgeManager, Message, Role, SerendipityEngine,
-    ToolDefinition,
+    Channel, Content, Engine, KnowledgeManager, Message, Role, SerendipityEngine, ToolDefinition,
 };
 use forja_llm::LlmClient;
-use std::pin::Pin;
-use std::sync::Arc;
-use tokio_stream::{Stream, StreamExt};
-use std::io::Write;
+use forja_memory::MarkdownMemoryStore;
 #[cfg(feature = "vision")]
 use forja_tools::XcapBackend;
 use forja_tools::{
-    browser::MockBrowserBackend, BrowserTool, ClaudeCodeTool, CodexTool, FileTool,
-    GeminiCliTool, GptVisionAnalyzer, InputTool, MockCaptureBackend, MockVisionAnalyzer,
-    SearchProvider,
-    SearchTool, ShellTool, StdinConfirmation, WebTool,
-    VisionAnalyzer, VisionTool,
+    BrowserTool, ClaudeCodeTool, CodexTool, FileTool, GeminiCliTool, GptVisionAnalyzer, InputTool,
+    MockCaptureBackend, MockVisionAnalyzer, SearchProvider, SearchTool, ShellTool,
+    StdinConfirmation, VisionAnalyzer, VisionTool, WebTool, browser::MockBrowserBackend,
 };
-use forja_memory::MarkdownMemoryStore;
 use provider_registry::ProviderRegistry;
+use std::io::Write;
 use std::path::Path;
+use std::pin::Pin;
+use std::sync::Arc;
+use tokio_stream::{Stream, StreamExt};
 
 // Mock LLM used for local testing without a real API key.
 
@@ -43,8 +40,14 @@ struct MockLlmProvider;
 
 #[async_trait]
 impl LlmProvider for MockLlmProvider {
-    async fn chat(&self, messages: &[Message], _tools: Option<&[ToolDefinition]>) -> Result<Message> {
-        let last = messages.iter().rev()
+    async fn chat(
+        &self,
+        messages: &[Message],
+        _tools: Option<&[ToolDefinition]>,
+    ) -> Result<Message> {
+        let last = messages
+            .iter()
+            .rev()
             .find(|m| m.role == Role::User)
             .map(|m| match &m.content {
                 Content::Text { text, .. } => text.clone(),
@@ -52,7 +55,9 @@ impl LlmProvider for MockLlmProvider {
             })
             .unwrap_or_default();
 
-        if last.contains("Analyze the emotional state of the conversation below and respond with JSON only.") {
+        if last.contains(
+            "Analyze the emotional state of the conversation below and respond with JSON only.",
+        ) {
             return Ok(Message::text(
                 Role::Assistant,
                 r#"{"mood":"neutral","intensity":1,"reason":"mock mode","tone_instruction":"Reply in a balanced, respectful tone."}"#,
@@ -82,7 +87,7 @@ impl LlmProvider for MockLlmProvider {
                 "[MockLLM] Received message: '{}' (configure a real API key to get a live response.)",
                 last
             ),
-            None
+            None,
         ))
     }
 
@@ -91,7 +96,9 @@ impl LlmProvider for MockLlmProvider {
         messages: &[Message],
         _tools: Option<&[ToolDefinition]>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
-        let last = messages.iter().rev()
+        let last = messages
+            .iter()
+            .rev()
             .find(|m| m.role == Role::User)
             .map(|m| match &m.content {
                 Content::Text { text, .. } => text.clone(),
@@ -105,9 +112,7 @@ impl LlmProvider for MockLlmProvider {
         );
 
         // Split into word-level tokens to simulate streaming
-        let tokens: Vec<String> = response.split(' ')
-            .map(|s| format!("{} ", s))
-            .collect();
+        let tokens: Vec<String> = response.split(' ').map(|s| format!("{} ", s)).collect();
 
         let stream = tokio_stream::iter(tokens).map(Ok);
         Ok(Box::pin(stream))
@@ -136,9 +141,10 @@ fn load_project_prompt() -> Option<(String, String)> {
     let candidates = ["AGENTS.md", "FORJA.md", "CLAUDE.md"];
     for file in candidates.iter() {
         if let Ok(content) = std::fs::read_to_string(file)
-            && !content.trim().is_empty() {
-                return Some((file.to_string(), content.trim().to_string()));
-            }
+            && !content.trim().is_empty()
+        {
+            return Some((file.to_string(), content.trim().to_string()));
+        }
     }
     None
 }
@@ -149,7 +155,9 @@ fn build_system_prompt(
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
     let bootstrap_prompt = bootstrap::compose_system_prompt_prefix(bootstrap_paths)?;
     let project_prompt = load_project_prompt();
-    let loaded_project_file = project_prompt.as_ref().map(|(file_name, _)| file_name.clone());
+    let loaded_project_file = project_prompt
+        .as_ref()
+        .map(|(file_name, _)| file_name.clone());
 
     let mut combined_prompt = String::new();
 
@@ -238,6 +246,32 @@ Note: Chain find_element result with input tool mouse_click to click visual elem
     sections.join("\n\n")
 }
 
+fn resolve_prompts_dir(
+    forja_cfg: &config::ForjaConfig,
+    bootstrap_paths: &bootstrap::BootstrapPaths,
+) -> std::path::PathBuf {
+    forja_cfg
+        .agent
+        .prompts_dir
+        .clone()
+        .unwrap_or_else(|| bootstrap_paths.forja_dir.join("prompts"))
+}
+
+fn initialize_prompt_loader(
+    forja_cfg: &config::ForjaConfig,
+    bootstrap_paths: &bootstrap::BootstrapPaths,
+) -> std::io::Result<()> {
+    let prompts_dir = resolve_prompts_dir(forja_cfg, bootstrap_paths);
+    let prompt_loader = PromptLoader::new(&prompts_dir);
+    prompt_loader.ensure_default_files()?;
+    install_prompt_loader(prompt_loader).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "prompt loader already initialized",
+        )
+    })
+}
+
 fn parse_exec_mode() -> ExecMode {
     match std::env::var("FORJA_MODE")
         .unwrap_or_else(|_| "auto".to_string())
@@ -301,10 +335,7 @@ fn auto_summarize_enabled() -> bool {
     )
 }
 
-async fn summarize_memory_block(
-    provider: Arc<dyn LlmProvider>,
-    block: String,
-) -> Result<String> {
+async fn summarize_memory_block(provider: Arc<dyn LlmProvider>, block: String) -> Result<String> {
     let response = provider
         .chat(
             &[
@@ -354,14 +385,16 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     ctrlc::set_handler(move || {
         println!("\n[System] Exiting...");
         std::process::exit(0);
-    }).expect("Error setting Ctrl+C handler");
+    })
+    .expect("Error setting Ctrl+C handler");
 
     // Parse subcommands
     // let args: Vec<String> = std::env::args().collect(); // Already collected above
 
     // `forja setup` subcommand: run setup and exit
     if args.get(1).map(|s| s.as_str()) == Some("setup") {
-        config::run_setup();
+        let setup_cfg = config::run_setup();
+        initialize_prompt_loader(&setup_cfg, &bootstrap::default_paths())?;
         return Ok(());
     }
 
@@ -407,7 +440,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     if let Some(p) = new_provider {
         println!("[System] Switching provider to: {}", p);
         forja_cfg.active.provider = Some(p.clone());
-        
+
         // Ask for the API key immediately if it is missing.
         if forja_cfg.keys.get_for(&p).is_none() && p != "ollama" {
             print!("\n[WARNING] Missing API key for {}. Enter it now > ", p);
@@ -433,10 +466,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let info = config::provider_info(&forja_cfg);
     print_banner(&info);
-    let assistant_name = forja_cfg.assistant_name.clone()
+    let assistant_name = forja_cfg
+        .assistant_name
+        .clone()
         .or_else(|| std::env::var("FORJA_ASSISTANT_NAME").ok())
         .unwrap_or_else(|| "Forja".to_string());
-    let user_title = forja_cfg.user_title.clone()
+    let user_title = forja_cfg
+        .user_title
+        .clone()
         .or_else(|| std::env::var("FORJA_USER_TITLE").ok())
         .unwrap_or_else(|| "User".to_string());
 
@@ -457,6 +494,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         Ok(value) if value.eq_ignore_ascii_case("false")
     );
     let bootstrap_paths = bootstrap::default_paths();
+    initialize_prompt_loader(&forja_cfg, &bootstrap_paths)?;
     let bootstrap_outcome = bootstrap::ensure_bootstrap(&bootstrap_paths)?;
     let (combined_prompt, loaded_project_file) = build_system_prompt(&bootstrap_paths)?;
     let tool_prompt = build_tool_prompt(
@@ -480,10 +518,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let llm_config = if use_mock {
         None
     } else {
-        Some(
-            config::llm_config_from(&forja_cfg)
-                .map_err(forja_core::error::ForjaError::LlmError)?,
-        )
+        Some(config::llm_config_from(&forja_cfg).map_err(forja_core::error::ForjaError::LlmError)?)
     };
     let provider: Arc<dyn LlmProvider> = if use_mock {
         println!("[System] MockLlmProvider mode (no live LLM calls)");
@@ -508,7 +543,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     ) = {
         #[cfg(feature = "telegram")]
         {
-            let bot_token = forja_cfg.channel.telegram.bot_token.clone()
+            let bot_token = forja_cfg
+                .channel
+                .telegram
+                .bot_token
+                .clone()
                 .or_else(|| std::env::var("TELEGRAM_BOT_TOKEN").ok());
 
             if let Some(token) = bot_token {
@@ -516,7 +555,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 if allowed.is_empty() {
                     println!("[WARN] Telegram allowed_chat_ids is empty.");
                 } else {
-                    println!("[System] MultiChannel starting with CLI + Telegram (IDs: {:?})", allowed);
+                    println!(
+                        "[System] MultiChannel starting with CLI + Telegram (IDs: {:?})",
+                        allowed
+                    );
                 }
                 (
                     Arc::new(forja_channel::multi::MultiChannel::new_both(token, allowed).await),
@@ -525,26 +567,20 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 )
             } else {
                 println!("[System] CLI mode (Telegram not configured)");
-                (
-                    Arc::new(forja_channel::cli::CliChannel::new()),
-                    true,
-                    false,
-                )
+                (Arc::new(forja_channel::cli::CliChannel::new()), true, false)
             }
         }
         #[cfg(not(feature = "telegram"))]
         {
-            (
-                Arc::new(forja_channel::cli::CliChannel::new()),
-                true,
-                false,
-            )
+            (Arc::new(forja_channel::cli::CliChannel::new()), true, false)
         }
     };
 
     // System prompt setup
     let mut engine = Engine::new(provider.clone(), channel.clone());
-    engine = engine.with_mode(mode_state.clone()).with_tool_prompt(tool_prompt);
+    engine = engine
+        .with_mode(mode_state.clone())
+        .with_tool_prompt(tool_prompt);
     engine = engine.with_assistant_profile(assistant_name.clone(), user_title.clone());
 
     if !combined_prompt.is_empty() {
@@ -606,8 +642,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             String::new()
         }
     };
-    let restored_mood = EmotionEngine::restore_from_memory(&memory_contents)
-        .unwrap_or_else(MoodState::neutral);
+    let restored_mood =
+        EmotionEngine::restore_from_memory(&memory_contents).unwrap_or_else(MoodState::neutral);
     let startup_greeting = if serendipity_enabled {
         generate_startup_greeting_with_context(
             provider.as_ref(),
@@ -657,17 +693,26 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         ))
     };
 
-
     // Register tools
     let file_tool = Arc::new(FileTool::new());
     let web_tool = Arc::new(WebTool::new());
     let search_provider = match forja_cfg.tools.search.provider.as_deref() {
         Some("brave") => {
-            let key = forja_cfg.tools.search.brave_api_key.clone().unwrap_or_default();
+            let key = forja_cfg
+                .tools
+                .search
+                .brave_api_key
+                .clone()
+                .unwrap_or_default();
             SearchProvider::Brave { api_key: key }
         }
         Some("grok") | Some("xai") => {
-            let key = forja_cfg.tools.search.xai_api_key.clone().unwrap_or_default();
+            let key = forja_cfg
+                .tools
+                .search
+                .xai_api_key
+                .clone()
+                .unwrap_or_default();
             SearchProvider::Grok { api_key: key }
         }
         _ => SearchProvider::DuckDuckGo,
@@ -743,216 +788,224 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let vision_enabled_for_slash = vision_enabled;
     let capture_backend_for_slash = capture_backend_for_vision.clone();
     let vision_analyzer_for_slash = vision_analyzer_for_vision.clone();
-    let slash_handler: forja_core::engine::SlashHandler = Arc::new(move |text: &str, provider: &mut Arc<dyn LlmProvider>, mode_state: &mut ModeState| {
-        let text = text.trim();
+    let slash_handler: forja_core::engine::SlashHandler = Arc::new(
+        move |text: &str, provider: &mut Arc<dyn LlmProvider>, mode_state: &mut ModeState| {
+            let text = text.trim();
 
-        if vision_enabled_for_slash {
-            if let Some(prompt) = parse_screenshot_command(text) {
-                println!("[Vision] Captured the screen. Analyzing...");
-                let prompt = if prompt.trim().is_empty() {
-                    "Describe what you see on screen.".to_string()
-                } else {
-                    prompt
-                };
-                let result = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        let capture = capture_backend_for_slash.capture_full().await?;
-                        let image_base64 = BASE64_STANDARD.encode(capture);
-                        vision_analyzer_for_slash.analyze_image(&image_base64, &prompt).await
-                    })
-                });
+            if vision_enabled_for_slash {
+                if let Some(prompt) = parse_screenshot_command(text) {
+                    println!("[Vision] Captured the screen. Analyzing...");
+                    let prompt = if prompt.trim().is_empty() {
+                        "Describe what you see on screen.".to_string()
+                    } else {
+                        prompt
+                    };
+                    let result = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            let capture = capture_backend_for_slash.capture_full().await?;
+                            let image_base64 = BASE64_STANDARD.encode(capture);
+                            vision_analyzer_for_slash
+                                .analyze_image(&image_base64, &prompt)
+                                .await
+                        })
+                    });
 
-                return Some(forja_core::engine::SlashCommandResult::ReplyAndSave {
-                    user_text: text.to_string(),
-                    reply: match result {
-                        Ok(reply) => reply,
-                        Err(error) => format!("❌ Vision analysis failed: {error}"),
-                    },
-                });
+                    return Some(forja_core::engine::SlashCommandResult::ReplyAndSave {
+                        user_text: text.to_string(),
+                        reply: match result {
+                            Ok(reply) => reply,
+                            Err(error) => format!("❌ Vision analysis failed: {error}"),
+                        },
+                    });
+                }
+
+                if let Some((path, prompt)) = parse_image_command(text) {
+                    let prompt = if prompt.trim().is_empty() {
+                        "Describe what you see in this image.".to_string()
+                    } else {
+                        prompt
+                    };
+                    let image_base64 = match load_image_base64(&path) {
+                        Ok(image_base64) => image_base64,
+                        Err(error) => {
+                            return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                                "❌ Could not read the image file: {error}"
+                            )));
+                        }
+                    };
+                    let result = tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(async {
+                            vision_analyzer_for_slash
+                                .analyze_image(&image_base64, &prompt)
+                                .await
+                        })
+                    });
+
+                    return Some(forja_core::engine::SlashCommandResult::ReplyAndSave {
+                        user_text: text.to_string(),
+                        reply: match result {
+                            Ok(reply) => reply,
+                            Err(error) => format!("❌ Vision analysis failed: {error}"),
+                        },
+                    });
+                }
+
+                if let Some((path, prompt)) = detect_image_path(text) {
+                    match load_image_base64(&path) {
+                        Ok(image_base64) => {
+                            let prompt = if prompt.trim().is_empty() {
+                                "Describe what you see in this image.".to_string()
+                            } else {
+                                prompt
+                            };
+                            let result = tokio::task::block_in_place(|| {
+                                tokio::runtime::Handle::current().block_on(async {
+                                    vision_analyzer_for_slash
+                                        .analyze_image(&image_base64, &prompt)
+                                        .await
+                                })
+                            });
+
+                            return Some(forja_core::engine::SlashCommandResult::ReplyAndSave {
+                                user_text: text.to_string(),
+                                reply: match result {
+                                    Ok(reply) => reply,
+                                    Err(error) => format!("❌ Vision analysis failed: {error}"),
+                                },
+                            });
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "[Vision] failed to load image '{}': {error}",
+                                path.display()
+                            );
+                        }
+                    }
+                }
             }
 
-            if let Some((path, prompt)) = parse_image_command(text) {
-                let prompt = if prompt.trim().is_empty() {
-                    "Describe what you see in this image.".to_string()
-                } else {
-                    prompt
-                };
-                let image_base64 = match load_image_base64(&path) {
-                    Ok(image_base64) => image_base64,
-                    Err(error) => {
+            if let Some(command) = parse_slash_command(text) {
+                match command {
+                    SlashCommand::Mode(mode) => {
+                        mode_state.update_exec_mode(mode);
+                        if let Ok(mut shared_mode) = exec_mode_handle_for_slash.lock() {
+                            *shared_mode = mode;
+                        }
                         return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                            "❌ Could not read the image file: {error}"
-                        )))
+                            "[System] Mode updated: {}",
+                            exec_mode_label(mode)
+                        )));
                     }
-                };
-                let result = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        vision_analyzer_for_slash.analyze_image(&image_base64, &prompt).await
-                    })
-                });
-
-                return Some(forja_core::engine::SlashCommandResult::ReplyAndSave {
-                    user_text: text.to_string(),
-                    reply: match result {
-                        Ok(reply) => reply,
-                        Err(error) => format!("❌ Vision analysis failed: {error}"),
-                    },
-                });
-            }
-
-            if let Some((path, prompt)) = detect_image_path(text) {
-                match load_image_base64(&path) {
-                    Ok(image_base64) => {
-                        let prompt = if prompt.trim().is_empty() {
-                            "Describe what you see in this image.".to_string()
-                        } else {
-                            prompt
-                        };
-                        let result = tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                vision_analyzer_for_slash.analyze_image(&image_base64, &prompt).await
-                            })
-                        });
-
-                        return Some(forja_core::engine::SlashCommandResult::ReplyAndSave {
-                            user_text: text.to_string(),
-                            reply: match result {
-                                Ok(reply) => reply,
-                                Err(error) => format!("❌ Vision analysis failed: {error}"),
-                            },
-                        });
+                    SlashCommand::Think(level) => {
+                        mode_state.update_think_level(level);
+                        return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                            "[System] Think updated: {}",
+                            think_level_label(level)
+                        )));
                     }
-                    Err(error) => {
-                        eprintln!(
-                            "[Vision] failed to load image '{}': {error}",
-                            path.display()
-                        );
+                    SlashCommand::Role(role) => {
+                        mode_state.update_role(role);
+                        return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                            "[System] Role updated: {}",
+                            role_label(role)
+                        )));
                     }
                 }
             }
-        }
 
-        if let Some(command) = parse_slash_command(text) {
-            match command {
-                SlashCommand::Mode(mode) => {
-                    mode_state.update_exec_mode(mode);
-                    if let Ok(mut shared_mode) = exec_mode_handle_for_slash.lock() {
-                        *shared_mode = mode;
-                    }
-                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "[System] Mode updated: {}",
-                        exec_mode_label(mode)
-                    )));
-                }
-                SlashCommand::Think(level) => {
-                    mode_state.update_think_level(level);
-                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "[System] Think updated: {}",
-                        think_level_label(level)
-                    )));
-                }
-                SlashCommand::Role(role) => {
-                    mode_state.update_role(role);
-                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "[System] Role updated: {}",
-                        role_label(role)
-                    )));
-                }
-            }
-        }
-
-        if text == "/models" {
-            let reg = registry.lock().unwrap();
-            return Some(forja_core::engine::SlashCommandResult::Reply(
-                reg.list_for_config(&cfg_for_handler),
-            ));
-        }
-
-        if text == "/model" {
-            let reg = registry.lock().unwrap();
-            let e = reg.active();
-            return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                "Current model: **{}** ({}/{})",
-                e.label, e.provider, e.model_id
-            )));
-        }
-
-        if let Some(target) = text.strip_prefix("/model ") {
-            let mut reg = registry.lock().unwrap();
-            match reg.resolve(target, &cfg_for_handler) {
-                None => {
-                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "❌ Could not find model '{}'. Check `/models` for the list.",
-                        target
-                    )))
-                }
-                Some(idx) => {
-                    match reg.switch_to(idx, &cfg_for_handler) {
-                        Err(e) => {
-                            return Some(forja_core::engine::SlashCommandResult::Reply(
-                                format!("❌ Switch failed: {e}"),
-                            ))
-                        }
-                        Ok(new_config) => {
-                            match forja_llm::LlmClient::new(new_config) {
-                                Err(e) => {
-                                    return Some(forja_core::engine::SlashCommandResult::Reply(
-                                        format!("❌ Failed to create LlmClient: {e}"),
-                                    ))
-                                }
-                                Ok(client) => {
-                                    let entry = reg.active();
-                                    *provider = Arc::new(client);
-                                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                                        "✅ Switched model: **{}** ({}/{})",
-                                        entry.label, entry.provider, entry.model_id
-                                    )));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if text == "/identity" {
-            if !interactive_identity_supported || !channel_for_slash.is_cli_source() {
+            if text == "/models" {
+                let reg = registry.lock().unwrap();
                 return Some(forja_core::engine::SlashCommandResult::Reply(
-                    "This command is only supported in CLI-only mode.".to_string(),
+                    reg.list_for_config(&cfg_for_handler),
                 ));
             }
 
-            let outcome = match bootstrap::reset_bootstrap(&bootstrap_paths_for_slash) {
-                Ok(outcome) => outcome,
-                Err(error) => {
-                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "❌ Identity reset failed: {error}"
-                    )))
+            if text == "/model" {
+                let reg = registry.lock().unwrap();
+                let e = reg.active();
+                return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                    "Current model: **{}** ({}/{})",
+                    e.label, e.provider, e.model_id
+                )));
+            }
+
+            if let Some(target) = text.strip_prefix("/model ") {
+                let mut reg = registry.lock().unwrap();
+                match reg.resolve(target, &cfg_for_handler) {
+                    None => {
+                        return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                            "❌ Could not find model '{}'. Check `/models` for the list.",
+                            target
+                        )));
+                    }
+                    Some(idx) => match reg.switch_to(idx, &cfg_for_handler) {
+                        Err(e) => {
+                            return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                                "❌ Switch failed: {e}"
+                            )));
+                        }
+                        Ok(new_config) => match forja_llm::LlmClient::new(new_config) {
+                            Err(e) => {
+                                return Some(forja_core::engine::SlashCommandResult::Reply(
+                                    format!("❌ Failed to create LlmClient: {e}"),
+                                ));
+                            }
+                            Ok(client) => {
+                                let entry = reg.active();
+                                *provider = Arc::new(client);
+                                return Some(forja_core::engine::SlashCommandResult::Reply(
+                                    format!(
+                                        "✅ Switched model: **{}** ({}/{})",
+                                        entry.label, entry.provider, entry.model_id
+                                    ),
+                                ));
+                            }
+                        },
+                    },
                 }
-            };
+            }
 
-            let system_prompt = match build_system_prompt(&bootstrap_paths_for_slash) {
-                Ok((system_prompt, _)) => system_prompt,
-                Err(error) => {
-                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "❌ Failed to rebuild the system prompt: {error}"
-                    )))
+            if text == "/identity" {
+                if !interactive_identity_supported || !channel_for_slash.is_cli_source() {
+                    return Some(forja_core::engine::SlashCommandResult::Reply(
+                        "This command is only supported in CLI-only mode.".to_string(),
+                    ));
                 }
-            };
 
-            return Some(forja_core::engine::SlashCommandResult::UpdateSystemPrompt {
-                reply: outcome.profile.greeting(),
-                system_prompt: Some(system_prompt),
-                reset_history: true,
-            });
-        }
+                let outcome = match bootstrap::reset_bootstrap(&bootstrap_paths_for_slash) {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                            "❌ Identity reset failed: {error}"
+                        )));
+                    }
+                };
 
-        None
-    });
+                let system_prompt = match build_system_prompt(&bootstrap_paths_for_slash) {
+                    Ok((system_prompt, _)) => system_prompt,
+                    Err(error) => {
+                        return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                            "❌ Failed to rebuild the system prompt: {error}"
+                        )));
+                    }
+                };
+
+                return Some(forja_core::engine::SlashCommandResult::UpdateSystemPrompt {
+                    reply: outcome.profile.greeting(),
+                    system_prompt: Some(system_prompt),
+                    reset_history: true,
+                });
+            }
+
+            None
+        },
+    );
 
     let identity_name = bootstrap_outcome.profile.identity.name.clone();
     let displayed_greeting = bootstrap_outcome.greeting.or(startup_greeting);
-    let mut engine = engine.with_memory(memory_store).with_slash_handler(slash_handler);
+    let mut engine = engine
+        .with_memory(memory_store)
+        .with_slash_handler(slash_handler);
 
     println!(
         "[System] Mode: {} | Think: {} | Role: {}",
@@ -971,9 +1024,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         std::io::stdout().flush().ok();
     }
 
-    engine.run_streaming(async {
-        let _ = tokio::signal::ctrl_c().await;
-    }).await?;
+    engine
+        .run_streaming(async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await?;
 
     Ok(())
 }

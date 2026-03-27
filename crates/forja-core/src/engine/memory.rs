@@ -102,7 +102,8 @@ impl Engine {
 }
 
 fn format_memory_context(contents: &str) -> String {
+    let memory_rules = crate::prompt::loader::prompt_loader().load_memory_rules();
     format!(
-        "[memory.md - Persistent Memory]\n\n## Mandatory Rules (NEVER violate)\n1. You have a rolling memory system. The records below are real past conversations.\n2. When asked \"do you remember?\", if the information exists below, answer \"Yes, I remember.\"\n3. NEVER use phrases like \"current session\", \"provided in this conversation\", or \"I cannot browse past records.\"\n4. Only say \"I don't have that in my records\" if the information is truly absent below.\n5. Do NOT downplay your memory capabilities. The records below ARE your memory.\n\n## Past conversation records:\n{contents}"
+        "[memory.md - Persistent Memory]\n\n{memory_rules}\n\n## Past conversation records:\n{contents}"
     )
 }

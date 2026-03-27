@@ -1,4 +1,6 @@
 use crate::types::{Content, Message, Role};
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // Message creation
 
@@ -130,4 +132,134 @@ fn test_message_with_metadata() {
         &serde_json::json!("gpt-5.2")
     );
     assert_eq!(msg.metadata.get("tokens").unwrap(), &serde_json::json!(42));
+}
+
+fn unique_temp_dir(name: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    std::env::temp_dir().join(format!("forja_core_{name}_{nanos}"))
+}
+
+#[test]
+fn prompt_loader_falls_back_to_embedded_defaults() {
+    let prompts_dir = unique_temp_dir("prompt_loader_fallback");
+    let loader = crate::prompt::loader::PromptLoader::new(prompts_dir.as_path());
+
+    let base = loader.load_base("Forja", "User");
+
+    assert!(base.contains("You are Forja, a personal AI assistant."));
+    assert!(base.contains("Address the user as \"User\""));
+    assert_eq!(
+        loader.load_role("coder"),
+        crate::prompt::coder::DEFAULT_CODER_PROMPT
+    );
+    assert_eq!(
+        loader.load_think("max"),
+        crate::prompt::think::DEFAULT_THINK_MAX
+    );
+    assert_eq!(
+        loader.load_memory_rules(),
+        crate::prompt::loader::DEFAULT_MEMORY_RULES
+    );
+    assert_eq!(loader.load_file("roles/missing.md"), None);
+}
+
+#[test]
+fn prompt_loader_prefers_prompt_files_on_disk() {
+    let prompts_dir = unique_temp_dir("prompt_loader_disk");
+    std::fs::create_dir_all(prompts_dir.join("roles")).unwrap();
+    std::fs::create_dir_all(prompts_dir.join("think")).unwrap();
+    std::fs::write(
+        prompts_dir.join("base.md"),
+        "Base for {assistant_name} -> {user_title}",
+    )
+    .unwrap();
+    std::fs::write(prompts_dir.join("roles").join("coder.md"), "disk coder").unwrap();
+    std::fs::write(prompts_dir.join("think").join("min.md"), "disk think").unwrap();
+    std::fs::write(prompts_dir.join("memory-rules.md"), "disk memory rules").unwrap();
+
+    let loader = crate::prompt::loader::PromptLoader::new(prompts_dir.as_path());
+
+    assert_eq!(
+        loader.load_base("Nova", "Captain"),
+        "Base for Nova -> Captain"
+    );
+    assert_eq!(loader.load_role("coder"), "disk coder");
+    assert_eq!(loader.load_think("min"), "disk think");
+    assert_eq!(loader.load_memory_rules(), "disk memory rules");
+    assert_eq!(
+        loader.load_file("roles/coder.md"),
+        Some("disk coder".to_string())
+    );
+
+    let _ = std::fs::remove_dir_all(prompts_dir);
+}
+
+#[test]
+fn prompt_loader_writes_missing_default_files_without_overwriting_existing_files() {
+    let prompts_dir = unique_temp_dir("prompt_loader_bootstrap");
+    std::fs::create_dir_all(prompts_dir.join("roles")).unwrap();
+    std::fs::write(prompts_dir.join("roles").join("coder.md"), "custom coder").unwrap();
+
+    let loader = crate::prompt::loader::PromptLoader::new(prompts_dir.as_path());
+    loader.ensure_default_files().unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(prompts_dir.join("roles").join("coder.md")).unwrap(),
+        "custom coder"
+    );
+    assert!(prompts_dir.join("base.md").exists());
+    assert!(prompts_dir.join("memory-rules.md").exists());
+    assert!(prompts_dir.join("roles").join("writer.md").exists());
+    assert!(prompts_dir.join("roles").join("assistant.md").exists());
+    assert!(prompts_dir.join("roles").join("analyst.md").exists());
+    assert!(prompts_dir.join("think").join("min.md").exists());
+    assert!(prompts_dir.join("think").join("max.md").exists());
+
+    let _ = std::fs::remove_dir_all(prompts_dir);
+}
+
+#[test]
+fn assemble_system_prompt_uses_prompt_loader_content() {
+    let prompts_dir = unique_temp_dir("assemble_system_prompt");
+    std::fs::create_dir_all(prompts_dir.join("roles")).unwrap();
+    std::fs::create_dir_all(prompts_dir.join("think")).unwrap();
+    std::fs::write(
+        prompts_dir.join("base.md"),
+        "Base prompt for {assistant_name} and {user_title}",
+    )
+    .unwrap();
+    std::fs::write(prompts_dir.join("roles").join("coder.md"), "role from disk").unwrap();
+    std::fs::write(prompts_dir.join("think").join("max.md"), "think from disk").unwrap();
+
+    let loader = crate::prompt::loader::PromptLoader::new(prompts_dir.as_path());
+    let mode_state = crate::mode::ModeState::new(
+        crate::mode::ExecMode::Auto,
+        crate::mode::ThinkLevel::Max,
+        crate::mode::Role::Coder,
+    );
+
+    let prompt = crate::prompt::assemble_system_prompt(
+        &loader,
+        &mode_state,
+        "Forja",
+        "Captain",
+        "identity section",
+        "",
+        "tools section",
+        "",
+        "",
+        "",
+        "",
+    );
+
+    assert!(prompt.contains("Base prompt for Forja and Captain"));
+    assert!(prompt.contains("think from disk"));
+    assert!(prompt.contains("role from disk"));
+    assert!(prompt.contains("identity section"));
+    assert!(prompt.contains("tools section"));
+
+    let _ = std::fs::remove_dir_all(prompts_dir);
 }

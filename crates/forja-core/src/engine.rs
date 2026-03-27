@@ -2,7 +2,7 @@ use crate::error::{ForjaError, Result};
 use crate::emotion::EmotionEngine;
 use crate::knowledge::KnowledgeManager;
 use crate::mode::ModeState;
-use crate::prompt::assemble_system_prompt;
+use crate::prompt::{assemble_system_prompt, loader::prompt_loader};
 use crate::serendipity::SerendipityEngine;
 use crate::traits::{Channel, LlmProvider, Tool};
 use crate::types::{Content, Message, Role, ToolDefinition};
@@ -142,6 +142,7 @@ impl Engine {
     fn request_messages(&self) -> Vec<Message> {
         let mut messages = Vec::new();
         let prompt = assemble_system_prompt(
+            prompt_loader(),
             &self.mode_state,
             &self.assistant_name,
             &self.user_title,

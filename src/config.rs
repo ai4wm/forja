@@ -1,5 +1,5 @@
-use forja_llm::{presets, LlmConfig};
 use crate::provider_registry::MODEL_TABLE;
+use forja_llm::{LlmConfig, presets};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -82,6 +82,7 @@ impl KeysSection {
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct AgentSection {
     pub system_prompt: Option<String>,
+    pub prompts_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
@@ -110,15 +111,25 @@ pub fn load_config() -> ForjaConfig {
     let mut config = load_from_file().unwrap_or_default();
 
     // Environment variable overrides
-    if let Ok(v) = std::env::var("FORJA_PROVIDER") { config.active.provider = Some(v); }
-    if let Ok(v) = std::env::var("FORJA_MODEL")    { config.active.model = Some(v); }
-    if let Ok(v) = std::env::var("FORJA_SYSTEM_PROMPT") { config.agent.system_prompt = Some(v); }
+    if let Ok(v) = std::env::var("FORJA_PROVIDER") {
+        config.active.provider = Some(v);
+    }
+    if let Ok(v) = std::env::var("FORJA_MODEL") {
+        config.active.model = Some(v);
+    }
+    if let Ok(v) = std::env::var("FORJA_SYSTEM_PROMPT") {
+        config.agent.system_prompt = Some(v);
+    }
+    if let Ok(v) = std::env::var("FORJA_PROMPTS_DIR") {
+        config.agent.prompts_dir = Some(PathBuf::from(v));
+    }
 
     // API key environment override for the current provider
     if let Ok(key) = std::env::var("FORJA_API_KEY")
-        && let Some(p) = &config.active.provider {
-            config.keys.set_for(p, key);
-        }
+        && let Some(p) = &config.active.provider
+    {
+        config.keys.set_for(p, key);
+    }
 
     config
 }
@@ -136,8 +147,7 @@ pub fn save_config(config: &ForjaConfig) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let text = toml::to_string_pretty(config)
-        .unwrap_or_else(|_| String::new());
+    let text = toml::to_string_pretty(config).unwrap_or_else(|_| String::new());
     std::fs::write(&path, text)
 }
 
@@ -145,16 +155,16 @@ pub fn save_config(config: &ForjaConfig) -> std::io::Result<()> {
 
 /// Provider definitions: (key, company label). Model names are shown later.
 const PROVIDERS: &[(&str, &str)] = &[
-    ("openai",       "OpenAI (API key)"),
+    ("openai", "OpenAI (API key)"),
     ("openai_oauth", "OpenAI Codex (OAuth subscription)"),
-    ("anthropic",    "Anthropic (API key)"),
-    ("gemini",       "Google Gemini (API key)"),
+    ("anthropic", "Anthropic (API key)"),
+    ("gemini", "Google Gemini (API key)"),
     ("gemini_oauth", "Google Gemini CLI (OAuth subscription)"),
-    ("deepseek",     "DeepSeek"),
-    ("glm",          "GLM (Zhipu)"),
-    ("moonshot",     "Moonshot (Kimi)"),
-    ("xai",          "xAI (Grok)"),
-    ("ollama",       "Ollama (local, no API key required)"),
+    ("deepseek", "DeepSeek"),
+    ("glm", "GLM (Zhipu)"),
+    ("moonshot", "Moonshot (Kimi)"),
+    ("xai", "xAI (Grok)"),
+    ("ollama", "Ollama (local, no API key required)"),
 ];
 
 /// Model list by provider: (model_id, label)
@@ -170,7 +180,7 @@ fn mask_key(key: &str) -> String {
     if key.len() <= 8 {
         return "****".to_string();
     }
-    format!("{}...{}", &key[..4], &key[key.len()-4..])
+    format!("{}...{}", &key[..4], &key[key.len() - 4..])
 }
 
 /// ForjaConfig setup wizard using dialoguer arrow UI.
@@ -190,12 +200,19 @@ pub fn run_setup() -> ForjaConfig {
     loop {
         // Build menu items: "✅ Moonshot" / "  OpenAI" + "Done"
         let active_prov = config.active.provider.as_deref().unwrap_or("");
-        let mut items: Vec<String> = PROVIDERS.iter().map(|(key, label)| {
-            let has = *key == "ollama" || config.keys.get_for(key).is_some();
-            let check = if has { "✅" } else { "  " };
-            let star  = if *key == active_prov { " ★default" } else { "" };
-            format!("[{}] {}{}", check, label, star)
-        }).collect();
+        let mut items: Vec<String> = PROVIDERS
+            .iter()
+            .map(|(key, label)| {
+                let has = *key == "ollama" || config.keys.get_for(key).is_some();
+                let check = if has { "✅" } else { "  " };
+                let star = if *key == active_prov {
+                    " ★default"
+                } else {
+                    ""
+                };
+                format!("[{}] {}{}", check, label, star)
+            })
+            .collect();
         items.push("── Save and continue ──".to_string());
 
         let sel = Select::with_theme(&theme)
@@ -276,26 +293,33 @@ pub fn run_setup() -> ForjaConfig {
 
     // 2. Choose the default model
     let auth_data = crate::oauth::AuthData::load();
-    let registered_models: Vec<(&str, &str, &str)> = PROVIDERS.iter()
+    let registered_models: Vec<(&str, &str, &str)> = PROVIDERS
+        .iter()
         .filter(|(k, _)| {
             *k == "ollama"
-            || config.keys.get_for(k).is_some()
-            || match *k {
-                "openai" | "openai_oauth" => auth_data.openai.is_some(),
-                "gemini" | "gemini_oauth" => auth_data.gemini.is_some(),
-                "anthropic" => auth_data.anthropic.is_some(),
-                _ => false,
-            }
+                || config.keys.get_for(k).is_some()
+                || match *k {
+                    "openai" | "openai_oauth" => auth_data.openai.is_some(),
+                    "gemini" | "gemini_oauth" => auth_data.gemini.is_some(),
+                    "anthropic" => auth_data.anthropic.is_some(),
+                    _ => false,
+                }
         })
-        .flat_map(|(k, _)| models_for(k).into_iter().map(|(id, label)| (*k, id, label)).collect::<Vec<_>>())
+        .flat_map(|(k, _)| {
+            models_for(k)
+                .into_iter()
+                .map(|(id, label)| (*k, id, label))
+                .collect::<Vec<_>>()
+        })
         .collect();
 
     if registered_models.is_empty() {
         println!("\n⚠️  No providers are configured. Saving without a default model.");
     } else {
-        let model_items: Vec<String> = registered_models.iter().map(|(prov, id, label)| {
-            format!("[{}] {} — {}", prov, label, id)
-        }).collect();
+        let model_items: Vec<String> = registered_models
+            .iter()
+            .map(|(prov, id, label)| format!("[{}] {} — {}", prov, label, id))
+            .collect();
 
         println!();
         let sel = Select::with_theme(&theme)
@@ -308,7 +332,7 @@ pub fn run_setup() -> ForjaConfig {
         if let Some(i) = sel {
             let (prov, model_id, label) = registered_models[i];
             config.active.provider = Some(prov.to_string());
-            config.active.model    = Some(model_id.to_string());
+            config.active.model = Some(model_id.to_string());
             println!("  ★ Default model: {} — {}", label, model_id);
         }
     }
@@ -334,8 +358,10 @@ pub fn run_setup() -> ForjaConfig {
     } else {
         println!("\n💾 Saved: {}", config_path().display());
     }
-    println!("✅ Forja will start with provider: {}\n",
-        config.active.provider.as_deref().unwrap_or("unset"));
+    println!(
+        "✅ Forja will start with provider: {}\n",
+        config.active.provider.as_deref().unwrap_or("unset")
+    );
     config
 }
 
@@ -352,66 +378,84 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
 
     if api_key.is_empty() && provider != "ollama" {
         let auth = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(
-                crate::oauth::AuthData::refresh_token_if_needed(provider)
-            )
+            tokio::runtime::Handle::current()
+                .block_on(crate::oauth::AuthData::refresh_token_if_needed(provider))
         });
-        
+
         // Handle OAuth specific data (like project_id for Gemini)
         if matches!(provider, "gemini_oauth" | "gemini_flash" | "gemini")
             && let Some(gemini_token) = &auth.gemini
-            && let Some(proj) = &gemini_token.project_id {
-                unsafe {
-                    std::env::set_var("FORJA_GEMINI_PROJECT", proj);
-                }
+            && let Some(proj) = &gemini_token.project_id
+        {
+            unsafe {
+                std::env::set_var("FORJA_GEMINI_PROJECT", proj);
+            }
         }
-        
+
         let oauth_key = match provider {
             "openai" | "openai_mini" | "openai_oauth" => auth.openai.map(|t| t.access_token),
             "gemini" | "gemini_flash" | "gemini_oauth" => auth.gemini.map(|t| t.access_token),
             "anthropic" | "anthropic_sonnet" => auth.anthropic.map(|t| t.access_token),
             _ => None,
         };
-        
+
         if let Some(token) = oauth_key {
             api_key = token;
         } else {
-            return Err(format!("The API key for provider '{}' is not configured.", provider));
+            return Err(format!(
+                "The API key for provider '{}' is not configured.",
+                provider
+            ));
         }
     }
 
     let mut lc = match provider {
-        "openai"      => presets::openai(&api_key),
+        "openai" => presets::openai(&api_key),
         "openai_mini" => presets::openai_mini(&api_key),
         "openai_oauth" => presets::openai_oauth(&api_key),
-        "anthropic"   => presets::anthropic(&api_key),
+        "anthropic" => presets::anthropic(&api_key),
         "anthropic_sonnet" => presets::anthropic_sonnet(&api_key),
-        "gemini"      => presets::gemini(&api_key),
-        "gemini_flash"=> presets::gemini_flash(&api_key),
+        "gemini" => presets::gemini(&api_key),
+        "gemini_flash" => presets::gemini_flash(&api_key),
         "gemini_oauth" => presets::gemini_oauth(&api_key),
-        "deepseek"    => presets::deepseek(&api_key),
+        "deepseek" => presets::deepseek(&api_key),
         "deepseek_reasoner" => presets::deepseek_reasoner(&api_key),
-        "glm"         => presets::glm(&api_key),
-        "glm_lite"    => presets::glm_lite(&api_key),
-        "moonshot"    => presets::moonshot(&api_key),
-        "xai"         => presets::xai(&api_key),
-        "xai_mini"    => presets::xai_mini(&api_key),
-        "ollama"      => presets::ollama(cfg.active.model.as_deref().unwrap_or("qwen3.5:9b")),
-        other         => return Err(format!("Unknown provider: {}", other)),
+        "glm" => presets::glm(&api_key),
+        "glm_lite" => presets::glm_lite(&api_key),
+        "moonshot" => presets::moonshot(&api_key),
+        "xai" => presets::xai(&api_key),
+        "xai_mini" => presets::xai_mini(&api_key),
+        "ollama" => presets::ollama(cfg.active.model.as_deref().unwrap_or("qwen3.5:9b")),
+        other => return Err(format!("Unknown provider: {}", other)),
     };
 
     if let Some(model) = &cfg.active.model
-        && provider != "ollama" {
-            lc.model = model.clone();
-        }
+        && provider != "ollama"
+    {
+        lc.model = model.clone();
+    }
 
     Ok(lc)
 }
 
 pub fn provider_info(cfg: &ForjaConfig) -> String {
     let provider = cfg.active.provider.as_deref().unwrap_or("?");
-    let model    = cfg.active.model.as_deref().unwrap_or("preset default");
+    let model = cfg.active.model.as_deref().unwrap_or("preset default");
     format!("[Provider: {} | Model: {}]", provider, model)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
+    #[test]
+    fn prompts_dir_deserializes_from_agent_section() {
+        let config: ForjaConfig =
+            toml::from_str("[agent]\nprompts_dir = \".forja/prompts\"\n").unwrap();
+
+        assert_eq!(
+            config.agent.prompts_dir,
+            Some(PathBuf::from(".forja/prompts"))
+        );
+    }
+}
