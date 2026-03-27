@@ -20,6 +20,16 @@ mod memory;
 use crate::traits::MemoryStore;
 
 const MAX_TOOL_DEPTH: usize = 10;
+#[cfg(feature = "runtime")]
+static THINKING_SPINNER: std::sync::Mutex<Option<indicatif::ProgressBar>> =
+    std::sync::Mutex::new(None);
+
+#[cfg(feature = "runtime")]
+fn finish_thinking_spinner() {
+    if let Ok(mut spinner) = THINKING_SPINNER.lock() && let Some(spinner) = spinner.take() {
+        spinner.finish_and_clear();
+    }
+}
 
 pub enum SlashCommandResult {
     Reply(String),
@@ -247,25 +257,34 @@ impl Engine {
                 // Wait for incoming messages from the channel.
                 result = self.channel.receive() => {
                     let user_msg = result?;
-                    
+                    use indicatif::{ProgressBar, ProgressStyle};
+                    use std::time::Duration;
+                     
                     #[cfg(feature = "memory")]
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
                     self.refresh_turn_role(&user_msg);
-                    let pre_spinner = start_pre_spinner();
+                    let spinner = ProgressBar::new_spinner();
+                    spinner.set_style(
+                        ProgressStyle::default_spinner().tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"]).template("{spinner:.cyan} {msg}").unwrap()
+                    );
+                    spinner.set_message("Thinking...");
+                    spinner.enable_steady_tick(Duration::from_millis(80));
                     self.refresh_turn_emotion_context().await;
                     self.refresh_turn_knowledge_context(&user_msg).await;
 
                     #[cfg(feature = "memory")]
                     self.refresh_turn_memory_context(&user_msg).await;
-                    pre_spinner.finish_and_clear();
 
                     // Run one evaluation step. Tool definitions are collected inside handle_step.
-                    let response = self.handle_step(0).await?;
-                    let response = self.maybe_append_serendipity_to_message(response).await;
-
-                    // Send the final output back to the channel.
-                    self.channel.send(response.clone()).await?;
+                    let response_result = async {
+                        let response = self.handle_step(0).await?;
+                        let response = self.maybe_append_serendipity_to_message(response).await;
+                        self.channel.send(response.clone()).await?;
+                        Ok::<_, crate::error::ForjaError>(response)
+                    }.await;
+                    spinner.finish_and_clear();
+                    let response = response_result?;
 
                     #[cfg(feature = "memory")]
                     {
@@ -300,6 +319,8 @@ impl Engine {
                 _ = &mut shutdown => { break; }
                 result = self.channel.receive() => {
                     let user_msg = result?;
+                    use indicatif::{ProgressBar, ProgressStyle};
+                    use std::time::Duration;
 
                     // Intercept slash commands.
                     let slash_reply = if let Content::Text { text, .. } = &user_msg.content {
@@ -340,13 +361,20 @@ impl Engine {
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
                     self.refresh_turn_role(&user_msg);
-                    let pre_spinner = start_pre_spinner();
+                    let spinner = ProgressBar::new_spinner();
+                    spinner.set_style(
+                        ProgressStyle::default_spinner().tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"]).template("{spinner:.cyan} {msg}").unwrap()
+                    );
+                    spinner.set_message("Thinking...");
+                    spinner.enable_steady_tick(Duration::from_millis(80));
+                    if let Ok(mut active_spinner) = THINKING_SPINNER.lock() {
+                        *active_spinner = Some(spinner.clone());
+                    }
                     self.refresh_turn_emotion_context().await;
                     self.refresh_turn_knowledge_context(&user_msg).await;
 
                     #[cfg(feature = "memory")]
                     self.refresh_turn_memory_context(&user_msg).await;
-                    pre_spinner.finish_and_clear();
 
                     // Catch errors across streaming and fallback handling.
                     let response_result = async {
@@ -387,28 +415,11 @@ impl Engine {
                                 Ok::<Option<String>, crate::error::ForjaError>(Some(text))
                             }
                             None => {
-                                use indicatif::{ProgressBar, ProgressStyle};
-                                use std::time::Duration;
-
-                                // Start spinner when streaming is unavailable, e.g. tool-call path.
-                                let spinner = ProgressBar::new_spinner();
-                                spinner.set_style(
-                                    ProgressStyle::default_spinner()
-                                        .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"])
-                                        .template("{spinner:.cyan} {msg}")
-                                        .unwrap()
-                                );
-                                spinner.set_message("Thinking...");
-                                spinner.enable_steady_tick(Duration::from_millis(80));
-
                                 // Fallback to the non-streaming chat path.
                                 let final_msg = self.handle_step(0).await?;
                                 let final_msg = self.maybe_append_serendipity_to_message(final_msg).await;
-                                
-                                // Stop spinner after the response arrives.
-                                spinner.finish_and_clear();
-
                                 self.channel.send(final_msg.clone()).await?;
+                                finish_thinking_spinner();
                                 
                                 Ok::<Option<String>, crate::error::ForjaError>(
                                     if let Content::Text { text, .. } = &final_msg.content {
@@ -435,6 +446,7 @@ impl Engine {
                             
                             // Send the error text back through the active channel.
                             let _ = self.channel.send(crate::types::Message::text(crate::types::Role::Assistant, err_text, None)).await;
+                            finish_thinking_spinner();
                             None
                         }
                     };
@@ -459,33 +471,17 @@ impl Engine {
     #[cfg(feature = "runtime")]
     async fn stream_step_with_tools(&self) -> Result<Option<String>> {
         use tokio_stream::StreamExt;
-        use indicatif::{ProgressBar, ProgressStyle};
-        use std::time::Duration;
 
         let tool_defs: Vec<ToolDefinition> = self.tools.values()
             .map(|t| t.definition())
             .collect();
         let tools = if tool_defs.is_empty() { None } else { Some(tool_defs.as_slice()) };
 
-        // Start spinner.
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::default_spinner()
-                .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"])
-                .template("{spinner:.cyan} {msg}")
-                .unwrap()
-        );
-        spinner.set_message("Thinking...");
-        spinner.enable_steady_tick(Duration::from_millis(80));
-
         // Attempt streaming with tool definitions included.
         let request_messages = self.request_messages();
         let mut stream = match self.provider.stream(&request_messages, tools).await {
             Ok(s) => s,
-            Err(_) => {
-                spinner.finish_and_clear();
-                return Ok(None); // Fallback when streaming is unsupported.
-            }
+            Err(_) => return Ok(None), // Fallback when streaming is unsupported.
         };
 
         let mut full_text = String::new();
@@ -499,14 +495,11 @@ impl Engine {
 
                     // Stop streaming and fall back if the first chunk looks like a tool call payload.
                     if first_token && (token.trim_start().starts_with("{\"") || token.contains("tool_call")) {
-                        spinner.finish_and_clear();
                         return Ok(None);
                     }
                     
                     if first_token {
-                        if self.channel.is_cli_source() {
-                            spinner.finish_and_clear(); // CLI starts printing immediately, so remove spinner.
-                        }
+                        finish_thinking_spinner();
                         self.channel.cancel_typing().await; // Stop typing indicators on channels like Telegram.
                         first_token = false;
                     }
@@ -522,33 +515,10 @@ impl Engine {
             }
         }
 
-        if full_text.is_empty() {
-            spinner.finish_and_clear();
-            Ok(None)
-        } else {
-            spinner.finish_and_clear(); // Final cleanup in case the spinner is still visible.
-            if self.channel.is_cli_source() {
-                println!(); // Newline after streaming completes.
-            }
+        if full_text.is_empty() { Ok(None) } else {
+            if self.channel.is_cli_source() { println!(); }
             Ok(Some(full_text))
         }
     }
-}
-
-#[cfg(feature = "runtime")]
-fn start_pre_spinner() -> indicatif::ProgressBar {
-    use indicatif::{ProgressBar, ProgressStyle};
-    use std::time::Duration;
-
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .tick_strings(&["","","","","","","","","","",""])
-            .template("{spinner:.cyan} {msg}")
-            .unwrap()
-    );
-    spinner.set_message("Processing...");
-    spinner.enable_steady_tick(Duration::from_millis(80));
-    spinner
 }
 

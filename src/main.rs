@@ -653,7 +653,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             &knowledge_contents,
             bootstrap_outcome.greeting.is_some(),
         )
-        .await.unwrap_or_else(|e| { eprintln!("[DEBUG] greeting error1: {e}"); None })
+        .await.unwrap_or(None)
     } else {
         generate_startup_greeting(
             provider.as_ref(),
@@ -662,7 +662,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             &memory_contents,
             bootstrap_outcome.greeting.is_some(),
         )
-        .await.unwrap_or_else(|e| { eprintln!("[DEBUG] greeting error2: {e}"); None })
+        .await.unwrap_or(None)
     };
     engine = engine.with_emotion(EmotionEngine::new(restored_mood));
 
@@ -1030,6 +1030,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
 
 
 
