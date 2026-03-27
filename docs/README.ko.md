@@ -45,6 +45,15 @@ markdown에 저장되는 rolling memory 시스템입니다. Forja는 재시작 �
 
 ## Quick Start
 
+### 설치 (권장)
+
+```bash
+cargo install forja
+forja                # launch (interactive onboarding on first run)
+```
+
+설치 후에는 어느 디렉터리에서든 `forja`를 전역으로 실행할 수 있습니다.
+
 ### 소스에서 설치
 
 ```bash
@@ -53,13 +62,9 @@ cd forja
 cargo run
 ```
 
-처음 실행하면 onboarding wizard가 시작되어 provider, assistant 이름, 환경설정을 구성합니다.
+### Pre-built binaries
 
-### crates.io에서 설치
-
-```bash
-cargo install forja
-```
+Windows, macOS, Linux용은 [GitHub Releases](https://github.com/ai4wm/forja/releases/latest)에서 다운로드할 수 있습니다.
 
 ### Setup
 

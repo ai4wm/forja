@@ -45,6 +45,15 @@ Forja 是一个驻留在终端中的个人 AI assistant。它能够通过自然�
 
 ## Quick Start
 
+### 安装（推荐）
+
+```bash
+cargo install forja
+forja                # launch (interactive onboarding on first run)
+```
+
+安装后，`forja` 可在任意目录中作为全局命令使用。
+
 ### 从源码安装
 
 ```bash
@@ -53,13 +62,9 @@ cd forja
 cargo run
 ```
 
-首次运行会启动 onboarding wizard，用于配置 provider、assistant 名称和偏好设置。
+### Pre-built binaries
 
-### 从 crates.io 安装
-
-```bash
-cargo install forja
-```
+Windows、macOS 和 Linux 版本可从 [GitHub Releases](https://github.com/ai4wm/forja/releases/latest) 下载。
 
 ### Setup
 

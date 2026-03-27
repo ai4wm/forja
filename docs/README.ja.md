@@ -45,6 +45,15 @@ onboarding 中に assistant 名と user title を設定できます。ハード�
 
 ## Quick Start
 
+### インストール（推奨）
+
+```bash
+cargo install forja
+forja                # launch (interactive onboarding on first run)
+```
+
+インストール後は、どのディレクトリからでも `forja` をグローバルに実行できます。
+
 ### ソースからインストール
 
 ```bash
@@ -53,13 +62,9 @@ cd forja
 cargo run
 ```
 
-初回起動時には onboarding wizard が始まり、provider、assistant 名、設定を構成します。
+### Pre-built binaries
 
-### crates.io からインストール
-
-```bash
-cargo install forja
-```
+Windows、macOS、Linux 向けは [GitHub Releases](https://github.com/ai4wm/forja/releases/latest) からダウンロードできます。
 
 ### Setup
 

@@ -43,7 +43,16 @@ Set assistant name and user title during onboarding. No hardcoded language respo
 
 ## Quick Start
 
-### Install from source
+### Install (recommended)
+
+```bash
+cargo install forja
+forja                # launch (interactive onboarding on first run)
+```
+
+After installation, `forja` is available globally from any directory.
+
+### From source
 
 ```bash
 git clone https://github.com/ai4wm/forja.git
@@ -51,13 +60,9 @@ cd forja
 cargo run
 ```
 
-First run launches the onboarding wizard to configure your provider, assistant name, and preferences.
+### Pre-built binaries
 
-### Install from crates.io
-
-```bash
-cargo install forja
-```
+Download from [GitHub Releases](https://github.com/ai4wm/forja/releases/latest) for Windows, macOS, and Linux.
 
 ### Setup
 
