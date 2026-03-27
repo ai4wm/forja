@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use forja_core::error::{ForjaError, Result};
+use forja_core::safety;
 use forja_core::traits::Tool;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -9,20 +10,6 @@ use tokio::process::Command;
 use crate::confirm::ConfirmationHandler;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
-const DANGEROUS_PATTERNS: &[&str] = &[
-    "rm -rf",
-    "del /f",
-    "format c:", "format d:", "format e:",
-    "fdisk",
-    "shutdown",
-    "reboot",
-    "remove-item -recurse -force",
-    "stop-process",
-    "reg delete",
-    "mkfs",
-    "dd if=",
-];
-
 /// Tool for executing OS commands in the local shell.
 pub struct ShellTool {
     confirmation_handler: Arc<dyn ConfirmationHandler>,
@@ -55,11 +42,7 @@ impl ShellTool {
     }
 
     pub fn is_dangerous_command(command: &str) -> bool {
-        let normalized = command.trim().to_lowercase();
-
-        DANGEROUS_PATTERNS
-            .iter()
-            .any(|pattern| normalized.contains(pattern))
+        safety::is_dangerous_command(command)
     }
 
     pub fn shell_invocation(command: &str) -> (String, Vec<String>) {

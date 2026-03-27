@@ -31,6 +31,31 @@ impl Default for CliChannel {
     }
 }
 
+pub(crate) async fn confirm_via_stdin(message: &str) -> Result<bool> {
+    let prompt = message.to_string();
+    tokio::task::spawn_blocking(move || {
+        println!("\n{prompt}");
+        print!("[Y/n]: ");
+        std::io::stdout().flush().map_err(|error| {
+            ForjaError::ChannelError(format!("Stdout flush failed: {error}"))
+        })?;
+
+        let mut input = String::new();
+        std::io::stdin()
+            .read_line(&mut input)
+            .map_err(|error| ForjaError::ChannelError(format!("Failed to read stdin: {error}")))?;
+
+        let trimmed = input.trim();
+        Ok(
+            trimmed.is_empty()
+                || trimmed.eq_ignore_ascii_case("y")
+                || trimmed.eq_ignore_ascii_case("yes"),
+        )
+    })
+    .await
+    .map_err(|error| ForjaError::ChannelError(format!("Confirmation task failed: {error}")))?
+}
+
 #[async_trait]
 impl Channel for CliChannel {
     /// Waits for user input from the terminal and returns it as a User role message.
@@ -96,6 +121,10 @@ impl Channel for CliChannel {
             }
         }
         Ok(())
+    }
+
+    async fn confirm(&self, message: &str) -> Result<bool> {
+        confirm_via_stdin(message).await
     }
 
     fn is_cli_source(&self) -> bool {

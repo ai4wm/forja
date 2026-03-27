@@ -1,4 +1,5 @@
 use crate::provider_registry::MODEL_TABLE;
+use forja_core::mode::ExecMode;
 use forja_llm::{LlmConfig, presets};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -83,6 +84,13 @@ impl KeysSection {
 pub struct AgentSection {
     pub system_prompt: Option<String>,
     pub prompts_dir: Option<PathBuf>,
+    pub exec_mode: Option<String>,
+}
+
+impl AgentSection {
+    pub fn resolved_exec_mode(&self) -> Option<ExecMode> {
+        self.exec_mode.as_deref().and_then(parse_exec_mode)
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
@@ -132,6 +140,15 @@ pub fn load_config() -> ForjaConfig {
     }
 
     config
+}
+
+pub fn parse_exec_mode(value: &str) -> Option<ExecMode> {
+    match value.trim().to_lowercase().as_str() {
+        "safe" => Some(ExecMode::Safe),
+        "auto" => Some(ExecMode::Auto),
+        "trust" => Some(ExecMode::Trust),
+        _ => None,
+    }
 }
 
 pub fn load_from_file() -> Option<ForjaConfig> {
@@ -457,5 +474,13 @@ mod tests {
             config.agent.prompts_dir,
             Some(PathBuf::from(".forja/prompts"))
         );
+    }
+
+    #[test]
+    fn exec_mode_deserializes_from_agent_section() {
+        let config: ForjaConfig = toml::from_str("[agent]\nexec_mode = \"trust\"\n").unwrap();
+
+        assert_eq!(config.agent.exec_mode.as_deref(), Some("trust"));
+        assert_eq!(config.agent.resolved_exec_mode(), Some(ExecMode::Trust));
     }
 }

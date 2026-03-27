@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use forja_core::{Channel, Content, Role, Message as CoreMessage};
-use crate::cli::process_line;
+use crate::cli::{confirm_via_stdin, process_line};
 use std::io::Write;
 use tokio::sync::{mpsc, Mutex};
 
@@ -240,6 +240,14 @@ impl Channel for MultiChannel {
             matches!(*source, Some(ChannelSource::Cli))
         } else {
             false
+        }
+    }
+
+    async fn confirm(&self, message: &str) -> forja_core::error::Result<bool> {
+        match self.last_source.lock().await.clone() {
+            Some(ChannelSource::Cli) | None => confirm_via_stdin(message).await,
+            #[cfg(feature = "telegram")]
+            Some(ChannelSource::Telegram { .. }) => Ok(true),
         }
     }
 

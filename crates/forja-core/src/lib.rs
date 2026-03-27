@@ -6,6 +6,7 @@ pub mod error;
 pub mod knowledge;
 pub mod mode;
 pub mod prompt;
+pub mod safety;
 pub mod serendipity;
 pub mod traits;
 pub mod types;

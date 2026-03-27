@@ -3,6 +3,7 @@ use crate::emotion::EmotionEngine;
 use crate::knowledge::KnowledgeManager;
 use crate::mode::ModeState;
 use crate::prompt::{assemble_system_prompt, loader::prompt_loader};
+use crate::safety;
 use crate::serendipity::SerendipityEngine;
 use crate::traits::{Channel, LlmProvider, Tool};
 use crate::types::{Content, Message, Role, ToolDefinition};
@@ -219,7 +220,27 @@ impl Engine {
                 self.push_message(response_msg.clone());
 
                 let result = if let Some(tool) = self.tools.get(tool_name) {
-                    tool.execute(arguments.clone()).await?
+                    if tool_name == "shell" {
+                        if let Some(command) = safety::shell_command_from_args(arguments) {
+                            if safety::should_confirm_command(self.mode_state.exec_mode, command) {
+                                #[cfg(feature = "runtime")]
+                                finish_thinking_spinner();
+
+                                let prompt = safety::shell_confirmation_message(command);
+                                if !self.channel.confirm(&prompt).await? {
+                                    safety::shell_cancellation_result(command)
+                                } else {
+                                    tool.execute(arguments.clone()).await?
+                                }
+                            } else {
+                                tool.execute(arguments.clone()).await?
+                            }
+                        } else {
+                            tool.execute(arguments.clone()).await?
+                        }
+                    } else {
+                        tool.execute(arguments.clone()).await?
+                    }
                 } else {
                     serde_json::json!({
                         "error": format!("Unknown tool requested: {}", tool_name)

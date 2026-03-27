@@ -36,6 +36,11 @@ pub trait MemoryStore: Send + Sync {
 pub trait Channel: Send + Sync {
     async fn receive(&self) -> Result<Message>;
     async fn send(&self, message: Message) -> Result<()>;
+
+    /// Ask the active channel to confirm an action before execution.
+    async fn confirm(&self, _message: &str) -> Result<bool> {
+        Ok(true)
+    }
     
     /// Whether the current input source is CLI.
     fn is_cli_source(&self) -> bool { false }

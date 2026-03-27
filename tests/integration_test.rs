@@ -4,6 +4,7 @@ use forja_core::error::{ForjaError, Result};
 use forja_core::mode::{parse_slash_command, ExecMode, ModeState, Role, SlashCommand, ThinkLevel};
 use forja_core::prompt::assemble_system_prompt;
 use forja_core::prompt::loader::{DEFAULT_BASE, PromptLoader};
+use forja_core::safety::{is_dangerous_command, should_confirm_command};
 use forja_core::traits::LlmProvider;
 use forja_core::{Message, Role as MessageRole, ToolDefinition};
 use std::path::PathBuf;
@@ -215,8 +216,19 @@ async fn startup_greeting_falls_back_to_default_when_provider_returns_none() {
 }
 
 #[test]
-#[ignore = "ExecMode not yet implemented"]
-fn exec_mode_confirmation_behavior_is_not_exposed_in_public_forja_core_api() {
-    // ExecMode is public, but shell confirmation behavior is implemented outside forja_core.
-    // This integration test intentionally stays within public forja_core types only.
+fn exec_mode_confirmation_behavior_matches_mode_and_command_risk() {
+    assert!(should_confirm_command(ExecMode::Safe, "ls -la"));
+    assert!(should_confirm_command(ExecMode::Safe, "rm -rf /"));
+
+    assert!(!should_confirm_command(ExecMode::Auto, "ls -la"));
+    assert!(should_confirm_command(ExecMode::Auto, "rm -rf /"));
+
+    assert!(!should_confirm_command(ExecMode::Trust, "ls -la"));
+    assert!(!should_confirm_command(ExecMode::Trust, "rm -rf /"));
+}
+
+#[test]
+fn dangerous_command_checker_matches_expected_patterns() {
+    assert!(is_dangerous_command("rm -rf /"));
+    assert!(!is_dangerous_command("ls -la"));
 }

@@ -272,16 +272,25 @@ fn initialize_prompt_loader(
     })
 }
 
-fn parse_exec_mode() -> ExecMode {
-    match std::env::var("FORJA_MODE")
-        .unwrap_or_else(|_| "auto".to_string())
-        .to_lowercase()
-        .as_str()
-    {
-        "safe" => ExecMode::Safe,
-        "trust" => ExecMode::Trust,
-        _ => ExecMode::Auto,
+fn resolve_exec_mode(
+    force_safe: bool,
+    force_trust: bool,
+    forja_cfg: &config::ForjaConfig,
+) -> ExecMode {
+    if force_safe {
+        return ExecMode::Safe;
     }
+    if force_trust {
+        return ExecMode::Trust;
+    }
+    if let Ok(value) = std::env::var("FORJA_MODE") {
+        return config::parse_exec_mode(&value).unwrap_or(ExecMode::Auto);
+    }
+
+    forja_cfg
+        .agent
+        .resolved_exec_mode()
+        .unwrap_or(ExecMode::Auto)
 }
 
 fn parse_think_level() -> ThinkLevel {
@@ -399,6 +408,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut force_setup = false;
+    let mut force_safe = false;
+    let mut force_trust = false;
     let mut new_provider = None;
     let mut new_model = None;
 
@@ -406,6 +417,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     while i < args.len() {
         match args[i].as_str() {
             "--setup" => force_setup = true,
+            "--safe" => force_safe = true,
+            "--trust" => force_trust = true,
             "--provider" => {
                 if i + 1 < args.len() {
                     new_provider = Some(args[i + 1].clone());
@@ -421,6 +434,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             _ => {}
         }
         i += 1;
+    }
+
+    if force_safe && force_trust {
+        eprintln!("Error: --safe and --trust cannot be used together");
+        std::process::exit(1);
     }
 
     // Load config
@@ -530,7 +548,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 .expect("llm_config must exist when not in mock mode"),
         )?)
     };
-    let exec_mode = parse_exec_mode();
+    let exec_mode = resolve_exec_mode(force_safe, force_trust, &forja_cfg);
     let think_level = parse_think_level();
     let mode_state = ModeState::new(exec_mode, think_level, ModeRole::Auto);
     let exec_mode_handle = Arc::new(std::sync::Mutex::new(exec_mode));
@@ -721,8 +739,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     engine.register_tool(web_tool);
     engine.register_tool(search_tool);
     if shell_enabled {
-        let shell_tool = Arc::new(ShellTool::new(Arc::new(StdinConfirmation::from_shared(
-            exec_mode_handle.clone(),
+        let shell_tool = Arc::new(ShellTool::new(Arc::new(StdinConfirmation::new(
+            ExecMode::Trust,
         ))));
         engine.register_tool(shell_tool);
     } else {
@@ -890,7 +908,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             *shared_mode = mode;
                         }
                         return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                            "[System] Mode updated: {}",
+                            "Mode switched to: {}",
                             exec_mode_label(mode)
                         )));
                     }

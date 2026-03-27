@@ -162,6 +162,10 @@ impl Channel for TelegramChannel {
 
         Ok(())
     }
+
+    async fn confirm(&self, _message: &str) -> forja_core::error::Result<bool> {
+        Ok(true)
+    }
 }
 
 #[cfg(feature = "telegram")]
