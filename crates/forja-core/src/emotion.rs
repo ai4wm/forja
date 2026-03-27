@@ -253,6 +253,7 @@ Knowledge:\n\
         return Ok(Some(default_startup_greeting(user_name)));
     };
     let trimmed = text.trim();
+    eprintln!("[DEBUG] greeting LLM response: {:?}", trimmed);
 
     if trimmed.eq_ignore_ascii_case("NONE") {
         return Ok(None);
@@ -445,3 +446,7 @@ fn parse_entry_timestamp(current_date: Option<NaiveDate>, line: &str) -> Option<
         LocalResult::None => None,
     }
 }
+
+
+
+

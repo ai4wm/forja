@@ -1,3 +1,5 @@
+[한국어](docs/README.ko.md) | [日本語](docs/README.ja.md) | [中文](docs/README.zh-CN.md) | [Español](docs/README.es.md) | [Português](docs/README.pt-BR.md)
+
 # Forja
 
 A lightweight, cross-platform AI agent engine built in Rust.

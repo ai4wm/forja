@@ -31,6 +31,11 @@ crates/forja-llm/tests/
 # Documentation
 **/*.md
 !**/README.md
+!docs/README.ko.md
+!docs/README.ja.md
+!docs/README.zh-CN.md
+!docs/README.es.md
+!docs/README.pt-BR.md
 
 clippy_result.txt
 err.txt
