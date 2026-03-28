@@ -35,6 +35,7 @@ fn finish_thinking_spinner() {
 pub enum SlashCommandResult {
     Reply(String),
     ReplyAndSave { user_text: String, reply: String },
+    ContinueWithUserText { user_text: String },
     UpdateSystemPrompt {
         reply: String,
         system_prompt: Option<String>,
@@ -339,7 +340,7 @@ impl Engine {
             tokio::select! {
                 _ = &mut shutdown => { break; }
                 result = self.channel.receive() => {
-                    let user_msg = result?;
+                    let mut user_msg = result?;
                     use indicatif::{ProgressBar, ProgressStyle};
                     use std::time::Duration;
 
@@ -355,6 +356,7 @@ impl Engine {
                     };
 
                     if let Some(slash_result) = slash_reply {
+                        let mut continue_turn = false;
                         match slash_result {
                             SlashCommandResult::Reply(reply) => {
                                 let reply_msg = Message::text(Role::Assistant, &reply, None);
@@ -369,13 +371,20 @@ impl Engine {
                                 #[cfg(feature = "memory")]
                                 self.save_turn_memory_entries(&user_msg_save, Some(&reply)).await;
                             }
+                            SlashCommandResult::ContinueWithUserText { user_text } => {
+                                user_msg = Message::text(Role::User, &user_text, None);
+                                continue_turn = true;
+                            }
                             SlashCommandResult::UpdateSystemPrompt { reply, system_prompt, reset_history } => {
                                 self.apply_system_prompt_update(system_prompt, reset_history);
                                 let reply_msg = Message::text(Role::Assistant, &reply, None);
                                 let _ = self.channel.send(reply_msg).await;
+                                continue;
                             }
                         }
-                        continue;
+                        if !continue_turn {
+                            continue;
+                        }
                     }
 
                     #[cfg(feature = "memory")]

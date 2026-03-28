@@ -4,7 +4,7 @@ target-*/
 **/*.rs.bk
 Cargo.lock
 
-# 설정 파일 (API 키 포함 가능)
+# Config files (may contain API keys)
 config.toml
 .env
 *.key
@@ -36,6 +36,7 @@ crates/forja-llm/tests/
 !docs/README.zh-CN.md
 !docs/README.es.md
 !docs/README.pt-BR.md
+!examples/skills/**/*.md
 
 clippy_result.txt
 err.txt
@@ -53,8 +54,10 @@ codex-reference/
 # Project docs linked from README
 !docs/ARCHITECTURE.md
 !docs/ROADMAP.md
+!docs/STATUS.md
 
 # Project docs linked from README
 !docs/ARCHITECTURE.md
 !docs/ROADMAP.md
+!docs/STATUS.md
 !AGENTS.md

@@ -8,13 +8,17 @@ use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use forja_core::emotion::EmotionEngine;
 use forja_core::error::{ForjaError, Result};
-use forja_core::intent::{BackgroundCmd, InternalCommand, detect_intent};
+use forja_core::intent::{BackgroundCmd, InternalCommand, detect_intent_with_skills};
 use forja_core::mode::{
     ExecMode, ModeState, Role as ModeRole, SlashCommand, ThinkLevel, detect_image_path,
     parse_image_command, parse_screenshot_command, parse_slash_command,
 };
 use forja_core::prompt::loader::{PromptLoader, install_prompt_loader};
-use forja_core::traits::LlmProvider;
+use forja_core::skill::{
+    Skill, SkillLoader, clear_active_skill_context, default_skills_dir, set_active_skill_context,
+    set_skill_catalog_summary,
+};
+use forja_core::traits::{LlmProvider, Tool};
 use forja_core::{
     BackgroundManager, Channel, Content, Engine, KnowledgeManager, Message, Role,
     SerendipityEngine, ToolDefinition,
@@ -23,16 +27,20 @@ use forja_llm::LlmClient;
 use forja_memory::MarkdownMemoryStore;
 #[cfg(feature = "vision")]
 use forja_tools::XcapBackend;
+use forja_tools::confirm::ConfirmationHandler;
 use forja_tools::{
     BrowserTool, ClaudeCodeTool, CodexTool, FileTool, GeminiCliTool, GptVisionAnalyzer, InputTool,
     MockCaptureBackend, MockVisionAnalyzer, SearchProvider, SearchTool, ShellTool,
     StdinConfirmation, VisionAnalyzer, VisionTool, WebTool, browser::MockBrowserBackend,
 };
 use provider_registry::ProviderRegistry;
+use serde_json::json;
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio_stream::{Stream, StreamExt};
 
 // Mock LLM used for local testing without a real API key.
@@ -356,6 +364,8 @@ fn internal_command_to_input(command: &InternalCommand) -> String {
         InternalCommand::Background(BackgroundCmd::Status) => "/background".to_string(),
         InternalCommand::Background(BackgroundCmd::Off) => "/background off".to_string(),
         InternalCommand::Background(BackgroundCmd::Auto) => "/background auto".to_string(),
+        InternalCommand::Skill(name, args) if args.is_empty() => format!("/skill run {name}"),
+        InternalCommand::Skill(name, args) => format!("/skill run {name} {args}"),
     }
 }
 
@@ -372,9 +382,202 @@ fn help_text() -> String {
         "/background",
         "/background off",
         "/background auto",
+        "/skill list",
+        "/skill run <name> [args]",
+        "/skill info <name>",
+        "/skill reload",
         "/identity",
     ]
     .join("\n")
+}
+
+fn reload_skill_loader(loader: &mut SkillLoader) -> std::io::Result<usize> {
+    let skills = loader.load_all()?;
+    set_skill_catalog_summary(loader.summary());
+    Ok(skills.len())
+}
+
+fn skill_list_text(loader: &SkillLoader) -> String {
+    if loader.skills().is_empty() {
+        return "No skills installed.".to_string();
+    }
+
+    let mut lines = vec!["Installed skills:".to_string()];
+    lines.extend(
+        loader
+            .skills()
+            .iter()
+            .map(|skill| format!("- {}: {}", skill.name, skill.description)),
+    );
+    lines.join("\n")
+}
+
+fn skill_info_text(skill: &Skill) -> std::io::Result<String> {
+    std::fs::read_to_string(skill.base_dir.join("SKILL.md"))
+}
+
+fn split_skill_run_target(input: &str) -> Option<(String, String)> {
+    let rest = input.strip_prefix("/skill run ")?.trim();
+    if rest.is_empty() {
+        return None;
+    }
+
+    let mut parts = rest.splitn(2, ' ');
+    let name = parts.next()?.trim().to_string();
+    let args = parts.next().unwrap_or_default().trim().to_string();
+    Some((name, args))
+}
+
+fn shell_single_quote(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn resolve_skill_env(skill: &Skill, cfg: &config::ForjaConfig) -> HashMap<String, String> {
+    let mut env_map = HashMap::new();
+    let configured = cfg.skills.entries.get(&skill.name);
+
+    for env_name in &skill.env {
+        if let Some(value) = configured.and_then(|entry| entry.env.get(env_name)) {
+            env_map.insert(env_name.clone(), value.clone());
+            continue;
+        }
+
+        if let Ok(value) = std::env::var(env_name) {
+            env_map.insert(env_name.clone(), value);
+        }
+    }
+
+    env_map
+}
+
+fn build_skill_command(
+    skill: &Skill,
+    script_path: &Path,
+    args: &str,
+    env_map: &HashMap<String, String>,
+) -> String {
+    #[cfg(target_os = "windows")]
+    {
+        let mut command = format!(
+            "Set-Location -LiteralPath '{}'; ",
+            shell_single_quote(&skill.base_dir.display().to_string())
+        );
+        for (key, value) in env_map {
+            command.push_str(&format!("$env:{key}='{}'; ", shell_single_quote(value)));
+        }
+
+        let script = shell_single_quote(&script_path.display().to_string());
+        match script_path.extension().and_then(|ext| ext.to_str()) {
+            Some("py") => command.push_str(&format!("python '{script}'")),
+            Some("sh") => command.push_str(&format!("bash '{script}'")),
+            _ => command.push_str(&format!("& '{script}'")),
+        }
+
+        if !args.is_empty() {
+            command.push(' ');
+            command.push_str(args);
+        }
+
+        command
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut parts = vec![format!(
+            "cd '{}' &&",
+            shell_single_quote(&skill.base_dir.display().to_string())
+        )];
+
+        for (key, value) in env_map {
+            parts.push(format!("{key}='{}'", shell_single_quote(value)));
+        }
+
+        let script = shell_single_quote(&script_path.display().to_string());
+        let runner = match script_path.extension().and_then(|ext| ext.to_str()) {
+            Some("py") => format!("python '{script}'"),
+            Some("sh") => format!("bash '{script}'"),
+            _ => format!("'{script}'"),
+        };
+        parts.push(runner);
+
+        if !args.is_empty() {
+            parts.push(args.to_string());
+        }
+
+        parts.join(" ")
+    }
+}
+
+async fn execute_skill(
+    skill: &Skill,
+    args: &str,
+    cfg: &config::ForjaConfig,
+    exec_mode_handle: Arc<std::sync::Mutex<ExecMode>>,
+) -> Result<String> {
+    if skill.scripts.is_empty() {
+        return Ok("Skill has no scripts to execute.".to_string());
+    }
+
+    let env_map = resolve_skill_env(skill, cfg);
+    let confirmation = StdinConfirmation::from_shared(exec_mode_handle.clone());
+    let shell_tool = ShellTool::with_settings(
+        Arc::new(StdinConfirmation::new(ExecMode::Trust)),
+        Duration::from_secs(30),
+        false,
+    );
+    let mut outputs = Vec::new();
+
+    for script in &skill.scripts {
+        let script_path = skill.base_dir.join(script);
+        if !script_path.exists() {
+            return Err(ForjaError::ToolError(format!(
+                "Skill script not found: {}",
+                script_path.display()
+            )));
+        }
+
+        let script_body = std::fs::read_to_string(&script_path).unwrap_or_default();
+        let dangerous = ShellTool::is_dangerous_command(&script_body);
+        let prompt = format!("Run skill '{}' script '{}'", skill.name, script);
+        if !confirmation.confirm(&prompt, dangerous).await {
+            return Ok(format!("Skill execution blocked: {script}"));
+        }
+
+        let command = build_skill_command(skill, &script_path, args, &env_map);
+        let result = shell_tool.execute(json!({ "command": command })).await?;
+        let status = result["status"].as_str().unwrap_or("unknown");
+        let output = result["output"]
+            .as_str()
+            .or_else(|| result["detail"].as_str())
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+
+        outputs.push(if output.is_empty() {
+            format!("{script}: {status}")
+        } else {
+            format!("{script}: {status}\n{output}")
+        });
+    }
+
+    Ok(outputs.join("\n\n"))
+}
+
+fn skill_runtime_context(skill: &Skill, args: &str, execution_result: &str) -> String {
+    let args_section = if args.is_empty() {
+        "No additional skill arguments were provided.".to_string()
+    } else {
+        format!("Skill arguments: {args}")
+    };
+
+    format!(
+        "[skill]\nName: {}\nDescription: {}\n{}\n\nInstructions:\n{}\n\nExecution result:\n{}",
+        skill.name,
+        skill.description,
+        args_section,
+        skill.instructions,
+        execution_result
+    )
 }
 
 fn load_image_base64(path: &Path) -> std::io::Result<String> {
@@ -547,6 +750,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     let bootstrap_paths = bootstrap::default_paths();
     initialize_prompt_loader(&forja_cfg, &bootstrap_paths)?;
+    let mut skill_loader = SkillLoader::new(default_skills_dir());
+    if let Err(error) = reload_skill_loader(&mut skill_loader) {
+        eprintln!("[Skill] failed to load skills: {error}");
+    }
+    let skill_loader = Arc::new(std::sync::Mutex::new(skill_loader));
     let bootstrap_outcome = bootstrap::ensure_bootstrap(&bootstrap_paths)?;
     let assistant_name = bootstrap_outcome.profile.identity.assistant_name.clone();
     let user_name = bootstrap_outcome.profile.identity.user_name.clone();
@@ -884,16 +1092,22 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let vision_enabled_for_slash = vision_enabled;
     let capture_backend_for_slash = capture_backend_for_vision.clone();
     let vision_analyzer_for_slash = vision_analyzer_for_vision.clone();
+    let skill_loader_for_slash = skill_loader.clone();
     let background_manager_for_slash = background_manager.clone();
     let background_status_for_slash = background_status.clone();
     let background_home_dir_for_slash = background_home_dir.clone();
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(
         move |text: &str, provider: &mut Arc<dyn LlmProvider>, mode_state: &mut ModeState| {
             let original_text = text.trim();
+            clear_active_skill_context();
             let mapped_text = if original_text.starts_with('/') {
                 None
             } else {
-                detect_intent(original_text).map(|command| internal_command_to_input(&command))
+                skill_loader_for_slash
+                    .lock()
+                    .ok()
+                    .and_then(|loader| detect_intent_with_skills(original_text, &loader))
+                    .map(|command| internal_command_to_input(&command))
             };
             let text = mapped_text.as_deref().unwrap_or(original_text);
 
@@ -1027,6 +1241,87 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
             if text == "/help" {
                 return Some(forja_core::engine::SlashCommandResult::Reply(help_text()));
+            }
+
+            if text == "/skill list" {
+                let reply = skill_loader_for_slash
+                    .lock()
+                    .map(|loader| skill_list_text(&loader))
+                    .unwrap_or_else(|_| "Failed to read installed skills.".to_string());
+                return Some(forja_core::engine::SlashCommandResult::Reply(reply));
+            }
+
+            if let Some(name) = text.strip_prefix("/skill info ") {
+                let reply = match skill_loader_for_slash.lock() {
+                    Ok(loader) => match loader.find_by_name(name.trim()) {
+                        Some(skill) => match skill_info_text(skill) {
+                            Ok(content) => content,
+                            Err(error) => format!("Failed to read skill info: {error}"),
+                        },
+                        None => format!("Skill not found: {}", name.trim()),
+                    },
+                    Err(_) => "Failed to read installed skills.".to_string(),
+                };
+                return Some(forja_core::engine::SlashCommandResult::Reply(reply));
+            }
+
+            if text == "/skill reload" {
+                let reply = match skill_loader_for_slash.lock() {
+                    Ok(mut loader) => match reload_skill_loader(&mut loader) {
+                        Ok(count) => format!("Reloaded {count} skills."),
+                        Err(error) => format!("Skill reload failed: {error}"),
+                    },
+                    Err(_) => "Skill reload failed: loader lock unavailable".to_string(),
+                };
+                return Some(forja_core::engine::SlashCommandResult::Reply(reply));
+            }
+
+            if let Some((skill_name, args)) = split_skill_run_target(text) {
+                let skill = match skill_loader_for_slash.lock() {
+                    Ok(loader) => loader.find_by_name(&skill_name).cloned(),
+                    Err(_) => None,
+                };
+
+                let Some(skill) = skill else {
+                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                        "Skill not found: {skill_name}"
+                    )));
+                };
+
+                let execution_result = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(execute_skill(
+                        &skill,
+                        &args,
+                        &cfg_for_handler,
+                        exec_mode_handle_for_slash.clone(),
+                    ))
+                });
+
+                match execution_result {
+                    Ok(result) => {
+                        set_active_skill_context(skill_runtime_context(&skill, &args, &result));
+                        let user_text = if original_text.starts_with("/skill run ") {
+                            if args.is_empty() {
+                                format!("Run the skill '{}' and explain the result.", skill.name)
+                            } else {
+                                format!(
+                                    "Run the skill '{}' with args '{}' and explain the result.",
+                                    skill.name, args
+                                )
+                            }
+                        } else {
+                            original_text.to_string()
+                        };
+                        return Some(forja_core::engine::SlashCommandResult::ContinueWithUserText {
+                            user_text,
+                        });
+                    }
+                    Err(error) => {
+                        return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                            "Skill execution failed: {error}"
+                        )));
+                    }
+                }
             }
 
             if text == "/background" {

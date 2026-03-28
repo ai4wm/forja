@@ -1,8 +1,9 @@
-use forja_core::intent::{BackgroundCmd, InternalCommand, detect_intent};
+use forja_core::intent::{BackgroundCmd, InternalCommand, detect_intent, detect_intent_with_skills};
 use forja_core::mode::{parse_slash_command, ExecMode, ModeState, Role, SlashCommand, ThinkLevel};
 use forja_core::prompt::assemble_system_prompt;
 use forja_core::prompt::loader::{DEFAULT_BASE, PromptLoader};
 use forja_core::safety::{is_dangerous_command, should_confirm_command};
+use forja_core::skill::{SkillLoader, skills_dir_from_home};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -254,4 +255,100 @@ fn detect_intent_maps_background_status_request() {
         detect_intent("background status"),
         Some(InternalCommand::Background(BackgroundCmd::Status))
     );
+}
+
+#[test]
+fn skill_loader_parses_frontmatter_and_body() {
+    let home_dir = unique_temp_dir("skill_loader_parse");
+    let skill_dir = skills_dir_from_home(home_dir.as_path()).join("deploy-vercel");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: deploy-vercel\ndescription: Deploy current project to Vercel\ntriggers:\n  - deploy\n  - vercel\nscripts:\n  - deploy.sh\nenv:\n  - VERCEL_TOKEN\n---\n\n# Deploy to Vercel\n\nRun the deploy steps.",
+    )
+    .unwrap();
+
+    let mut loader = SkillLoader::new(skills_dir_from_home(home_dir.as_path()));
+    let skills = loader.load_all().unwrap();
+
+    assert_eq!(skills.len(), 1);
+    assert_eq!(skills[0].name, "deploy-vercel");
+    assert_eq!(skills[0].description, "Deploy current project to Vercel");
+    assert_eq!(skills[0].triggers, vec!["deploy", "vercel"]);
+    assert_eq!(skills[0].scripts, vec!["deploy.sh"]);
+    assert_eq!(skills[0].env, vec!["VERCEL_TOKEN"]);
+    assert!(skills[0].instructions.contains("# Deploy to Vercel"));
+}
+
+#[test]
+fn skill_loader_finds_skill_by_trigger() {
+    let home_dir = unique_temp_dir("skill_loader_trigger");
+    let skill_dir = skills_dir_from_home(home_dir.as_path()).join("deploy-vercel");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: deploy-vercel\ndescription: Deploy current project\ntriggers:\n  - deploy\nscripts:\n  - deploy.sh\nenv:\n  - VERCEL_TOKEN\n---\n\nUse deploy.sh.",
+    )
+    .unwrap();
+
+    let mut loader = SkillLoader::new(skills_dir_from_home(home_dir.as_path()));
+    let _ = loader.load_all().unwrap();
+
+    assert_eq!(
+        loader.find_by_trigger("deploy").map(|skill| skill.name.as_str()),
+        Some("deploy-vercel")
+    );
+}
+
+#[test]
+fn skill_loader_returns_none_for_random_chat_message() {
+    let home_dir = unique_temp_dir("skill_loader_none");
+    let mut loader = SkillLoader::new(skills_dir_from_home(home_dir.as_path()));
+    let _ = loader.load_all().unwrap();
+
+    assert_eq!(loader.find_by_trigger("random chat message"), None);
+}
+
+#[test]
+fn internal_command_skill_variant_matches() {
+    let command = InternalCommand::Skill("deploy-vercel".to_string(), "--prod".to_string());
+
+    assert_eq!(
+        command,
+        InternalCommand::Skill("deploy-vercel".to_string(), "--prod".to_string())
+    );
+}
+
+#[test]
+fn detect_intent_with_skills_matches_skill_trigger() {
+    let home_dir = unique_temp_dir("skill_intent");
+    let skill_dir = skills_dir_from_home(home_dir.as_path()).join("deploy-vercel");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: deploy-vercel\ndescription: Deploy current project\ntriggers:\n  - deploy\nscripts:\n  - deploy.sh\nenv:\n  - VERCEL_TOKEN\n---\n\nUse deploy.sh.",
+    )
+    .unwrap();
+
+    let mut loader = SkillLoader::new(skills_dir_from_home(home_dir.as_path()));
+    let _ = loader.load_all().unwrap();
+
+    assert_eq!(
+        detect_intent_with_skills("deploy", &loader),
+        Some(InternalCommand::Skill(
+            "deploy-vercel".to_string(),
+            String::new()
+        ))
+    );
+}
+
+#[test]
+fn skills_directory_is_created_automatically() {
+    let home_dir = unique_temp_dir("skills_dir");
+    let skills_dir = skills_dir_from_home(home_dir.as_path());
+
+    let mut loader = SkillLoader::new(skills_dir.clone());
+    let _ = loader.load_all().unwrap();
+
+    assert!(skills_dir.exists());
 }

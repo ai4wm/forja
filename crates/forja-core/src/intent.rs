@@ -1,4 +1,5 @@
 use crate::mode::{ExecMode, Role, ThinkLevel};
+use crate::skill::SkillLoader;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InternalCommand {
@@ -10,6 +11,7 @@ pub enum InternalCommand {
     Models,
     Model(String),
     Background(BackgroundCmd),
+    Skill(String, String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +35,13 @@ pub fn detect_intent(input: &str) -> Option<InternalCommand> {
         .or_else(|| detect_models(&normalized))
         .or_else(|| detect_background(&normalized))
         .or_else(|| detect_model(&normalized))
+}
+
+pub fn detect_intent_with_skills(
+    input: &str,
+    skill_loader: &SkillLoader,
+) -> Option<InternalCommand> {
+    detect_intent(input).or_else(|| detect_skill(input, skill_loader))
 }
 
 fn detect_mode(input: &str) -> Option<InternalCommand> {
@@ -279,6 +288,22 @@ fn detect_model(input: &str) -> Option<InternalCommand> {
     }
 
     None
+}
+
+fn detect_skill(input: &str, skill_loader: &SkillLoader) -> Option<InternalCommand> {
+    let normalized = normalize(input);
+    skill_loader.find_by_trigger(&normalized).and_then(|skill| {
+        skill.triggers.iter().find_map(|trigger| {
+            let trigger = normalize(trigger);
+            if normalized == trigger {
+                return Some(InternalCommand::Skill(skill.name.clone(), String::new()));
+            }
+            normalized
+                .strip_prefix(&format!("{trigger} "))
+                .map(str::trim)
+                .map(|args| InternalCommand::Skill(skill.name.clone(), args.to_string()))
+        })
+    })
 }
 
 fn normalize(input: &str) -> String {

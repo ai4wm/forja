@@ -2,6 +2,7 @@ use crate::provider_registry::MODEL_TABLE;
 use forja_core::mode::ExecMode;
 use forja_llm::{LlmConfig, presets};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 // Structures
@@ -18,6 +19,8 @@ pub struct ForjaConfig {
     pub agent: AgentSection,
     #[serde(default)]
     pub background: BackgroundSection,
+    #[serde(default)]
+    pub skills: SkillsSection,
     #[serde(default)]
     pub channel: ChannelSection,
     #[serde(default)]
@@ -119,6 +122,18 @@ impl Default for BackgroundSection {
             interval_seconds: default_background_interval_seconds(),
         }
     }
+}
+
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
+pub struct SkillsSection {
+    #[serde(default)]
+    pub entries: HashMap<String, SkillConfigEntry>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
+pub struct SkillConfigEntry {
+    #[serde(default)]
+    pub env: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]

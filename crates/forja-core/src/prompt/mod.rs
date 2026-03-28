@@ -7,6 +7,7 @@ pub mod think;
 pub mod writer;
 
 use crate::mode::{ModeState, Role};
+use crate::skill;
 
 #[allow(clippy::too_many_arguments)]
 pub fn assemble_system_prompt(
@@ -53,6 +54,17 @@ pub fn assemble_system_prompt(
         if !trimmed.is_empty() {
             sections.push(trimmed.to_string());
         }
+    }
+
+    let skill_summary = skill::skill_catalog_summary();
+    if !skill_summary.trim().is_empty() {
+        sections.push(skill_summary);
+    }
+
+    if let Some(skill_context) = skill::active_skill_context()
+        && !skill_context.trim().is_empty()
+    {
+        sections.push(skill_context);
     }
 
     if !emotion_signals.trim().is_empty() {
