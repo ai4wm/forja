@@ -29,6 +29,7 @@ pub enum AgentCommand {
     Logs(usize),
     Pause,
     Resume,
+    Retry,
 }
 
 #[derive(Debug, Clone)]
@@ -61,6 +62,9 @@ pub fn parse_agent_command(input: &str) -> Option<AgentCommand> {
     }
     if trimmed == "/agent resume" || trimmed == "/background auto" {
         return Some(AgentCommand::Resume);
+    }
+    if trimmed == "/agent retry" || trimmed == "/background retry" {
+        return Some(AgentCommand::Retry);
     }
     if let Some(value) = trimmed.strip_prefix("/agent logs ") {
         let count = value.trim().parse::<usize>().ok().filter(|count| *count > 0).unwrap_or(10);
@@ -601,9 +605,14 @@ mod tests {
         assert_eq!(parse_agent_command("/agent logs 5"), Some(AgentCommand::Logs(5)));
         assert_eq!(parse_agent_command("/agent pause"), Some(AgentCommand::Pause));
         assert_eq!(parse_agent_command("/agent resume"), Some(AgentCommand::Resume));
+        assert_eq!(parse_agent_command("/agent retry"), Some(AgentCommand::Retry));
         assert_eq!(parse_agent_command("/background"), Some(AgentCommand::Status));
         assert_eq!(parse_agent_command("/background off"), Some(AgentCommand::Pause));
         assert_eq!(parse_agent_command("/background auto"), Some(AgentCommand::Resume));
+        assert_eq!(
+            parse_agent_command("/background retry"),
+            Some(AgentCommand::Retry)
+        );
     }
 
     #[test]

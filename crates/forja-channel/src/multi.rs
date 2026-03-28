@@ -20,6 +20,8 @@ pub struct MultiChannel {
     #[cfg(feature = "telegram")]
     telegram_bot: Option<Bot>,
     #[cfg(feature = "telegram")]
+    allowed_chat_ids: Vec<i64>,
+    #[cfg(feature = "telegram")]
     typing_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -60,6 +62,8 @@ impl MultiChannel {
             last_source: Mutex::new(Some(ChannelSource::Cli)),
             #[cfg(feature = "telegram")]
             telegram_bot: None,
+            #[cfg(feature = "telegram")]
+            allowed_chat_ids: Vec::new(),
             #[cfg(feature = "telegram")]
             typing_handle: Mutex::new(None),
         }
@@ -141,8 +145,24 @@ impl MultiChannel {
             receiver: Mutex::new(rx),
             last_source: Mutex::new(None),
             telegram_bot: Some(bot),
+            allowed_chat_ids,
             typing_handle: Mutex::new(None),
         }
+    }
+}
+
+fn render_cli_output(text: String) {
+    println!("● {}", text);
+    print!("> ");
+    std::io::stdout().flush().ok();
+}
+
+#[cfg(feature = "telegram")]
+fn target_chat_ids(last_source: &Option<ChannelSource>, allowed_chat_ids: &[i64]) -> Vec<i64> {
+    match last_source {
+        Some(ChannelSource::Telegram { chat_id }) => vec![*chat_id],
+        Some(ChannelSource::Cli) => Vec::new(),
+        None => allowed_chat_ids.to_vec(),
     }
 }
 
@@ -193,43 +213,39 @@ impl Channel for MultiChannel {
 
         let last_src = self.last_source.lock().await.clone();
 
-        if let Some(source) = last_src {
-            if let Content::Text { text, .. } = &message.content {
-                match source {
-                    ChannelSource::Cli => {
-                        let t = text.clone();
-                        let _ = tokio::task::spawn_blocking(move || {
-                            // Tool fallback: print response + restore prompt
-                            println!("● {}", t);
-                            print!("> ");
-                            std::io::stdout().flush().ok();
-                        }).await;
-                    }
-                    #[cfg(feature = "telegram")]
-                    ChannelSource::Telegram { chat_id } => {
-                        if let Some(bot) = &self.telegram_bot {
-                            bot.send_message(teloxide::types::ChatId(chat_id), text.clone())
+        if let Content::Text { text, .. } = &message.content {
+            match last_src {
+                Some(ChannelSource::Cli) => {
+                    let terminal_text = text.clone();
+                    let _ = tokio::task::spawn_blocking(move || render_cli_output(terminal_text))
+                        .await;
+                }
+                #[cfg(feature = "telegram")]
+                Some(ChannelSource::Telegram { .. }) | None => {
+                    if let Some(bot) = &self.telegram_bot {
+                        for chat_id in target_chat_ids(&last_src, &self.allowed_chat_ids) {
+                            if let Err(error) = bot
+                                .send_message(teloxide::types::ChatId(chat_id), text.clone())
                                 .await
-                                .map_err(|e| {
-                                    forja_core::error::ForjaError::ChannelError(format!(
-                                        "Failed to send Telegram message: {}",
-                                        e
-                                    ))
-                                })?;
-                            
-                            // Print ● log to terminal
-                            let log_text = text.clone();
-                            let _ = tokio::task::spawn_blocking(move || {
-                                println!("● {}", log_text);
-                                print!("> ");
-                                std::io::stdout().flush().ok();
-                            }).await;
+                            {
+                                eprintln!(
+                                    "[WARN] Failed to send Telegram message to {chat_id}: {error}"
+                                );
+                            }
                         }
                     }
+
+                    let terminal_text = text.clone();
+                    let _ = tokio::task::spawn_blocking(move || render_cli_output(terminal_text))
+                        .await;
+                }
+                #[cfg(not(feature = "telegram"))]
+                None => {
+                    let terminal_text = text.clone();
+                    let _ = tokio::task::spawn_blocking(move || render_cli_output(terminal_text))
+                        .await;
                 }
             }
-        } else {
-            eprintln!("[WARN] MultiChannel send drop: Empty last_source");
         }
 
         Ok(())
@@ -258,5 +274,24 @@ impl Channel for MultiChannel {
                 handle.abort();
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "telegram"))]
+mod tests {
+    use super::{ChannelSource, target_chat_ids};
+
+    #[test]
+    fn target_chat_ids_broadcasts_when_no_source_is_known() {
+        let targets = target_chat_ids(&None, &[10, 20]);
+
+        assert_eq!(targets, vec![10, 20]);
+    }
+
+    #[test]
+    fn target_chat_ids_routes_to_last_telegram_source_when_present() {
+        let targets = target_chat_ids(&Some(ChannelSource::Telegram { chat_id: 42 }), &[10, 20]);
+
+        assert_eq!(targets, vec![42]);
     }
 }

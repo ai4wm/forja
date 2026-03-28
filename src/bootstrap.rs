@@ -23,7 +23,6 @@ pub struct BootstrapProfile {
 #[derive(Debug, Clone)]
 pub struct BootstrapOutcome {
     pub profile: BootstrapProfile,
-    pub greeting: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,10 +76,7 @@ pub fn default_paths() -> BootstrapPaths {
 pub fn ensure_bootstrap(paths: &BootstrapPaths) -> io::Result<BootstrapOutcome> {
     if paths.identity_path.exists() {
         let profile = load_profile(paths)?;
-        return Ok(BootstrapOutcome {
-            profile,
-            greeting: None,
-        });
+        return Ok(BootstrapOutcome { profile });
     }
 
     run_onboarding(paths, OnboardingMode::Initial)
@@ -194,10 +190,7 @@ fn run_onboarding(paths: &BootstrapPaths, mode: OnboardingMode) -> io::Result<Bo
 
     write_identity_file(paths, &profile.identity)?;
 
-    Ok(BootstrapOutcome {
-        greeting: Some(profile.greeting()),
-        profile,
-    })
+    Ok(BootstrapOutcome { profile })
 }
 
 fn load_user_document(paths: &BootstrapPaths) -> io::Result<Option<UserDocument>> {

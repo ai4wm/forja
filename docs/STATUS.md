@@ -4,9 +4,9 @@ Last updated: 2026-03-29
 
 ## Task Record
 
-- Changed files: `Cargo.toml`, `Cargo.lock`, `crates/forja-channel/Cargo.toml`, `crates/forja-channel/src/lib.rs`, `crates/forja-channel/src/switchable.rs`, `crates/forja-channel/src/tui_channel.rs`, `crates/forja-channel/src/tui_layout.rs`, `crates/forja-channel/src/tui_input.rs`, `src/main.rs`, `crates/forja-core/src/intent.rs`, `docs/STATUS.md`
-- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; decide whether Telegram and TUI local input should share a cleaner remote/local split instead of the current wrapper-based delegation; expand direct integration coverage for `/tui` runtime switching and `--tui` startup behavior; keep Web UI deferred while TUI stabilizes
-- Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo build --workspace --no-default-features`; `cargo clippy --workspace -- -D warnings`
+- Changed files: `crates/forja-core/src/background.rs`, `crates/forja-channel/src/multi.rs`, `src/background_runtime.rs`, `src/bootstrap.rs`, `src/main.rs`, `docs/STATUS.md`
+- Dependencies for next task: keep `/background` and `/agent` status output aligned if background provider metadata should be shown directly in slash output; add broader end-to-end coverage for startup greeting delivery across remote channels; keep Web UI deferred while TUI and background recovery behavior stabilize
+- Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo clippy --workspace -- -D warnings`
 
 ## Feature Status
 
@@ -27,7 +27,7 @@ Last updated: 2026-03-29
 | Input tool | Done | `crates/forja-tools/src/input.rs`, `src/main.rs` | Keyboard and mouse actions are implemented behind backend and confirmation layers. |
 | Search tool | Done | `crates/forja-tools/src/search.rs`, `src/main.rs` | DuckDuckGo, Brave, and Grok-backed search providers are supported. |
 | CLI channel | Done | `crates/forja-channel/src/cli.rs`, `src/main.rs` | Interactive terminal input/output is implemented. |
-| Telegram channel | Done | `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/telegram.rs`, `src/main.rs` | Telegram runs alongside CLI with allowlisted chat IDs and typing indicators. |
+| Telegram channel | Done | `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/telegram.rs`, `src/main.rs` | Telegram runs alongside CLI with allowlisted chat IDs, typing indicators, and startup/system message delivery before the first remote input arrives. |
 | ExecMode | Done | `crates/forja-core/src/mode.rs`, `crates/forja-core/src/safety.rs`, `crates/forja-tools/src/confirm.rs`, `src/main.rs` | `safe`, `auto`, and `trust` are resolved and enforced across shell, browser, and input paths. |
 | `/mode` | Done | `crates/forja-core/src/mode.rs`, `src/main.rs` | Switches execution mode at runtime. |
 | `/think` | Done | `crates/forja-core/src/mode.rs`, `src/main.rs` | Switches reasoning depth at runtime. |
@@ -65,12 +65,13 @@ Last updated: 2026-03-29
 | `--tui` flag | Done | `Cargo.toml`, `src/main.rs` | The root binary accepts `--tui` and starts in TUI mode when the feature is enabled. |
 | `/tui` command | Done | `crates/forja-core/src/intent.rs`, `src/main.rs` | `/tui` and TUI-related intent parsing route into runtime TUI activation. |
 | Web UI | Deferred | `docs/ROADMAP.md` | Web UI remains out of scope for this phase. |
-| Background model manager | Done | `crates/forja-core/src/background.rs`, `src/background_runtime.rs`, `src/main.rs` | Background manager start/stop/status handling is implemented, and startup auto-discovery runs without blocking the foreground engine. |
+| Background model manager | Done | `crates/forja-core/src/background.rs`, `src/background_runtime.rs`, `src/main.rs` | Background manager start/stop/status handling is implemented, startup auto-discovery runs without blocking the foreground engine, probe attempts use a 5-second timeout, and `/background retry` re-runs discovery gracefully. |
 | Groq provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | Groq is available through the OpenAI-compatible client path and can be selected with registry-backed models. |
 | OpenRouter provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | OpenRouter is available through the OpenAI-compatible client path with curated free-model registry entries and background-model probing support. |
 | Local model detection | Done | `crates/forja-llm/src/local.rs`, `src/background_runtime.rs`, `src/main.rs` | `~/.forja/models/` is created automatically, GGUF files are detected, and a stub local provider is available for future inference integration. |
 | emotion.rs refactor | Done | `crates/forja-core/src/emotion.rs`, `crates/forja-core/src/engine/emotion.rs`, `crates/forja-core/src/prompt/loader.rs`, `crates/forja-core/src/prompt/mod.rs` | Emotion handling is now key-based and local. `emotion.md` is auto-created when missing, and active signal keys are appended during prompt assembly. |
 | Identity onboarding | Done | `src/bootstrap.rs`, `src/main.rs`, `crates/forja-core/src/prompt/base.rs`, `crates/forja-core/src/prompt/loader.rs` | First-run onboarding now writes a single `identity.md` profile with `user_name`, `assistant_name`, `language`, and `tone`, and those values drive base prompt placeholder rendering. |
+| Startup greeting | Done | `src/main.rs`, `src/background_runtime.rs`, `crates/forja-channel/src/multi.rs` | Startup now sends a greeting before the first input, using emotion signals and the main model when available, with an identity-based fallback and best-effort delivery across CLI, Telegram, and TUI. |
 | Integration tests | Done | `tests/integration_test.rs`, `tests/phase13e_bootstrap.rs`, `tests/phase18_mode.rs` | Integration and phase-based coverage exists for major subsystems. |
 | CI/CD release | Done | `.github/workflows/ci.yml`, `.github/workflows/release.yml` | CI builds and tests the workspace, and tagged releases generate artifacts. |
 | Multilingual README | Done | `README.md`, `docs/README.ko.md`, `docs/README.ja.md`, `docs/README.zh-CN.md`, `docs/README.es.md`, `docs/README.pt-BR.md` | Root README links to translated documentation variants. |

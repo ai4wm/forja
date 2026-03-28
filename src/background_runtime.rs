@@ -3,6 +3,7 @@ use forja_core::{BackgroundManager, LlmProvider, Message, Role};
 use forja_llm::{LlmClient, LocalModelProvider, detect_local_models};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 const GROQ_FREE_MODELS: &[&str] = &["llama-3.1-8b-instant", "gemma2-9b-it"];
 const GEMINI_FREE_MODELS: &[&str] = &["gemini-3-flash-preview", "gemini-2.5-flash"];
@@ -11,6 +12,7 @@ const OPENROUTER_FREE_MODELS: &[&str] = &[
     "google/gemma-2-9b-it:free",
 ];
 const OLLAMA_DEFAULT_MODEL: &str = "qwen3.5:9b";
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BackgroundCandidate {
@@ -241,14 +243,37 @@ async fn probe_candidate(
             llm_config.max_tokens = 1;
 
             let provider: Arc<dyn LlmProvider> = Arc::new(LlmClient::new(llm_config).ok()?);
-            let probe_result = provider
-                .chat(&[Message::text(Role::User, "ping", None)], None)
-                .await;
-            if probe_result.is_ok() {
-                Some(provider)
-            } else {
-                None
-            }
+            probe_provider(provider, candidate).await
+        }
+    }
+}
+
+async fn probe_provider(
+    provider: Arc<dyn LlmProvider>,
+    candidate: &BackgroundCandidate,
+) -> Option<Arc<dyn LlmProvider>> {
+    match tokio::time::timeout(
+        PROBE_TIMEOUT,
+        provider.chat(&[Message::text(Role::User, "ping", None)], None),
+    )
+    .await
+    {
+        Ok(Ok(_)) => Some(provider),
+        Ok(Err(error)) => {
+            eprintln!(
+                "[WARN] Background probe failed for {}/{}: {error}",
+                candidate.provider, candidate.model
+            );
+            None
+        }
+        Err(_) => {
+            eprintln!(
+                "[WARN] Background probe timed out for {}/{} after {}s",
+                candidate.provider,
+                candidate.model,
+                PROBE_TIMEOUT.as_secs()
+            );
+            None
         }
     }
 }
@@ -256,7 +281,12 @@ async fn probe_candidate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use forja_core::error::{ForjaError, Result};
+    use forja_core::ToolDefinition;
+    use std::pin::Pin;
     use std::time::{SystemTime, UNIX_EPOCH};
+    use tokio_stream::Stream;
 
     fn unique_temp_dir(name: &str) -> std::path::PathBuf {
         let nanos = SystemTime::now()
@@ -264,6 +294,49 @@ mod tests {
             .unwrap_or_default()
             .as_nanos();
         std::env::temp_dir().join(format!("forja_background_{name}_{nanos}"))
+    }
+
+    struct SlowProvider;
+
+    #[async_trait]
+    impl LlmProvider for SlowProvider {
+        async fn chat(
+            &self,
+            _messages: &[Message],
+            _tools: Option<&[ToolDefinition]>,
+        ) -> Result<Message> {
+            tokio::time::sleep(PROBE_TIMEOUT + Duration::from_secs(1)).await;
+            Ok(Message::text(Role::Assistant, "slow", None))
+        }
+
+        async fn stream(
+            &self,
+            _messages: &[Message],
+            _tools: Option<&[ToolDefinition]>,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
+            Err(ForjaError::LlmError("not implemented".to_string()))
+        }
+    }
+
+    struct FailingProvider;
+
+    #[async_trait]
+    impl LlmProvider for FailingProvider {
+        async fn chat(
+            &self,
+            _messages: &[Message],
+            _tools: Option<&[ToolDefinition]>,
+        ) -> Result<Message> {
+            Err(ForjaError::LlmError("probe failure".to_string()))
+        }
+
+        async fn stream(
+            &self,
+            _messages: &[Message],
+            _tools: Option<&[ToolDefinition]>,
+        ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
+            Err(ForjaError::LlmError("not implemented".to_string()))
+        }
     }
 
     #[test]
@@ -321,5 +394,25 @@ mod tests {
             status.message(),
             "Background model: disabled (no free provider available)"
         );
+    }
+
+    #[tokio::test]
+    async fn probe_provider_returns_none_when_probe_times_out() {
+        let candidate = BackgroundCandidate::new("groq", "llama-3.1-8b-instant", "free");
+        let provider: Arc<dyn LlmProvider> = Arc::new(SlowProvider);
+
+        let result = probe_provider(provider, &candidate).await;
+
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn probe_provider_returns_none_when_probe_fails() {
+        let candidate = BackgroundCandidate::new("groq", "llama-3.1-8b-instant", "free");
+        let provider: Arc<dyn LlmProvider> = Arc::new(FailingProvider);
+
+        let result = probe_provider(provider, &candidate).await;
+
+        assert!(result.is_none());
     }
 }

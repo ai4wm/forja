@@ -36,7 +36,8 @@ use forja_core::{
 };
 use forja_llm::LlmClient;
 use forja_memory::{
-    MemoryCommand, MemoryManagerStore, default_memory_base_dir, parse_memory_command,
+    LongTermStore, MemoryCommand, MemoryManagerStore, default_memory_base_dir, longterm_path,
+    parse_memory_command,
 };
 #[cfg(feature = "vision")]
 use forja_tools::XcapBackend;
@@ -462,6 +463,7 @@ fn help_text() -> String {
         "/background",
         "/background off",
         "/background auto",
+        "/background retry",
         "/notify test",
         "/notify on",
         "/notify off",
@@ -474,6 +476,95 @@ fn help_text() -> String {
         "/identity",
     ]
     .join("\n")
+}
+
+fn fallback_startup_greeting(user_name: &str, language: &str) -> String {
+    let normalized = language.trim().to_lowercase();
+    if matches!(normalized.as_str(), "ko" | "ko-kr" | "korean") {
+        return format!(
+            "\u{C548}\u{B155}\u{D558}\u{C138}\u{C694}, {user_name}\u{B2D8}. \u{BB34}\u{C5C7}\u{C744} \u{B3C4}\u{C640}\u{B4DC}\u{B9B4}\u{AE4C}\u{C694}?"
+        );
+    }
+
+    format!("Hello, {user_name}. How can I help today?")
+}
+
+fn build_startup_greeting_prompt(
+    assistant_name: &str,
+    user_name: &str,
+    tone: &str,
+    language: &str,
+    signals: &[String],
+) -> String {
+    let signal_summary = if signals.is_empty() {
+        "none".to_string()
+    } else {
+        signals.join(", ")
+    };
+
+    format!(
+        "You are {assistant_name}. Write one natural greeting sentence.\n\
+The user's name is {user_name}.\n\
+Preferred tone: {tone}.\n\
+Preferred language: {language}.\n\
+Active emotion signals: {signal_summary}.\n\
+If first_session_today or long_absence_detected is present, reflect it naturally.\n\
+Do not mention signal names, markdown, or bullet points.\n\
+Keep the greeting warm, concise, and under 25 words."
+    )
+}
+
+fn spawn_background_discovery(
+    cfg: config::ForjaConfig,
+    home_dir: std::path::PathBuf,
+    background_manager: Arc<tokio::sync::Mutex<BackgroundManager>>,
+    background_status: Arc<std::sync::Mutex<background_runtime::BackgroundStatusSnapshot>>,
+) {
+    tokio::spawn(async move {
+        match background_runtime::discover_background_provider(&cfg, &home_dir).await {
+            background_runtime::BackgroundDiscovery::Selected { candidate, provider } => {
+                let mut manager = background_manager.lock().await;
+                background_runtime::apply_background_candidate(
+                    &mut manager,
+                    &candidate,
+                    provider,
+                    cfg.background.interval_seconds,
+                )
+                .await;
+                let active = manager.is_active();
+                drop(manager);
+
+                if let Ok(mut status) = background_status.lock() {
+                    *status = background_runtime::BackgroundStatusSnapshot::selected(
+                        &candidate,
+                        cfg.background.interval_seconds,
+                        active,
+                    );
+                }
+
+                println!(
+                    "Background model: {}/{} ({})",
+                    candidate.provider, candidate.model, candidate.kind
+                );
+            }
+            background_runtime::BackgroundDiscovery::Disabled(reason) => {
+                let mut manager = background_manager.lock().await;
+                manager.stop().await;
+                manager.disable();
+                drop(manager);
+
+                if let Ok(mut status) = background_status.lock() {
+                    *status = background_runtime::BackgroundStatusSnapshot::disabled(
+                        cfg.background.interval_seconds,
+                        &reason,
+                    );
+                }
+
+                eprintln!("[WARN] Background model disabled: {reason}");
+                println!("Background model: disabled ({reason})");
+            }
+        }
+    });
 }
 
 fn memory_stats_text(stats: &forja_memory::manager::MemoryStats) -> String {
@@ -1031,63 +1122,16 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
         println!("Background model: disabled (disabled by config)");
     } else {
-        let background_cfg = forja_cfg.clone();
-        let background_manager_for_init = background_manager.clone();
-        let background_status_for_init = background_status.clone();
-        let background_home_dir_for_init = background_home_dir.clone();
-        tokio::spawn(async move {
-            match background_runtime::discover_background_provider(
-                &background_cfg,
-                &background_home_dir_for_init,
-            )
-            .await
-            {
-                background_runtime::BackgroundDiscovery::Selected { candidate, provider } => {
-                    let mut manager = background_manager_for_init.lock().await;
-                    background_runtime::apply_background_candidate(
-                        &mut manager,
-                        &candidate,
-                        provider,
-                        background_cfg.background.interval_seconds,
-                    )
-                    .await;
-                    let active = manager.is_active();
-                    drop(manager);
-
-                    if let Ok(mut status) = background_status_for_init.lock() {
-                        *status = background_runtime::BackgroundStatusSnapshot::selected(
-                            &candidate,
-                            background_cfg.background.interval_seconds,
-                            active,
-                        );
-                    }
-
-                    println!(
-                        "Background model: {}/{} ({})",
-                        candidate.provider, candidate.model, candidate.kind
-                    );
-                }
-                background_runtime::BackgroundDiscovery::Disabled(reason) => {
-                    let mut manager = background_manager_for_init.lock().await;
-                    manager.stop().await;
-                    manager.disable();
-                    drop(manager);
-
-                    if let Ok(mut status) = background_status_for_init.lock() {
-                        *status = background_runtime::BackgroundStatusSnapshot::disabled(
-                            background_cfg.background.interval_seconds,
-                            &reason,
-                        );
-                    }
-
-                    println!("Background model: disabled ({reason})");
-                }
-            }
-        });
+        spawn_background_discovery(
+            forja_cfg.clone(),
+            background_home_dir.clone(),
+            background_manager.clone(),
+            background_status.clone(),
+        );
     }
 
     // Channel setup
-    let (channel, interactive_identity_supported, print_initial_prompt): (
+    let (channel, interactive_identity_supported, _print_initial_prompt): (
         Arc<dyn Channel>,
         bool,
         bool,
@@ -1408,6 +1452,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let skill_loader_for_slash = skill_loader.clone();
     let memory_store_for_slash = memory_store.clone();
     let background_manager_for_slash = background_manager.clone();
+    let background_status_for_slash = background_status.clone();
+    let background_home_dir_for_slash = background_home_dir.clone();
     let main_provider_handle_for_slash = main_provider_handle.clone();
     let notification_router_for_slash = notification_router.clone();
     #[cfg(feature = "tui")]
@@ -1708,6 +1754,28 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             "Agent is not configured or no background provider is active.".to_string()
                         };
                         forja_core::engine::SlashCommandResult::Reply(reply)
+                    }
+                    AgentCommand::Retry => {
+                        let mut retry_cfg = cfg_for_handler.clone();
+                        if retry_cfg.background.provider.eq_ignore_ascii_case("off") {
+                            retry_cfg.background.provider = "auto".to_string();
+                            retry_cfg.background.model.clear();
+                        }
+                        if let Ok(mut status) = background_status_for_slash.lock() {
+                            *status = background_runtime::BackgroundStatusSnapshot::disabled(
+                                retry_cfg.background.interval_seconds,
+                                "retrying",
+                            );
+                        }
+                        spawn_background_discovery(
+                            retry_cfg,
+                            background_home_dir_for_slash.clone(),
+                            background_manager_for_slash.clone(),
+                            background_status_for_slash.clone(),
+                        );
+                        forja_core::engine::SlashCommandResult::Reply(
+                            "Background discovery retry started.".to_string(),
+                        )
                     }
                 });
             }
@@ -2037,8 +2105,55 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         },
     );
 
-    let identity_name = bootstrap_outcome.profile.identity.assistant_name.clone();
-    let displayed_greeting = bootstrap_outcome.greeting;
+    let memory_entries = LongTermStore::new(longterm_path(&memory_base_dir, None))
+        .await?
+        .load()
+        .await
+        .unwrap_or_default();
+    let mut emotion_memory = String::new();
+    let mut last_memory_date = None;
+    for entry in &memory_entries {
+        let current_date = entry.timestamp.format("%Y-%m-%d").to_string();
+        if last_memory_date.as_deref() != Some(current_date.as_str()) {
+            if !emotion_memory.is_empty() {
+                emotion_memory.push('\n');
+            }
+            emotion_memory.push_str(&format!("--- {current_date} ---\n"));
+            last_memory_date = Some(current_date);
+        }
+        emotion_memory.push_str(&format!("{} | memory\n", entry.timestamp.format("%H:%M")));
+    }
+    let startup_signals =
+        EmotionEngine::new().detect_signals(&[], &emotion_memory, chrono::Local::now());
+    let startup_prompt = build_startup_greeting_prompt(
+        &assistant_name,
+        &user_name,
+        &bootstrap_outcome.profile.identity.tone,
+        &bootstrap_outcome.profile.identity.language,
+        &startup_signals,
+    );
+    let startup_greeting = {
+        let provider = main_provider_handle
+            .lock()
+            .map(|provider| provider.clone())
+            .unwrap_or_else(|_| provider.clone());
+        let generated = provider
+            .chat(&[Message::text(Role::User, &startup_prompt, None)], None)
+            .await
+            .ok()
+            .and_then(|response| match response.content {
+                Content::Text { text, .. } => Some(text.trim().to_string()),
+                _ => None,
+            })
+            .filter(|text| !text.is_empty() && !text.eq_ignore_ascii_case("none"));
+
+        generated.unwrap_or_else(|| {
+            fallback_startup_greeting(
+                &bootstrap_outcome.profile.identity.user_name,
+                &bootstrap_outcome.profile.identity.language,
+            )
+        })
+    };
     let mut engine = engine
         .with_memory(Arc::new(memory_store.clone()))
         .with_slash_handler(slash_handler);
@@ -2051,14 +2166,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     println!("[System] Assistant: {assistant_name}");
     println!("[System] Engine is ready. Type /models to list models, /model <name> to switch.");
-    if let Some(greeting) = displayed_greeting {
-        println!();
-        println!("{identity_name}: {greeting}");
+    if let Err(error) = channel
+        .send(Message::text(Role::Assistant, &startup_greeting, None))
+        .await
+    {
+        eprintln!("[WARN] Startup greeting delivery failed: {error}");
+        println!("\n🤖 Assistant: {startup_greeting}\n");
     }
-    if print_initial_prompt {
-        print!("\n> ");
-        std::io::stdout().flush().ok();
-    }
+    record_system_history(&memory_store, "startup_greeting", &startup_greeting).await;
 
     engine
         .run_streaming(async {
@@ -2075,13 +2190,44 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::has_tui_flag;
+    use super::{build_startup_greeting_prompt, fallback_startup_greeting, has_tui_flag};
 
     #[test]
     fn detects_tui_flag_in_argument_list() {
         let args = vec!["forja".to_string(), "--tui".to_string()];
         assert!(has_tui_flag(&args));
         assert!(!has_tui_flag(&["forja".to_string()]));
+    }
+
+    #[test]
+    fn fallback_startup_greeting_uses_english_for_default_language() {
+        assert_eq!(
+            fallback_startup_greeting("User", "auto"),
+            "Hello, User. How can I help today?"
+        );
+    }
+
+    #[test]
+    fn fallback_startup_greeting_uses_korean_when_identity_requests_it() {
+        assert_eq!(
+            fallback_startup_greeting("User", "ko"),
+            "\u{C548}\u{B155}\u{D558}\u{C138}\u{C694}, User\u{B2D8}. \u{BB34}\u{C5C7}\u{C744} \u{B3C4}\u{C640}\u{B4DC}\u{B9B4}\u{AE4C}\u{C694}?"
+        );
+    }
+
+    #[test]
+    fn startup_greeting_prompt_includes_active_emotion_signals() {
+        let prompt = build_startup_greeting_prompt(
+            "Forja",
+            "User",
+            "friendly",
+            "en",
+            &["first_session_today".to_string(), "long_absence_detected".to_string()],
+        );
+
+        assert!(prompt.contains("first_session_today"));
+        assert!(prompt.contains("long_absence_detected"));
+        assert!(prompt.contains("Write one natural greeting sentence."));
     }
 }
 
