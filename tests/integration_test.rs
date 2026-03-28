@@ -1,3 +1,4 @@
+use forja_core::intent::{BackgroundCmd, InternalCommand, detect_intent};
 use forja_core::mode::{parse_slash_command, ExecMode, ModeState, Role, SlashCommand, ThinkLevel};
 use forja_core::prompt::assemble_system_prompt;
 use forja_core::prompt::loader::{DEFAULT_BASE, PromptLoader};
@@ -201,4 +202,56 @@ fn exec_mode_confirmation_behavior_matches_mode_and_command_risk() {
 fn dangerous_command_checker_matches_expected_patterns() {
     assert!(is_dangerous_command("rm -rf /"));
     assert!(!is_dangerous_command("ls -la"));
+}
+
+#[test]
+fn detect_intent_maps_safe_mode_request() {
+    assert_eq!(
+        detect_intent("switch to safe mode"),
+        Some(InternalCommand::Mode(ExecMode::Safe))
+    );
+}
+
+#[test]
+fn detect_intent_maps_korean_screenshot_request() {
+    assert_eq!(
+        detect_intent("\u{D654}\u{BA74} \u{CEA1}\u{CCD0}\u{D574}\u{C918}"),
+        Some(InternalCommand::Screenshot(None))
+    );
+}
+
+#[test]
+fn detect_intent_maps_deep_thinking_request() {
+    assert_eq!(
+        detect_intent("think deeply about this"),
+        Some(InternalCommand::Think(ThinkLevel::Max))
+    );
+}
+
+#[test]
+fn detect_intent_avoids_false_positive_for_safe_mode_discussion() {
+    assert_eq!(detect_intent("I wrote code for safe mode"), None);
+}
+
+#[test]
+fn detect_intent_returns_none_for_normal_chat() {
+    assert_eq!(detect_intent("hello how are you"), None);
+}
+
+#[test]
+fn detect_intent_maps_korean_coder_role_request() {
+    assert_eq!(
+        detect_intent(
+            "\u{CF54}\u{B529} \u{BAA8}\u{B4DC}\u{B85C} \u{C804}\u{D658}\u{D574}\u{C918}"
+        ),
+        Some(InternalCommand::Role(Role::Coder))
+    );
+}
+
+#[test]
+fn detect_intent_maps_background_status_request() {
+    assert_eq!(
+        detect_intent("background status"),
+        Some(InternalCommand::Background(BackgroundCmd::Status))
+    );
 }

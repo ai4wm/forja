@@ -2,6 +2,7 @@
 pub mod background;
 pub mod engine;
 pub mod emotion;
+pub mod intent;
 #[cfg(feature = "runtime")]
 pub mod scheduler;
 pub mod error;

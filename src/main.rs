@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use forja_core::emotion::EmotionEngine;
 use forja_core::error::{ForjaError, Result};
+use forja_core::intent::{BackgroundCmd, InternalCommand, detect_intent};
 use forja_core::mode::{
     ExecMode, ModeState, Role as ModeRole, SlashCommand, ThinkLevel, detect_image_path,
     parse_image_command, parse_screenshot_command, parse_slash_command,
@@ -330,6 +331,50 @@ fn role_label(role: ModeRole) -> &'static str {
         ModeRole::Analyst => "analyst",
         ModeRole::Default => "default",
     }
+}
+
+fn internal_command_to_input(command: &InternalCommand) -> String {
+    match command {
+        InternalCommand::Mode(ExecMode::Safe) => "/mode safe".to_string(),
+        InternalCommand::Mode(ExecMode::Auto) => "/mode auto".to_string(),
+        InternalCommand::Mode(ExecMode::Trust) => "/mode trust".to_string(),
+        InternalCommand::Think(ThinkLevel::Min) => "/think min".to_string(),
+        InternalCommand::Think(ThinkLevel::Mid) => "/think mid".to_string(),
+        InternalCommand::Think(ThinkLevel::Max) => "/think max".to_string(),
+        InternalCommand::Role(ModeRole::Coder) => "/role coder".to_string(),
+        InternalCommand::Role(ModeRole::Writer) => "/role writer".to_string(),
+        InternalCommand::Role(ModeRole::Assistant) => "/role assistant".to_string(),
+        InternalCommand::Role(ModeRole::Analyst) => "/role analyst".to_string(),
+        InternalCommand::Role(ModeRole::Auto) | InternalCommand::Role(ModeRole::Default) => {
+            "/role auto".to_string()
+        }
+        InternalCommand::Screenshot(Some(prompt)) => format!("/ss {prompt}"),
+        InternalCommand::Screenshot(None) => "/ss".to_string(),
+        InternalCommand::Help => "/help".to_string(),
+        InternalCommand::Models => "/models".to_string(),
+        InternalCommand::Model(model) => format!("/model {model}"),
+        InternalCommand::Background(BackgroundCmd::Status) => "/background".to_string(),
+        InternalCommand::Background(BackgroundCmd::Off) => "/background off".to_string(),
+        InternalCommand::Background(BackgroundCmd::Auto) => "/background auto".to_string(),
+    }
+}
+
+fn help_text() -> String {
+    [
+        "Available commands:",
+        "/mode <safe|auto|trust>",
+        "/think <min|mid|max>",
+        "/role <coder|writer|assistant|analyst|auto>",
+        "/models",
+        "/model <name>",
+        "/ss [prompt]",
+        "/image <path> [prompt]",
+        "/background",
+        "/background off",
+        "/background auto",
+        "/identity",
+    ]
+    .join("\n")
 }
 
 fn load_image_base64(path: &Path) -> std::io::Result<String> {
@@ -844,7 +889,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let background_home_dir_for_slash = background_home_dir.clone();
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(
         move |text: &str, provider: &mut Arc<dyn LlmProvider>, mode_state: &mut ModeState| {
-            let text = text.trim();
+            let original_text = text.trim();
+            let mapped_text = if original_text.starts_with('/') {
+                None
+            } else {
+                detect_intent(original_text).map(|command| internal_command_to_input(&command))
+            };
+            let text = mapped_text.as_deref().unwrap_or(original_text);
 
             if vision_enabled_for_slash {
                 if let Some(prompt) = parse_screenshot_command(text) {
@@ -972,6 +1023,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 return Some(forja_core::engine::SlashCommandResult::Reply(
                     reg.list_for_config(&cfg_for_handler),
                 ));
+            }
+
+            if text == "/help" {
+                return Some(forja_core::engine::SlashCommandResult::Reply(help_text()));
             }
 
             if text == "/background" {
