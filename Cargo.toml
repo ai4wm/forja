@@ -16,7 +16,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/ai4wm/forja"
 
 [dependencies]
-forja-core = { version = "0.1.1", path = "crates/forja-core", features = ["runtime", "memory"] }
+forja-core = { version = "0.2.0", path = "crates/forja-core", features = ["runtime", "memory"] }
 forja-llm  = { version = "0.2.0", path = "crates/forja-llm" }
 forja-memory = { version = "0.2.0", path = "crates/forja-memory" }
 forja-tools = { version = "0.2.0", path = "crates/forja-tools", default-features = false }
@@ -45,5 +45,6 @@ telegram = ["forja-channel/telegram"]
 discord = ["forja-channel/discord"]
 vision = ["forja-tools/vision"]
 tui = ["forja-channel/tui"]
+
 
 
