@@ -112,6 +112,18 @@ pub struct BackgroundSection {
     pub model: String,
     #[serde(default = "default_background_interval_seconds")]
     pub interval_seconds: u64,
+    #[serde(default = "default_true")]
+    pub watch_files: bool,
+    #[serde(default = "default_true")]
+    pub watch_system: bool,
+    #[serde(default = "default_true")]
+    pub watch_git: bool,
+    #[serde(default = "default_idle_threshold_minutes")]
+    pub idle_threshold_minutes: u64,
+    #[serde(default = "default_true")]
+    pub auto_fix: bool,
+    #[serde(default = "default_background_log_path")]
+    pub log_path: String,
 }
 
 impl Default for BackgroundSection {
@@ -120,6 +132,12 @@ impl Default for BackgroundSection {
             provider: default_background_provider(),
             model: String::new(),
             interval_seconds: default_background_interval_seconds(),
+            watch_files: default_true(),
+            watch_system: default_true(),
+            watch_git: default_true(),
+            idle_threshold_minutes: default_idle_threshold_minutes(),
+            auto_fix: default_true(),
+            log_path: default_background_log_path(),
         }
     }
 }
@@ -155,6 +173,18 @@ fn default_background_provider() -> String {
 
 fn default_background_interval_seconds() -> u64 {
     30
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_idle_threshold_minutes() -> u64 {
+    30
+}
+
+fn default_background_log_path() -> String {
+    "~/.forja/logs/agent.log".to_string()
 }
 
 // Path helpers
@@ -552,18 +582,30 @@ mod tests {
         assert_eq!(config.background.provider, "auto");
         assert_eq!(config.background.model, "");
         assert_eq!(config.background.interval_seconds, 30);
+        assert!(config.background.watch_files);
+        assert!(config.background.watch_system);
+        assert!(config.background.watch_git);
+        assert_eq!(config.background.idle_threshold_minutes, 30);
+        assert!(config.background.auto_fix);
+        assert_eq!(config.background.log_path, "~/.forja/logs/agent.log");
     }
 
     #[test]
     fn background_section_deserializes_explicit_values() {
         let config: ForjaConfig = toml::from_str(
-            "[background]\nprovider = \"groq\"\nmodel = \"llama-3.1-8b-instant\"\ninterval_seconds = 45\n",
+            "[background]\nprovider = \"groq\"\nmodel = \"llama-3.1-8b-instant\"\ninterval_seconds = 45\nwatch_files = false\nwatch_system = false\nwatch_git = true\nidle_threshold_minutes = 10\nauto_fix = false\nlog_path = \"C:/temp/agent.log\"\n",
         )
         .unwrap();
 
         assert_eq!(config.background.provider, "groq");
         assert_eq!(config.background.model, "llama-3.1-8b-instant");
         assert_eq!(config.background.interval_seconds, 45);
+        assert!(!config.background.watch_files);
+        assert!(!config.background.watch_system);
+        assert!(config.background.watch_git);
+        assert_eq!(config.background.idle_threshold_minutes, 10);
+        assert!(!config.background.auto_fix);
+        assert_eq!(config.background.log_path, "C:/temp/agent.log");
     }
 
     #[test]

@@ -4,8 +4,8 @@ Last updated: 2026-03-29
 
 ## Task Record
 
-- Changed files: `crates/forja-core/Cargo.toml`, `crates/forja-core/src/lib.rs`, `crates/forja-core/src/skill.rs`, `crates/forja-core/src/skill_eval.rs`, `crates/forja-core/src/skill_improve.rs`, `src/main.rs`, `tests/integration_test.rs`, `examples/skills/hello-world/SKILL.md`, `examples/skills/git-summary/SKILL.md`, `docs/STATUS.md`
-- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; decide whether eval results should be persisted to a dedicated skill history file in addition to MemoryManager; expand direct integration coverage for `/skill eval`, `/skill improve`, and `/skill benchmark`; decide whether benchmark output should retain per-case breakdowns or only aggregate stats
+- Changed files: `crates/forja-core/src/events.rs`, `crates/forja-core/src/watchers.rs`, `crates/forja-core/src/decision.rs`, `crates/forja-core/src/background.rs`, `crates/forja-core/src/lib.rs`, `src/background_runtime.rs`, `src/config.rs`, `src/main.rs`, `docs/STATUS.md`
+- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; decide whether watcher polling should gain debounce/backoff behavior; add direct integration coverage for `/agent status`, `/agent logs`, `/agent pause`, and `/agent resume`; consider whether autonomous auto-fix should emit richer structured reports back to the user
 - Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo clippy --workspace -- -D warnings`
 
 ## Feature Status
@@ -45,6 +45,13 @@ Last updated: 2026-03-29
 | Skill system (eval) | Done | `crates/forja-core/src/skill_eval.rs`, `crates/forja-core/src/skill.rs`, `src/main.rs`, `tests/integration_test.rs` | Skills can now load structured test cases and run rule-based evaluations through callback-backed script execution. |
 | Skill system (improve) | Done | `crates/forja-core/src/skill_improve.rs`, `src/main.rs`, `tests/integration_test.rs` | Improvement suggestions are generated from eval failures without LLM calls and are recorded through the memory layer. |
 | Skill system (benchmark) | Done | `crates/forja-core/src/skill_eval.rs`, `src/main.rs`, `tests/integration_test.rs` | Benchmark runs aggregate pass rate and timing statistics across repeated evaluations. |
+| Event system | Done | `crates/forja-core/src/events.rs`, `crates/forja-core/src/background.rs` | Background events, severity classification, and a thread-safe event queue are implemented. |
+| File/System/Git/Idle watchers | Done | `crates/forja-core/src/watchers.rs`, `crates/forja-core/src/background.rs` | Polling-based watchers feed file, system, git, and idle events into the autonomous agent queue. |
+| Decision engine | Done | `crates/forja-core/src/decision.rs`, `crates/forja-core/src/background.rs` | Autonomous decisions are derived from event severity, ExecMode, and safe auto-fix rules. |
+| Autonomous loop | Done | `crates/forja-core/src/background.rs`, `src/main.rs` | The background agent drains events, logs/report/escalates them, and respects pause/resume plus ExecMode. |
+| Escalation bridge | Done | `crates/forja-core/src/background.rs`, `src/main.rs`, `crates/forja-memory/src/lib.rs` | Escalations are sent to the main model through an action channel, user-facing responses are delivered with `[Agent]`, and both sides are recorded in memory. |
+| `/agent` commands | Done | `crates/forja-core/src/background.rs`, `src/main.rs` | `/agent status`, `/agent logs [n]`, `/agent pause`, and `/agent resume` are implemented, with `/background` aliased to the agent controls. |
+| Agent log | Done | `crates/forja-core/src/background.rs`, `src/config.rs` | Append-only agent logging is written to the configured background log path and can be tailed from slash commands. |
 | Background model manager | Done | `crates/forja-core/src/background.rs`, `src/background_runtime.rs`, `src/main.rs` | Background manager start/stop/status handling is implemented, and startup auto-discovery runs without blocking the foreground engine. |
 | Groq provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | Groq is available through the OpenAI-compatible client path and can be selected with registry-backed models. |
 | OpenRouter provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | OpenRouter is available through the OpenAI-compatible client path with curated free-model registry entries and background-model probing support. |

@@ -18,6 +18,9 @@ use forja_core::skill::{
     Skill, SkillLoader, clear_active_skill_context, default_skills_dir, set_active_skill_context,
     set_skill_catalog_summary,
 };
+use forja_core::background::{
+    AgentAction, AgentCommand, AgentStatusSnapshot, BackgroundAgentOptions, parse_agent_command,
+};
 use forja_core::skill_eval::{
     BenchmarkResult, EvalResult, SkillAction, benchmark_skill, eval_skill, parse_skill_action,
 };
@@ -48,6 +51,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt};
 
 // Mock LLM used for local testing without a real API key.
@@ -138,11 +142,20 @@ impl LlmProvider for MockLlmProvider {
 struct MemoryAwareChannel {
     inner: Arc<dyn Channel>,
     memory_store: MemoryManagerStore,
+    background_manager: Option<Arc<tokio::sync::Mutex<BackgroundManager>>>,
 }
 
 impl MemoryAwareChannel {
-    fn new(inner: Arc<dyn Channel>, memory_store: MemoryManagerStore) -> Self {
-        Self { inner, memory_store }
+    fn new(
+        inner: Arc<dyn Channel>,
+        memory_store: MemoryManagerStore,
+        background_manager: Option<Arc<tokio::sync::Mutex<BackgroundManager>>>,
+    ) -> Self {
+        Self {
+            inner,
+            memory_store,
+            background_manager,
+        }
     }
 }
 
@@ -154,6 +167,9 @@ impl CoreChannelTrait for MemoryAwareChannel {
             && message.role == Role::User
         {
             self.memory_store.set_current_query(text.clone());
+            if let Some(background_manager) = &self.background_manager {
+                background_manager.lock().await.record_user_activity();
+            }
         }
         Ok(message)
     }
@@ -445,6 +461,23 @@ fn memory_stats_text(stats: &forja_memory::manager::MemoryStats) -> String {
     )
 }
 
+fn agent_status_text(snapshot: &AgentStatusSnapshot) -> String {
+    let mut lines = vec![
+        "Agent status:".to_string(),
+        format!("- Running: {}", snapshot.running),
+        format!("- Paused: {}", snapshot.paused),
+        format!("- Event queue length: {}", snapshot.queue_len),
+        format!("- Watchers: {}", snapshot.watchers.join(", ")),
+    ];
+    if snapshot.last_events.is_empty() {
+        lines.push("- Last events: none".to_string());
+    } else {
+        lines.push("- Last events:".to_string());
+        lines.extend(snapshot.last_events.iter().map(|event| format!("  - {event}")));
+    }
+    lines.join("\n")
+}
+
 fn eval_result_text(skill_name: &str, result: &EvalResult) -> String {
     let mut lines = vec![format!(
         "[eval] {skill_name}: {}/{} passed ({}ms)",
@@ -509,6 +542,26 @@ async fn record_skill_history(
         timestamp,
         tags: vec!["system".to_string()],
         content: format!("[skill:{category}:{skill_name}] {text}"),
+        score: 0.0,
+        metadata: Default::default(),
+    };
+    let _ = memory_store.save(&entry).await;
+}
+
+async fn record_system_history(
+    memory_store: &MemoryManagerStore,
+    category: &str,
+    text: &str,
+) {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let entry = forja_core::types::MemoryEntry {
+        id: format!("system_{category}_{timestamp}"),
+        timestamp,
+        tags: vec!["system".to_string()],
+        content: format!("[system:{category}] {text}"),
         score: 0.0,
         metadata: Default::default(),
     };
@@ -883,6 +936,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let think_level = parse_think_level();
     let mode_state = ModeState::new(exec_mode, think_level, ModeRole::Auto);
     let exec_mode_handle = Arc::new(std::sync::Mutex::new(exec_mode));
+    let main_provider_handle = Arc::new(std::sync::Mutex::new(provider.clone()));
     let background_interval = forja_cfg.background.interval_seconds;
     let background_manager = Arc::new(tokio::sync::Mutex::new(BackgroundManager::new(
         background_interval,
@@ -898,7 +952,28 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| bootstrap_paths.forja_dir.clone());
+    let background_log_path = if let Some(stripped) = forja_cfg.background.log_path.strip_prefix("~/") {
+        background_home_dir.join(stripped)
+    } else {
+        Path::new(&forja_cfg.background.log_path).to_path_buf()
+    };
     let _ = forja_llm::ensure_models_dir(&background_home_dir);
+    let agent_cwd = std::env::current_dir().unwrap_or_else(|_| Path::new(".").to_path_buf());
+    let (agent_action_tx, mut agent_action_rx) = mpsc::unbounded_channel::<AgentAction>();
+    {
+        let mut manager = background_manager.lock().await;
+        manager.configure_agent(BackgroundAgentOptions {
+            watch_files: forja_cfg.background.watch_files,
+            watch_system: forja_cfg.background.watch_system,
+            watch_git: forja_cfg.background.watch_git,
+            idle_threshold_minutes: forja_cfg.background.idle_threshold_minutes,
+            auto_fix: forja_cfg.background.auto_fix,
+            cwd: agent_cwd,
+            log_path: background_log_path,
+        });
+        manager.set_action_sender(agent_action_tx.clone());
+        manager.set_exec_mode_handle(exec_mode_handle.clone());
+    }
 
     if forja_cfg.background.provider.eq_ignore_ascii_case("off") {
         if let Ok(mut status) = background_status.lock() {
@@ -1008,7 +1083,63 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let memory_base_dir = default_memory_base_dir();
     let memory_store = MemoryManagerStore::new(&memory_base_dir, None).await?;
     memory_store.load().await?;
-    let channel: Arc<dyn Channel> = Arc::new(MemoryAwareChannel::new(channel.clone(), memory_store.clone()));
+    let channel: Arc<dyn Channel> = Arc::new(MemoryAwareChannel::new(
+        channel.clone(),
+        memory_store.clone(),
+        Some(background_manager.clone()),
+    ));
+    {
+        let channel_for_agent = channel.clone();
+        let memory_store_for_agent = memory_store.clone();
+        let main_provider_for_agent = main_provider_handle.clone();
+        let fallback_provider = provider.clone();
+        tokio::spawn(async move {
+            while let Some(action) = agent_action_rx.recv().await {
+                match action {
+                    AgentAction::Report(message) => {
+                        let reply = format!("[Agent] {message}");
+                        let _ = channel_for_agent
+                            .send(Message::text(Role::Assistant, &reply, None))
+                            .await;
+                        record_system_history(&memory_store_for_agent, "agent_report", &reply).await;
+                    }
+                    AgentAction::Escalate { context, question } => {
+                        let prompt = forja_core::background::format_escalation_prompt(
+                            &context,
+                            &question,
+                        );
+                        record_system_history(
+                            &memory_store_for_agent,
+                            "agent_escalation",
+                            &prompt,
+                        )
+                        .await;
+                        let provider = main_provider_for_agent
+                            .lock()
+                            .map(|provider| provider.clone())
+                            .unwrap_or_else(|_| fallback_provider.clone());
+                        let response = provider
+                            .chat(&[Message::text(Role::User, &prompt, None)], None)
+                            .await;
+                        let response_text = match response {
+                            Ok(Message {
+                                content: Content::Text { text, .. },
+                                ..
+                            }) => text,
+                            Ok(_) => "Escalation returned a non-text response.".to_string(),
+                            Err(error) => format!("Escalation failed: {error}"),
+                        };
+                        let reply = format!("[Agent] {response_text}");
+                        let _ = channel_for_agent
+                            .send(Message::text(Role::Assistant, &reply, None))
+                            .await;
+                        record_system_history(&memory_store_for_agent, "agent_response", &reply)
+                            .await;
+                    }
+                }
+            }
+        });
+    }
 
     // System prompt setup
     let mut engine = Engine::new(provider.clone(), channel.clone());
@@ -1160,8 +1291,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let skill_loader_for_slash = skill_loader.clone();
     let memory_store_for_slash = memory_store.clone();
     let background_manager_for_slash = background_manager.clone();
-    let background_status_for_slash = background_status.clone();
-    let background_home_dir_for_slash = background_home_dir.clone();
+    let main_provider_handle_for_slash = main_provider_handle.clone();
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(
         move |text: &str, provider: &mut Arc<dyn LlmProvider>, mode_state: &mut ModeState| {
             let original_text = text.trim();
@@ -1307,6 +1437,60 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
             if text == "/help" {
                 return Some(forja_core::engine::SlashCommandResult::Reply(help_text()));
+            }
+
+            if let Some(agent_command) = parse_agent_command(text) {
+                return Some(match agent_command {
+                    AgentCommand::Status => {
+                        let snapshot = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                background_manager_for_slash.lock().await.status_snapshot()
+                            })
+                        });
+                        forja_core::engine::SlashCommandResult::Reply(agent_status_text(&snapshot))
+                    }
+                    AgentCommand::Logs(count) => {
+                        let logs = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                background_manager_for_slash.lock().await.get_recent_logs(count)
+                            })
+                        });
+                        let reply = if logs.is_empty() {
+                            "No agent logs available.".to_string()
+                        } else {
+                            logs.join("\n")
+                        };
+                        forja_core::engine::SlashCommandResult::Reply(reply)
+                    }
+                    AgentCommand::Pause => {
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                background_manager_for_slash.lock().await.pause();
+                            })
+                        });
+                        forja_core::engine::SlashCommandResult::Reply(
+                            "Agent loop paused.".to_string(),
+                        )
+                    }
+                    AgentCommand::Resume => {
+                        let resumed = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                let manager = background_manager_for_slash.lock().await;
+                                if !manager.is_enabled() {
+                                    return false;
+                                }
+                                manager.resume();
+                                true
+                            })
+                        });
+                        let reply = if resumed {
+                            "Agent loop resumed.".to_string()
+                        } else {
+                            "Agent is not configured or no background provider is active.".to_string()
+                        };
+                        forja_core::engine::SlashCommandResult::Reply(reply)
+                    }
+                });
             }
 
             if let Some(memory_command) = parse_memory_command(text) {
@@ -1545,108 +1729,6 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            if text == "/background" {
-                let mut snapshot = background_status_for_slash
-                    .lock()
-                    .map(|status| status.clone())
-                    .unwrap_or_else(|_| {
-                        background_runtime::BackgroundStatusSnapshot::disabled(
-                            cfg_for_handler.background.interval_seconds,
-                            "status unavailable",
-                        )
-                    });
-                let active = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        background_manager_for_slash.lock().await.is_active()
-                    })
-                });
-                snapshot.active = active;
-                return Some(forja_core::engine::SlashCommandResult::Reply(
-                    snapshot.message(),
-                ));
-            }
-
-            if text == "/background off" {
-                tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        let mut manager = background_manager_for_slash.lock().await;
-                        manager.stop().await;
-                        manager.disable();
-                    })
-                });
-
-                let reply = "Background model: disabled (disabled by command)".to_string();
-                if let Ok(mut status) = background_status_for_slash.lock() {
-                    *status = background_runtime::BackgroundStatusSnapshot::disabled(
-                        cfg_for_handler.background.interval_seconds,
-                        "disabled by command",
-                    );
-                }
-                return Some(forja_core::engine::SlashCommandResult::Reply(reply));
-            }
-
-            if text == "/background auto" {
-                let mut auto_cfg = cfg_for_handler.clone();
-                auto_cfg.background.provider = "auto".to_string();
-                auto_cfg.background.model.clear();
-                let discovery = tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(
-                        background_runtime::discover_background_provider(
-                            &auto_cfg,
-                            &background_home_dir_for_slash,
-                        ),
-                    )
-                });
-
-                return Some(match discovery {
-                    background_runtime::BackgroundDiscovery::Selected { candidate, provider } => {
-                        tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                let mut manager = background_manager_for_slash.lock().await;
-                                background_runtime::apply_background_candidate(
-                                    &mut manager,
-                                    &candidate,
-                                    provider,
-                                    cfg_for_handler.background.interval_seconds,
-                                )
-                                .await;
-                            })
-                        });
-
-                        if let Ok(mut status) = background_status_for_slash.lock() {
-                            *status = background_runtime::BackgroundStatusSnapshot::selected(
-                                &candidate,
-                                cfg_for_handler.background.interval_seconds,
-                                true,
-                            );
-                        }
-
-                        forja_core::engine::SlashCommandResult::Reply(format!(
-                            "Background model: {}/{} ({})",
-                            candidate.provider, candidate.model, candidate.kind
-                        ))
-                    }
-                    background_runtime::BackgroundDiscovery::Disabled(reason) => {
-                        tokio::task::block_in_place(|| {
-                            tokio::runtime::Handle::current().block_on(async {
-                                let mut manager = background_manager_for_slash.lock().await;
-                                manager.stop().await;
-                                manager.disable();
-                            })
-                        });
-                        if let Ok(mut status) = background_status_for_slash.lock() {
-                            *status = background_runtime::BackgroundStatusSnapshot::disabled(
-                                cfg_for_handler.background.interval_seconds,
-                                &reason,
-                            );
-                        }
-                        forja_core::engine::SlashCommandResult::Reply(format!(
-                            "Background model: disabled ({reason})"
-                        ))
-                    }
-                });
-            }
-
             if text == "/model" {
                 let reg = registry.lock().unwrap();
                 let e = reg.active();
@@ -1679,7 +1761,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             }
                             Ok(client) => {
                                 let entry = reg.active();
-                                *provider = Arc::new(client);
+                                let client: Arc<dyn LlmProvider> = Arc::new(client);
+                                *provider = client.clone();
+                                if let Ok(mut main_provider) = main_provider_handle_for_slash.lock() {
+                                    *main_provider = client.clone();
+                                }
                                 return Some(forja_core::engine::SlashCommandResult::Reply(
                                     format!(
                                         "✅ Switched model: **{}** ({}/{})",

@@ -59,6 +59,7 @@ impl BackgroundStatusSnapshot {
         }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn message(&self) -> String {
         if self.provider == "disabled" {
             return format!(
