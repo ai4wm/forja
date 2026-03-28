@@ -1486,7 +1486,7 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "forja"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1514,7 +1514,7 @@ dependencies = [
 
 [[package]]
 name = "forja-channel"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "crossterm",
@@ -1544,7 +1544,7 @@ dependencies = [
 
 [[package]]
 name = "forja-llm"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1559,7 +1559,7 @@ dependencies = [
 
 [[package]]
 name = "forja-memory"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1572,7 +1572,7 @@ dependencies = [
 
 [[package]]
 name = "forja-tools"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

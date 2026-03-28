@@ -1,6 +1,6 @@
 [package]
 name = "forja-llm"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Multi-provider LLM connector for Forja framework"
 license = "MIT OR Apache-2.0"
@@ -24,4 +24,5 @@ anthropic = ["dep:reqwest-eventsource"]
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+
 

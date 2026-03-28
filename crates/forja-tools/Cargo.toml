@@ -1,6 +1,6 @@
 [package]
 name = "forja-tools"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Tool execution and function calling toolkit for Forja framework"
 license = "MIT OR Apache-2.0"
@@ -24,4 +24,5 @@ image = { version = "0.25", optional = true }
 [features]
 default = ["vision"]
 vision = ["dep:xcap", "dep:image"]
+
 

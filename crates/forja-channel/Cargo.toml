@@ -1,6 +1,6 @@
 [package]
 name = "forja-channel"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Multi-platform asynchronous I/O channels for Forja"
 license = "MIT OR Apache-2.0"
@@ -22,5 +22,6 @@ teloxide = { version = "0.13", features = ["macros", "rustls"], optional = true 
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"], optional = true }
 ratatui = { version = "0.29", optional = true }
 crossterm = { version = "0.28", optional = true }
+
 
 
