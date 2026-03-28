@@ -40,6 +40,14 @@ pub static MODEL_TABLE: &[ModelEntry] = &[
     ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-pro",         label: "Gemini 2.5 Pro (CLI subscription)",   aliases: &["gempro"] },
     ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-flash",       label: "Gemini 2.5 Flash (CLI subscription)",  aliases: &["gemflash"] },
 
+    // Groq
+    ModelEntry { provider: "groq",         model_id: "llama-3.1-8b-instant",   label: "Llama 3.1 8B Instant (free)",  aliases: &["groq", "groq-llama"] },
+    ModelEntry { provider: "groq",         model_id: "gemma2-9b-it",           label: "Gemma 2 9B IT (free)",         aliases: &["groq-gemma"] },
+
+    // OpenRouter
+    ModelEntry { provider: "openrouter",   model_id: "meta-llama/llama-3.1-8b-instruct:free", label: "Llama 3.1 8B Instruct (free)", aliases: &["or-llama-free"] },
+    ModelEntry { provider: "openrouter",   model_id: "google/gemma-2-9b-it:free",             label: "Gemma 2 9B IT (free)",         aliases: &["or-gemma-free"] },
+
     // DeepSeek
     ModelEntry { provider: "deepseek",     model_id: "deepseek-chat",          label: "DeepSeek V3.2 (API paid)",   aliases: &["ds"] },
     ModelEntry { provider: "deepseek",     model_id: "deepseek-reasoner",      label: "DeepSeek R1 (API paid)",     aliases: &["dsr"] },
@@ -135,6 +143,16 @@ impl ProviderRegistry {
         let input = input.trim().to_lowercase();
         let auth = crate::oauth::AuthData::load();
 
+        if let Some((provider, model)) = input.split_once('/')
+            && let Some((idx, _)) = MODEL_TABLE.iter().enumerate().find(|(_, e)| {
+                e.provider == provider
+                    && e.model_id == model
+                    && Self::is_provider_available(e.provider, cfg, &auth)
+            })
+        {
+            return Some(idx);
+        }
+
         #[allow(clippy::collapsible_if)]
         if let Ok(n) = input.parse::<usize>() {
             let mut available_count = 0;
@@ -172,6 +190,43 @@ impl ProviderRegistry {
         let lc = llm_config_from(&tmp)?;
         self.active_idx = idx;
         Ok(lc)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn configured() -> ForjaConfig {
+        let mut cfg = ForjaConfig::default();
+        cfg.keys.groq = Some("groq-key".to_string());
+        cfg.keys.openrouter = Some("or-key".to_string());
+        cfg
+    }
+
+    #[test]
+    fn resolve_accepts_provider_slash_model_for_groq() {
+        let cfg = configured();
+        let registry = ProviderRegistry::from_config(&cfg);
+
+        let idx = registry
+            .resolve("groq/llama-3.1-8b-instant", &cfg)
+            .expect("groq direct target should resolve");
+
+        assert_eq!(MODEL_TABLE[idx].provider, "groq");
+        assert_eq!(MODEL_TABLE[idx].model_id, "llama-3.1-8b-instant");
+    }
+
+    #[test]
+    fn resolve_accepts_provider_slash_model_for_openrouter_free_suffix() {
+        let cfg = configured();
+        let registry = ProviderRegistry::from_config(&cfg);
+
+        let idx = registry
+            .resolve("openrouter/meta-llama/llama-3.1-8b-instruct:free", &cfg)
+            .expect("openrouter direct target should resolve");
+
+        assert_eq!(MODEL_TABLE[idx].provider, "openrouter");
     }
 }
 

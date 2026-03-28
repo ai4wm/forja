@@ -1,3 +1,4 @@
+mod background_runtime;
 mod bootstrap;
 mod config;
 mod oauth;
@@ -14,7 +15,8 @@ use forja_core::mode::{
 use forja_core::prompt::loader::{PromptLoader, install_prompt_loader};
 use forja_core::traits::LlmProvider;
 use forja_core::{
-    Channel, Content, Engine, KnowledgeManager, Message, Role, SerendipityEngine, ToolDefinition,
+    BackgroundManager, Channel, Content, Engine, KnowledgeManager, Message, Role,
+    SerendipityEngine, ToolDefinition,
 };
 use forja_llm::LlmClient;
 use forja_memory::MarkdownMemoryStore;
@@ -541,6 +543,86 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let think_level = parse_think_level();
     let mode_state = ModeState::new(exec_mode, think_level, ModeRole::Auto);
     let exec_mode_handle = Arc::new(std::sync::Mutex::new(exec_mode));
+    let background_interval = forja_cfg.background.interval_seconds;
+    let background_manager = Arc::new(tokio::sync::Mutex::new(BackgroundManager::new(
+        background_interval,
+    )));
+    let background_status = Arc::new(std::sync::Mutex::new(
+        background_runtime::BackgroundStatusSnapshot::disabled(
+            background_interval,
+            "initializing",
+        ),
+    ));
+    let background_home_dir = bootstrap_paths
+        .forja_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| bootstrap_paths.forja_dir.clone());
+    let _ = forja_llm::ensure_models_dir(&background_home_dir);
+
+    if forja_cfg.background.provider.eq_ignore_ascii_case("off") {
+        if let Ok(mut status) = background_status.lock() {
+            *status = background_runtime::BackgroundStatusSnapshot::disabled(
+                background_interval,
+                "disabled by config",
+            );
+        }
+        println!("Background model: disabled (disabled by config)");
+    } else {
+        let background_cfg = forja_cfg.clone();
+        let background_manager_for_init = background_manager.clone();
+        let background_status_for_init = background_status.clone();
+        let background_home_dir_for_init = background_home_dir.clone();
+        tokio::spawn(async move {
+            match background_runtime::discover_background_provider(
+                &background_cfg,
+                &background_home_dir_for_init,
+            )
+            .await
+            {
+                background_runtime::BackgroundDiscovery::Selected { candidate, provider } => {
+                    let mut manager = background_manager_for_init.lock().await;
+                    background_runtime::apply_background_candidate(
+                        &mut manager,
+                        &candidate,
+                        provider,
+                        background_cfg.background.interval_seconds,
+                    )
+                    .await;
+                    let active = manager.is_active();
+                    drop(manager);
+
+                    if let Ok(mut status) = background_status_for_init.lock() {
+                        *status = background_runtime::BackgroundStatusSnapshot::selected(
+                            &candidate,
+                            background_cfg.background.interval_seconds,
+                            active,
+                        );
+                    }
+
+                    println!(
+                        "Background model: {}/{} ({})",
+                        candidate.provider, candidate.model, candidate.kind
+                    );
+                }
+                background_runtime::BackgroundDiscovery::Disabled(reason) => {
+                    let mut manager = background_manager_for_init.lock().await;
+                    manager.stop().await;
+                    manager.disable();
+                    drop(manager);
+
+                    if let Ok(mut status) = background_status_for_init.lock() {
+                        *status = background_runtime::BackgroundStatusSnapshot::disabled(
+                            background_cfg.background.interval_seconds,
+                            &reason,
+                        );
+                    }
+
+                    println!("Background model: disabled ({reason})");
+                }
+            }
+        });
+    }
 
     // Channel setup
     let (channel, interactive_identity_supported, print_initial_prompt): (
@@ -757,6 +839,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let vision_enabled_for_slash = vision_enabled;
     let capture_backend_for_slash = capture_backend_for_vision.clone();
     let vision_analyzer_for_slash = vision_analyzer_for_vision.clone();
+    let background_manager_for_slash = background_manager.clone();
+    let background_status_for_slash = background_status.clone();
+    let background_home_dir_for_slash = background_home_dir.clone();
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(
         move |text: &str, provider: &mut Arc<dyn LlmProvider>, mode_state: &mut ModeState| {
             let text = text.trim();
@@ -887,6 +972,108 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 return Some(forja_core::engine::SlashCommandResult::Reply(
                     reg.list_for_config(&cfg_for_handler),
                 ));
+            }
+
+            if text == "/background" {
+                let mut snapshot = background_status_for_slash
+                    .lock()
+                    .map(|status| status.clone())
+                    .unwrap_or_else(|_| {
+                        background_runtime::BackgroundStatusSnapshot::disabled(
+                            cfg_for_handler.background.interval_seconds,
+                            "status unavailable",
+                        )
+                    });
+                let active = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        background_manager_for_slash.lock().await.is_active()
+                    })
+                });
+                snapshot.active = active;
+                return Some(forja_core::engine::SlashCommandResult::Reply(
+                    snapshot.message(),
+                ));
+            }
+
+            if text == "/background off" {
+                tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(async {
+                        let mut manager = background_manager_for_slash.lock().await;
+                        manager.stop().await;
+                        manager.disable();
+                    })
+                });
+
+                let reply = "Background model: disabled (disabled by command)".to_string();
+                if let Ok(mut status) = background_status_for_slash.lock() {
+                    *status = background_runtime::BackgroundStatusSnapshot::disabled(
+                        cfg_for_handler.background.interval_seconds,
+                        "disabled by command",
+                    );
+                }
+                return Some(forja_core::engine::SlashCommandResult::Reply(reply));
+            }
+
+            if text == "/background auto" {
+                let mut auto_cfg = cfg_for_handler.clone();
+                auto_cfg.background.provider = "auto".to_string();
+                auto_cfg.background.model.clear();
+                let discovery = tokio::task::block_in_place(|| {
+                    tokio::runtime::Handle::current().block_on(
+                        background_runtime::discover_background_provider(
+                            &auto_cfg,
+                            &background_home_dir_for_slash,
+                        ),
+                    )
+                });
+
+                return Some(match discovery {
+                    background_runtime::BackgroundDiscovery::Selected { candidate, provider } => {
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                let mut manager = background_manager_for_slash.lock().await;
+                                background_runtime::apply_background_candidate(
+                                    &mut manager,
+                                    &candidate,
+                                    provider,
+                                    cfg_for_handler.background.interval_seconds,
+                                )
+                                .await;
+                            })
+                        });
+
+                        if let Ok(mut status) = background_status_for_slash.lock() {
+                            *status = background_runtime::BackgroundStatusSnapshot::selected(
+                                &candidate,
+                                cfg_for_handler.background.interval_seconds,
+                                true,
+                            );
+                        }
+
+                        forja_core::engine::SlashCommandResult::Reply(format!(
+                            "Background model: {}/{} ({})",
+                            candidate.provider, candidate.model, candidate.kind
+                        ))
+                    }
+                    background_runtime::BackgroundDiscovery::Disabled(reason) => {
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                let mut manager = background_manager_for_slash.lock().await;
+                                manager.stop().await;
+                                manager.disable();
+                            })
+                        });
+                        if let Ok(mut status) = background_status_for_slash.lock() {
+                            *status = background_runtime::BackgroundStatusSnapshot::disabled(
+                                cfg_for_handler.background.interval_seconds,
+                                &reason,
+                            );
+                        }
+                        forja_core::engine::SlashCommandResult::Reply(format!(
+                            "Background model: disabled ({reason})"
+                        ))
+                    }
+                });
             }
 
             if text == "/model" {

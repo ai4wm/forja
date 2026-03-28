@@ -17,6 +17,8 @@ pub struct ForjaConfig {
     #[serde(default)]
     pub agent: AgentSection,
     #[serde(default)]
+    pub background: BackgroundSection,
+    #[serde(default)]
     pub channel: ChannelSection,
     #[serde(default)]
     pub tools: ToolsSection,
@@ -46,6 +48,8 @@ pub struct KeysSection {
     pub openai: Option<String>,
     pub anthropic: Option<String>,
     pub gemini: Option<String>,
+    pub groq: Option<String>,
+    pub openrouter: Option<String>,
     pub deepseek: Option<String>,
     pub glm: Option<String>,
     pub moonshot: Option<String>,
@@ -58,6 +62,8 @@ impl KeysSection {
             "openai" | "openai_mini" | "openai_oauth" => self.openai.clone(),
             "anthropic" | "anthropic_sonnet" => self.anthropic.clone(),
             "gemini" | "gemini_flash" => self.gemini.clone(),
+            "groq" => self.groq.clone(),
+            "openrouter" => self.openrouter.clone(),
             "deepseek" | "deepseek_reasoner" => self.deepseek.clone(),
             "glm" | "glm_lite" => self.glm.clone(),
             "moonshot" => self.moonshot.clone(),
@@ -71,6 +77,8 @@ impl KeysSection {
             "openai" | "openai_mini" | "openai_oauth" => self.openai = Some(key),
             "anthropic" | "anthropic_sonnet" => self.anthropic = Some(key),
             "gemini" | "gemini_flash" => self.gemini = Some(key),
+            "groq" => self.groq = Some(key),
+            "openrouter" => self.openrouter = Some(key),
             "deepseek" | "deepseek_reasoner" => self.deepseek = Some(key),
             "glm" | "glm_lite" => self.glm = Some(key),
             "moonshot" => self.moonshot = Some(key),
@@ -93,6 +101,26 @@ impl AgentSection {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BackgroundSection {
+    #[serde(default = "default_background_provider")]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default = "default_background_interval_seconds")]
+    pub interval_seconds: u64,
+}
+
+impl Default for BackgroundSection {
+    fn default() -> Self {
+        Self {
+            provider: default_background_provider(),
+            model: String::new(),
+            interval_seconds: default_background_interval_seconds(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct ChannelSection {
     #[serde(default)]
@@ -104,6 +132,14 @@ pub struct TelegramChannelConfig {
     pub bot_token: Option<String>,
     #[serde(default)]
     pub allowed_chat_ids: Vec<i64>,
+}
+
+fn default_background_provider() -> String {
+    "auto".to_string()
+}
+
+fn default_background_interval_seconds() -> u64 {
+    30
 }
 
 // Path helpers
@@ -177,6 +213,8 @@ const PROVIDERS: &[(&str, &str)] = &[
     ("anthropic", "Anthropic (API key)"),
     ("gemini", "Google Gemini (API key)"),
     ("gemini_oauth", "Google Gemini CLI (OAuth subscription)"),
+    ("groq", "Groq (API key)"),
+    ("openrouter", "OpenRouter (API key)"),
     ("deepseek", "DeepSeek"),
     ("glm", "GLM (Zhipu)"),
     ("moonshot", "Moonshot (Kimi)"),
@@ -435,6 +473,14 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
         "gemini" => presets::gemini(&api_key),
         "gemini_flash" => presets::gemini_flash(&api_key),
         "gemini_oauth" => presets::gemini_oauth(&api_key),
+        "groq" => presets::groq(cfg.active.model.as_deref().unwrap_or("llama-3.1-8b-instant"), &api_key),
+        "openrouter" => presets::openrouter(
+            cfg.active
+                .model
+                .as_deref()
+                .unwrap_or("meta-llama/llama-3.1-8b-instruct:free"),
+            &api_key,
+        ),
         "deepseek" => presets::deepseek(&api_key),
         "deepseek_reasoner" => presets::deepseek_reasoner(&api_key),
         "glm" => presets::glm(&api_key),
@@ -482,5 +528,40 @@ mod tests {
 
         assert_eq!(config.agent.exec_mode.as_deref(), Some("trust"));
         assert_eq!(config.agent.resolved_exec_mode(), Some(ExecMode::Trust));
+    }
+
+    #[test]
+    fn background_section_uses_auto_defaults_when_missing() {
+        let config: ForjaConfig = toml::from_str("").unwrap();
+
+        assert_eq!(config.background.provider, "auto");
+        assert_eq!(config.background.model, "");
+        assert_eq!(config.background.interval_seconds, 30);
+    }
+
+    #[test]
+    fn background_section_deserializes_explicit_values() {
+        let config: ForjaConfig = toml::from_str(
+            "[background]\nprovider = \"groq\"\nmodel = \"llama-3.1-8b-instant\"\ninterval_seconds = 45\n",
+        )
+        .unwrap();
+
+        assert_eq!(config.background.provider, "groq");
+        assert_eq!(config.background.model, "llama-3.1-8b-instant");
+        assert_eq!(config.background.interval_seconds, 45);
+    }
+
+    #[test]
+    fn keys_section_supports_groq_and_openrouter() {
+        let config: ForjaConfig = toml::from_str(
+            "[keys]\ngroq = \"groq-key\"\nopenrouter = \"or-key\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(config.keys.get_for("groq"), Some("groq-key".to_string()));
+        assert_eq!(
+            config.keys.get_for("openrouter"),
+            Some("or-key".to_string())
+        );
     }
 }

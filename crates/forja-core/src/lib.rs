@@ -1,3 +1,5 @@
+#[cfg(feature = "runtime")]
+pub mod background;
 pub mod engine;
 pub mod emotion;
 #[cfg(feature = "runtime")]
@@ -14,6 +16,8 @@ pub mod types;
 // Re-export core types.
 pub use engine::Engine;
 pub use error::{ForjaError, Result};
+#[cfg(feature = "runtime")]
+pub use background::BackgroundManager;
 pub use knowledge::{KnowledgeManager, TopicEntry};
 pub use serendipity::SerendipityEngine;
 pub use traits::{Channel, LlmProvider, MemoryStore, Tool};

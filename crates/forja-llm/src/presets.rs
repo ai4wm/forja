@@ -50,6 +50,18 @@ pub fn gemini_flash(api_key: &str) -> LlmConfig {
     )
 }
 
+/// Groq OpenAI-compatible endpoint
+pub fn groq(model: &str, api_key: &str) -> LlmConfig {
+    LlmConfig::new("https://api.groq.com/openai/v1", model, api_key)
+}
+
+/// OpenRouter OpenAI-compatible endpoint
+pub fn openrouter(model: &str, api_key: &str) -> LlmConfig {
+    LlmConfig::new("https://openrouter.ai/api/v1", model, api_key)
+        .with_header("HTTP-Referer", "https://github.com/ai4wm/forja")
+        .with_header("X-Title", "Forja")
+}
+
 /// DeepSeek V3.2 (current default API model, V4 expected soon)
 pub fn deepseek(api_key: &str) -> LlmConfig {
     LlmConfig::new("https://api.deepseek.com/v1", "deepseek-chat", api_key)
