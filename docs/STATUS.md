@@ -4,8 +4,8 @@ Last updated: 2026-03-29
 
 ## Task Record
 
-- Changed files: `crates/forja-core/src/events.rs`, `crates/forja-core/src/watchers.rs`, `crates/forja-core/src/decision.rs`, `crates/forja-core/src/background.rs`, `crates/forja-core/src/lib.rs`, `src/background_runtime.rs`, `src/config.rs`, `src/main.rs`, `docs/STATUS.md`
-- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; decide whether watcher polling should gain debounce/backoff behavior; add direct integration coverage for `/agent status`, `/agent logs`, `/agent pause`, and `/agent resume`; consider whether autonomous auto-fix should emit richer structured reports back to the user
+- Changed files: `crates/forja-core/src/notification.rs`, `crates/forja-core/src/background.rs`, `crates/forja-core/src/lib.rs`, `crates/forja-channel/src/lib.rs`, `crates/forja-channel/src/notify_terminal.rs`, `crates/forja-channel/src/notify_beep.rs`, `crates/forja-channel/src/notify_toast.rs`, `src/config.rs`, `src/main.rs`, `docs/STATUS.md`
+- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; add direct integration coverage for `/notify test`, `/notify off`, `/notify on`, `/notify status`, and `/notify history`; decide whether notification history should persist across restarts; decide whether toast fallback should use a richer Windows-native path when BurntToast is unavailable
 - Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo clippy --workspace -- -D warnings`
 
 ## Feature Status
@@ -52,6 +52,13 @@ Last updated: 2026-03-29
 | Escalation bridge | Done | `crates/forja-core/src/background.rs`, `src/main.rs`, `crates/forja-memory/src/lib.rs` | Escalations are sent to the main model through an action channel, user-facing responses are delivered with `[Agent]`, and both sides are recorded in memory. |
 | `/agent` commands | Done | `crates/forja-core/src/background.rs`, `src/main.rs` | `/agent status`, `/agent logs [n]`, `/agent pause`, and `/agent resume` are implemented, with `/background` aliased to the agent controls. |
 | Agent log | Done | `crates/forja-core/src/background.rs`, `src/config.rs` | Append-only agent logging is written to the configured background log path and can be tailed from slash commands. |
+| Notification system (core) | Done | `crates/forja-core/src/notification.rs`, `crates/forja-core/src/background.rs` | Notification core models, routing, level filtering, command parsing, and history ring buffer are implemented. |
+| Terminal notifier | Done | `crates/forja-channel/src/notify_terminal.rs`, `crates/forja-channel/src/lib.rs` | Agent notifications can be rendered to stderr with ANSI-colored banners. |
+| Beep notifier | Done | `crates/forja-channel/src/notify_beep.rs`, `crates/forja-channel/src/lib.rs` | Warning and critical notifications can trigger a non-blocking system beep fallback. |
+| Windows toast notifier | Done | `crates/forja-channel/src/notify_toast.rs`, `crates/forja-channel/src/lib.rs` | Windows toast notifications use PowerShell BurntToast detection and spawn-based delivery when available. |
+| Agent → notification integration | Done | `crates/forja-core/src/background.rs`, `src/main.rs` | Autonomous report, escalate, and auto-fix paths now generate notifications while still delivering agent messages to the user. |
+| `/notify` commands | Done | `crates/forja-core/src/notification.rs`, `src/main.rs` | `/notify test`, `/notify off`, `/notify on`, `/notify status`, and `/notify history [n]` are handled in the runtime slash path. |
+| Notification history | Done | `crates/forja-core/src/notification.rs`, `src/main.rs` | The notification router keeps a 50-entry ring buffer and exposes history through slash commands. |
 | Background model manager | Done | `crates/forja-core/src/background.rs`, `src/background_runtime.rs`, `src/main.rs` | Background manager start/stop/status handling is implemented, and startup auto-discovery runs without blocking the foreground engine. |
 | Groq provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | Groq is available through the OpenAI-compatible client path and can be selected with registry-backed models. |
 | OpenRouter provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | OpenRouter is available through the OpenAI-compatible client path with curated free-model registry entries and background-model probing support. |

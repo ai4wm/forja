@@ -20,6 +20,8 @@ pub struct ForjaConfig {
     #[serde(default)]
     pub background: BackgroundSection,
     #[serde(default)]
+    pub notifications: NotificationsSection,
+    #[serde(default)]
     pub skills: SkillsSection,
     #[serde(default)]
     pub channel: ChannelSection,
@@ -154,6 +156,32 @@ pub struct SkillConfigEntry {
     pub env: HashMap<String, String>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct NotificationsSection {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_true")]
+    pub terminal: bool,
+    #[serde(default = "default_true")]
+    pub beep: bool,
+    #[serde(default = "default_true")]
+    pub toast: bool,
+    #[serde(default = "default_notification_min_level")]
+    pub min_level: String,
+}
+
+impl Default for NotificationsSection {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            terminal: default_true(),
+            beep: default_true(),
+            toast: default_true(),
+            min_level: default_notification_min_level(),
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct ChannelSection {
     #[serde(default)]
@@ -185,6 +213,10 @@ fn default_idle_threshold_minutes() -> u64 {
 
 fn default_background_log_path() -> String {
     "~/.forja/logs/agent.log".to_string()
+}
+
+fn default_notification_min_level() -> String {
+    "warning".to_string()
 }
 
 // Path helpers
@@ -555,6 +587,7 @@ pub fn provider_info(cfg: &ForjaConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use forja_core::notification::NotificationLevel;
 
     #[test]
     fn prompts_dir_deserializes_from_agent_section() {
@@ -619,6 +652,36 @@ mod tests {
         assert_eq!(
             config.keys.get_for("openrouter"),
             Some("or-key".to_string())
+        );
+    }
+
+    #[test]
+    fn notifications_section_uses_defaults_when_missing() {
+        let config: ForjaConfig = toml::from_str("").unwrap();
+
+        assert!(config.notifications.enabled);
+        assert!(config.notifications.terminal);
+        assert!(config.notifications.beep);
+        assert!(config.notifications.toast);
+        assert_eq!(config.notifications.min_level, "warning");
+    }
+
+    #[test]
+    fn notifications_section_deserializes_explicit_values() {
+        let config: ForjaConfig = toml::from_str(
+            "[notifications]\nenabled = false\nterminal = true\nbeep = false\ntoast = false\nmin_level = \"critical\"\n",
+        )
+        .unwrap();
+
+        assert!(!config.notifications.enabled);
+        assert!(config.notifications.terminal);
+        assert!(!config.notifications.beep);
+        assert!(!config.notifications.toast);
+        assert_eq!(config.notifications.min_level, "critical");
+        assert_eq!(
+            forja_core::notification::parse_notification_level(&config.notifications.min_level)
+                .unwrap(),
+            NotificationLevel::Critical
         );
     }
 }

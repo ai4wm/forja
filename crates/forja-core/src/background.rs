@@ -1,6 +1,9 @@
 use crate::decision::{Decision, decide, describe_event};
 use crate::events::{EventQueue, SystemEvent, classify_severity};
 use crate::mode::ExecMode;
+use crate::notification::{
+    Notification, NotificationLevel, NotificationRouter, notification_level_from_severity,
+};
 use crate::traits::LlmProvider;
 use crate::watchers::{FileWatcher, GitWatcher, IdleWatcher, SystemWatcher, WatcherConfig, WatcherHandles, watcher_names};
 use std::collections::VecDeque;
@@ -93,6 +96,7 @@ pub struct BackgroundManager {
     action_tx: Option<mpsc::UnboundedSender<AgentAction>>,
     exec_mode_handle: Option<Arc<Mutex<ExecMode>>>,
     last_user_activity: Arc<Mutex<Instant>>,
+    notification_router: Option<Arc<NotificationRouter>>,
 }
 
 impl BackgroundManager {
@@ -125,6 +129,7 @@ impl BackgroundManager {
             action_tx: None,
             exec_mode_handle: None,
             last_user_activity: Arc::new(Mutex::new(Instant::now())),
+            notification_router: None,
         }
     }
 
@@ -155,6 +160,10 @@ impl BackgroundManager {
 
     pub fn set_action_sender(&mut self, action_tx: mpsc::UnboundedSender<AgentAction>) {
         self.action_tx = Some(action_tx);
+    }
+
+    pub fn set_notification_router(&mut self, notification_router: Arc<NotificationRouter>) {
+        self.notification_router = Some(notification_router);
     }
 
     pub fn set_exec_mode_handle(&mut self, exec_mode_handle: Arc<Mutex<ExecMode>>) {
@@ -206,6 +215,7 @@ impl BackgroundManager {
         let auto_fix = self.auto_fix;
         let action_tx = self.action_tx.clone();
         let exec_mode_handle = self.exec_mode_handle.clone();
+        let notification_router = self.notification_router.clone();
         let (shutdown_tx, mut shutdown_rx) = oneshot::channel::<()>();
         self.shutdown_tx = Some(shutdown_tx);
         active.store(true, Ordering::SeqCst);
@@ -234,6 +244,7 @@ impl BackgroundManager {
                                 decision,
                                 auto_fix,
                                 action_tx.as_ref(),
+                                notification_router.as_ref(),
                                 log_path.as_path(),
                             );
                         }
@@ -370,8 +381,10 @@ fn handle_decision(
     decision: Decision,
     auto_fix_enabled: bool,
     action_tx: Option<&mpsc::UnboundedSender<AgentAction>>,
+    notification_router: Option<&Arc<NotificationRouter>>,
     log_path: &Path,
 ) {
+    let notification_level = notification_level_from_severity(_severity);
     match decision {
         Decision::Ignore => {}
         Decision::Log => {
@@ -381,7 +394,7 @@ fn handle_decision(
             if !auto_fix_enabled {
                 if let Some(action_tx) = action_tx {
                     let _ = action_tx.send(AgentAction::Report(format!(
-                        "[Agent] Auto-fix disabled: {}",
+                        "Auto-fix disabled: {}",
                         describe_event(event)
                     )));
                 }
@@ -395,24 +408,53 @@ fn handle_decision(
 
             let outcome = run_fix_command(&action);
             let _ = append_log(log_path, &format!("[AUTO_FIX] {action}: {outcome}"));
+            route_notification(
+                notification_router,
+                Notification::new(
+                    "Auto-fix completed",
+                    format!("Auto-fixed: ran {action}"),
+                    NotificationLevel::Info,
+                ),
+            );
             if let Some(action_tx) = action_tx {
                 let _ = action_tx.send(AgentAction::Report(format!(
-                    "[Agent] Auto-fix result: {action} -> {outcome}"
+                    "Auto-fix result: {action} -> {outcome}"
                 )));
             }
         }
         Decision::Report { message } => {
             let _ = append_log(log_path, &format!("[REPORT] {message}"));
+            route_notification(
+                notification_router,
+                Notification::new("Forja Agent", message.clone(), notification_level),
+            );
             if let Some(action_tx) = action_tx {
                 let _ = action_tx.send(AgentAction::Report(message));
             }
         }
         Decision::Escalate { context, question } => {
             let _ = append_log(log_path, &format!("[ESCALATE] {context}"));
+            route_notification(
+                notification_router,
+                Notification::new(
+                    "Forja Agent escalation",
+                    format!("{context}\nQuestion: {question}"),
+                    notification_level,
+                ),
+            );
             if let Some(action_tx) = action_tx {
                 let _ = action_tx.send(AgentAction::Escalate { context, question });
             }
         }
+    }
+}
+
+fn route_notification(
+    notification_router: Option<&Arc<NotificationRouter>>,
+    notification: Notification,
+) {
+    if let Some(notification_router) = notification_router {
+        let _ = notification_router.notify(&notification);
     }
 }
 

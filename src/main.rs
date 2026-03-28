@@ -21,6 +21,10 @@ use forja_core::skill::{
 use forja_core::background::{
     AgentAction, AgentCommand, AgentStatusSnapshot, BackgroundAgentOptions, parse_agent_command,
 };
+use forja_core::notification::{
+    Notification, NotificationLevel, NotificationRouter, NotifyCommand, parse_notification_level,
+    parse_notify_command,
+};
 use forja_core::skill_eval::{
     BenchmarkResult, EvalResult, SkillAction, benchmark_skill, eval_skill, parse_skill_action,
 };
@@ -36,6 +40,9 @@ use forja_memory::{
 };
 #[cfg(feature = "vision")]
 use forja_tools::XcapBackend;
+use forja_channel::notify_beep::BeepNotifier;
+use forja_channel::notify_terminal::TerminalNotifier;
+use forja_channel::notify_toast::ToastNotifier;
 use forja_tools::confirm::ConfirmationHandler;
 use forja_tools::{
     BrowserTool, ClaudeCodeTool, CodexTool, FileTool, GeminiCliTool, GptVisionAnalyzer, InputTool,
@@ -445,6 +452,11 @@ fn help_text() -> String {
         "/background",
         "/background off",
         "/background auto",
+        "/notify test",
+        "/notify on",
+        "/notify off",
+        "/notify status",
+        "/notify history [n]",
         "/skill list",
         "/skill run <name> [args]",
         "/skill info <name>",
@@ -475,6 +487,12 @@ fn agent_status_text(snapshot: &AgentStatusSnapshot) -> String {
         lines.push("- Last events:".to_string());
         lines.extend(snapshot.last_events.iter().map(|event| format!("  - {event}")));
     }
+    lines.join("\n")
+}
+
+fn notify_status_text(router: &NotificationRouter) -> String {
+    let mut lines = vec!["Notification status:".to_string()];
+    lines.extend(router.status_lines());
     lines.join("\n")
 }
 
@@ -937,6 +955,22 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mode_state = ModeState::new(exec_mode, think_level, ModeRole::Auto);
     let exec_mode_handle = Arc::new(std::sync::Mutex::new(exec_mode));
     let main_provider_handle = Arc::new(std::sync::Mutex::new(provider.clone()));
+    let notification_min_level = parse_notification_level(&forja_cfg.notifications.min_level)
+        .unwrap_or(NotificationLevel::Warning);
+    let mut notification_router = NotificationRouter::new(
+        forja_cfg.notifications.enabled,
+        notification_min_level,
+    );
+    if forja_cfg.notifications.terminal {
+        notification_router.add_notifier("terminal", Box::new(TerminalNotifier::new()));
+    }
+    if forja_cfg.notifications.beep {
+        notification_router.add_notifier("beep", Box::new(BeepNotifier::new()));
+    }
+    if forja_cfg.notifications.toast {
+        notification_router.add_notifier("toast", Box::new(ToastNotifier::new()));
+    }
+    let notification_router = Arc::new(notification_router);
     let background_interval = forja_cfg.background.interval_seconds;
     let background_manager = Arc::new(tokio::sync::Mutex::new(BackgroundManager::new(
         background_interval,
@@ -973,6 +1007,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         });
         manager.set_action_sender(agent_action_tx.clone());
         manager.set_exec_mode_handle(exec_mode_handle.clone());
+        manager.set_notification_router(notification_router.clone());
     }
 
     if forja_cfg.background.provider.eq_ignore_ascii_case("off") {
@@ -1292,6 +1327,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let memory_store_for_slash = memory_store.clone();
     let background_manager_for_slash = background_manager.clone();
     let main_provider_handle_for_slash = main_provider_handle.clone();
+    let notification_router_for_slash = notification_router.clone();
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(
         move |text: &str, provider: &mut Arc<dyn LlmProvider>, mode_state: &mut ModeState| {
             let original_text = text.trim();
@@ -1437,6 +1473,66 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
             if text == "/help" {
                 return Some(forja_core::engine::SlashCommandResult::Reply(help_text()));
+            }
+
+            if let Some(notify_command) = parse_notify_command(text) {
+                return Some(match notify_command {
+                    NotifyCommand::Test => {
+                        let notification = Notification::new(
+                            "Forja Agent test",
+                            "Test notification from Forja.",
+                            NotificationLevel::Warning,
+                        );
+                        let result = notification_router_for_slash.notify(&notification);
+                        match result {
+                            Ok(()) => {
+                                forja_core::engine::SlashCommandResult::Reply(
+                                    "Test notification sent.".to_string(),
+                                )
+                            }
+                            Err(error) => forja_core::engine::SlashCommandResult::Reply(format!(
+                                "Notification test failed: {error}"
+                            )),
+                        }
+                    }
+                    NotifyCommand::Off => {
+                        notification_router_for_slash.set_enabled(false);
+                        forja_core::engine::SlashCommandResult::Reply(
+                            "Notifications disabled.".to_string(),
+                        )
+                    }
+                    NotifyCommand::On => {
+                        notification_router_for_slash.set_enabled(true);
+                        forja_core::engine::SlashCommandResult::Reply(
+                            "Notifications enabled.".to_string(),
+                        )
+                    }
+                    NotifyCommand::Status => {
+                        forja_core::engine::SlashCommandResult::Reply(
+                            notify_status_text(&notification_router_for_slash),
+                        )
+                    }
+                    NotifyCommand::History(count) => {
+                        let history = notification_router_for_slash.history(count);
+                        let reply = if history.is_empty() {
+                            "No notification history available.".to_string()
+                        } else {
+                            history
+                                .iter()
+                                .map(|notification| {
+                                    format!(
+                                        "[{}] {} - {}",
+                                        notification.timestamp,
+                                        notification.title,
+                                        notification.body
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        };
+                        forja_core::engine::SlashCommandResult::Reply(reply)
+                    }
+                });
             }
 
             if let Some(agent_command) = parse_agent_command(text) {

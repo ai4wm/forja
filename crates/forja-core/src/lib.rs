@@ -10,6 +10,7 @@ pub mod scheduler;
 pub mod error;
 pub mod knowledge;
 pub mod mode;
+pub mod notification;
 pub mod prompt;
 pub mod safety;
 pub mod serendipity;
