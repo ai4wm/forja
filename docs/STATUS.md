@@ -4,8 +4,8 @@ Last updated: 2026-03-29
 
 ## Task Record
 
-- Changed files: `.gitignore`, `crates/forja-core/src/engine.rs`, `crates/forja-core/src/intent.rs`, `crates/forja-core/src/lib.rs`, `crates/forja-core/src/prompt/mod.rs`, `crates/forja-core/src/skill.rs`, `src/config.rs`, `src/main.rs`, `tests/integration_test.rs`, `examples/skills/hello-world/SKILL.md`, `examples/skills/git-summary/SKILL.md`, `examples/skills/git-summary/summary.sh`, `docs/STATUS.md`
-- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; implement Phase 22b eval/improve/benchmark flows for skills; decide whether skill execution should gain richer argument escaping and per-script shell selection; add direct integration coverage for `/skill` slash commands if needed
+- Changed files: `crates/forja-memory/Cargo.toml`, `crates/forja-memory/src/lib.rs`, `crates/forja-memory/src/session.rs`, `crates/forja-memory/src/compressor.rs`, `crates/forja-memory/src/longterm.rs`, `crates/forja-memory/src/manager.rs`, `src/main.rs`, `tests/integration_test.rs`, `docs/STATUS.md`
+- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; decide whether to replace the temporary TF-IDF/BM25-style ranking with a stronger scorer once a true shared search layer exists; decide whether `/memory search` should support highlighted snippets and timestamps; Phase 28 should add agent-scoped long-term memory wiring on top of the existing path helper
 - Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo clippy --workspace -- -D warnings`
 
 ## Feature Status
@@ -15,7 +15,12 @@ Last updated: 2026-03-29
 | Engine loop | Done | `crates/forja-core/src/engine.rs`, `src/main.rs` | Main runtime loop, tool recursion, slash interception, and channel dispatch are wired. |
 | Streaming | Done | `crates/forja-core/src/engine.rs`, `crates/forja-llm/src/client.rs` | Streaming-first path exists with fallback to non-streaming tool handling. |
 | Prompt loader | Done | `crates/forja-core/src/prompt/loader.rs`, `crates/forja-core/src/prompt/mod.rs`, `src/main.rs` | File-based prompts are loaded from `~/.forja/prompts/` by default and bootstrapped with defaults. |
-| Memory (markdown+BM25) | Partial | `crates/forja-memory/src/lib.rs`, `crates/forja-memory/src/storage.rs`, `src/main.rs` | Markdown memory is wired into the runtime, but BM25 retrieval is not present in the current workspace. |
+| Session buffer | Done | `crates/forja-memory/src/session.rs`, `crates/forja-memory/src/manager.rs` | Ephemeral per-process session memory tracks recent messages and estimated token usage before compression. |
+| Auto compression | Done | `crates/forja-memory/src/compressor.rs`, `crates/forja-memory/src/manager.rs` | Session overflow now compresses the oldest half of buffered messages into rule-based summaries without LLM calls. |
+| Long-term store | Done | `crates/forja-memory/src/longterm.rs`, `crates/forja-memory/src/manager.rs` | Long-term memory is stored in append-only `longterm.md` entries and searched with an internal keyword-ranking scorer. |
+| MemoryManager | Done | `crates/forja-memory/src/manager.rs`, `crates/forja-memory/src/lib.rs`, `src/main.rs` | `MemoryManager` now owns session, compression, and long-term recall, with a compatibility wrapper feeding query-aware context into the existing engine memory path. |
+| `/memory` commands | Done | `crates/forja-memory/src/manager.rs`, `src/main.rs`, `tests/integration_test.rs` | `/memory`, `/memory search <query>`, `/memory clear session`, and `/memory flush` are implemented in the runtime slash path. |
+| Per-agent memory paths | Not started (Phase 28) | `crates/forja-memory/src/longterm.rs` | The path helper exists, but agent-scoped memory routing is not wired into the runtime yet. |
 | Shell tool | Done | `crates/forja-tools/src/shell.rs`, `crates/forja-core/src/safety.rs`, `crates/forja-core/src/engine.rs` | Shell execution supports confirmation and mode-aware safety checks. |
 | Browser tool | Done | `crates/forja-tools/src/browser.rs`, `src/main.rs` | Chromium CDP backend, screenshotting, tab control, and confirmation flow are implemented. |
 | Vision tool | Done | `crates/forja-tools/src/vision.rs`, `src/main.rs` | Screen capture, region analysis, OCR, and image analysis flows are implemented. |

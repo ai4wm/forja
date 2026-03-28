@@ -18,13 +18,15 @@ use forja_core::skill::{
     Skill, SkillLoader, clear_active_skill_context, default_skills_dir, set_active_skill_context,
     set_skill_catalog_summary,
 };
-use forja_core::traits::{LlmProvider, Tool};
+use forja_core::traits::{Channel as CoreChannelTrait, LlmProvider, Tool};
 use forja_core::{
     BackgroundManager, Channel, Content, Engine, KnowledgeManager, Message, Role,
     SerendipityEngine, ToolDefinition,
 };
 use forja_llm::LlmClient;
-use forja_memory::MarkdownMemoryStore;
+use forja_memory::{
+    MemoryCommand, MemoryManagerStore, default_memory_base_dir, parse_memory_command,
+};
 #[cfg(feature = "vision")]
 use forja_tools::XcapBackend;
 use forja_tools::confirm::ConfirmationHandler;
@@ -125,6 +127,46 @@ impl LlmProvider for MockLlmProvider {
 
         let stream = tokio_stream::iter(tokens).map(Ok);
         Ok(Box::pin(stream))
+    }
+}
+
+struct MemoryAwareChannel {
+    inner: Arc<dyn Channel>,
+    memory_store: MemoryManagerStore,
+}
+
+impl MemoryAwareChannel {
+    fn new(inner: Arc<dyn Channel>, memory_store: MemoryManagerStore) -> Self {
+        Self { inner, memory_store }
+    }
+}
+
+#[async_trait]
+impl CoreChannelTrait for MemoryAwareChannel {
+    async fn receive(&self) -> Result<Message> {
+        let message = self.inner.receive().await?;
+        if let Content::Text { text, .. } = &message.content
+            && message.role == Role::User
+        {
+            self.memory_store.set_current_query(text.clone());
+        }
+        Ok(message)
+    }
+
+    async fn send(&self, message: Message) -> Result<()> {
+        self.inner.send(message).await
+    }
+
+    async fn confirm(&self, message: &str) -> Result<bool> {
+        self.inner.confirm(message).await
+    }
+
+    fn is_cli_source(&self) -> bool {
+        self.inner.is_cli_source()
+    }
+
+    async fn cancel_typing(&self) {
+        self.inner.cancel_typing().await;
     }
 }
 
@@ -391,6 +433,13 @@ fn help_text() -> String {
     .join("\n")
 }
 
+fn memory_stats_text(stats: &forja_memory::manager::MemoryStats) -> String {
+    format!(
+        "Memory stats:\n- Session messages: {}\n- Long-term entries: {}\n- Estimated tokens: {}",
+        stats.session_messages, stats.longterm_entries, stats.estimated_tokens
+    )
+}
+
 fn reload_skill_loader(loader: &mut SkillLoader) -> std::io::Result<usize> {
     let skills = loader.load_all()?;
     set_skill_catalog_summary(loader.summary());
@@ -583,44 +632,6 @@ fn skill_runtime_context(skill: &Skill, args: &str, execution_result: &str) -> S
 fn load_image_base64(path: &Path) -> std::io::Result<String> {
     let bytes = std::fs::read(path)?;
     Ok(BASE64_STANDARD.encode(bytes))
-}
-
-fn auto_summarize_enabled() -> bool {
-    !matches!(
-        std::env::var("FORJA_AUTO_SUMMARIZE"),
-        Ok(value) if value.eq_ignore_ascii_case("false")
-    )
-}
-
-async fn summarize_memory_block(provider: Arc<dyn LlmProvider>, block: String) -> Result<String> {
-    let response = provider
-        .chat(
-            &[
-                Message::text(
-                    Role::System,
-                    "Summarize one daily memory.md block into at most three plain-text lines. Return only the summary lines.",
-                    None,
-                ),
-                Message::text(
-                    Role::User,
-                    format!(
-                        "Summarize the following daily memory.md records in max 3 lines.\n\
-Keep only important preferences, decisions, and ongoing work. Answer in plain text only.\n\
-\n{block}"
-                    ),
-                    None,
-                ),
-            ],
-            None,
-        )
-        .await?;
-
-    match response.content {
-        Content::Text { text, .. } => Ok(text),
-        _ => Err(ForjaError::LlmError(
-            "memory summary response was not text".to_string(),
-        )),
-    }
 }
 
 // Entrypoint
@@ -918,6 +929,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let memory_base_dir = default_memory_base_dir();
+    let memory_store = MemoryManagerStore::new(&memory_base_dir, None).await?;
+    memory_store.load().await?;
+    let channel: Arc<dyn Channel> = Arc::new(MemoryAwareChannel::new(channel.clone(), memory_store.clone()));
+
     // System prompt setup
     let mut engine = Engine::new(provider.clone(), channel.clone());
     engine = engine
@@ -941,33 +957,6 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     if serendipity_enabled {
         engine = engine.with_serendipity(SerendipityEngine::new());
-    }
-
-    // Initialize memory store
-    let memory_dir = std::env::var("FORJA_MEMORY_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            dirs_next::home_dir()
-                .unwrap_or_default()
-                .join(".forja")
-                .join("memory")
-        });
-    let memory_path = memory_dir.join("memory.md");
-    let memory_store = Arc::new(MarkdownMemoryStore::new(memory_path).await?);
-
-    if auto_summarize_enabled() {
-        let summary_provider = provider.clone();
-        if let Err(error) = memory_store
-            .flush_and_summarize(|block: String| {
-                tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current()
-                        .block_on(summarize_memory_block(summary_provider.clone(), block))
-                })
-            })
-            .await
-        {
-            eprintln!("[Memory] auto summarize failed: {error}");
-        }
     }
 
     engine = engine.with_emotion(EmotionEngine::new());
@@ -1093,6 +1082,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let capture_backend_for_slash = capture_backend_for_vision.clone();
     let vision_analyzer_for_slash = vision_analyzer_for_vision.clone();
     let skill_loader_for_slash = skill_loader.clone();
+    let memory_store_for_slash = memory_store.clone();
     let background_manager_for_slash = background_manager.clone();
     let background_status_for_slash = background_status.clone();
     let background_home_dir_for_slash = background_home_dir.clone();
@@ -1241,6 +1231,76 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
             if text == "/help" {
                 return Some(forja_core::engine::SlashCommandResult::Reply(help_text()));
+            }
+
+            if let Some(memory_command) = parse_memory_command(text) {
+                return Some(match memory_command {
+                    MemoryCommand::Stats => {
+                        let stats = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(memory_store_for_slash.stats())
+                        });
+                        match stats {
+                            Ok(stats) => {
+                                forja_core::engine::SlashCommandResult::Reply(memory_stats_text(&stats))
+                            }
+                            Err(error) => forja_core::engine::SlashCommandResult::Reply(format!(
+                                "Memory stats failed: {error}"
+                            )),
+                        }
+                    }
+                    MemoryCommand::Search(query) => {
+                        let results = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current()
+                                .block_on(memory_store_for_slash.search(&query, 5))
+                        });
+                        match results {
+                            Ok(results) if results.is_empty() => {
+                                forja_core::engine::SlashCommandResult::Reply(
+                                    "No long-term memory matches found.".to_string(),
+                                )
+                            }
+                            Ok(results) => {
+                                let mut lines = vec![format!("Top matches for '{query}':")];
+                                lines.extend(results.iter().map(|entry| {
+                                    let keywords = if entry.keywords.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!(" [{}]", entry.keywords.join(", "))
+                                    };
+                                    format!("- {}{}", entry.summary, keywords)
+                                }));
+                                forja_core::engine::SlashCommandResult::Reply(lines.join("\n"))
+                            }
+                            Err(error) => forja_core::engine::SlashCommandResult::Reply(format!(
+                                "Memory search failed: {error}"
+                            )),
+                        }
+                    }
+                    MemoryCommand::ClearSession => {
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                memory_store_for_slash.clear_session().await;
+                            })
+                        });
+                        forja_core::engine::SlashCommandResult::Reply(
+                            "Session memory cleared.".to_string(),
+                        )
+                    }
+                    MemoryCommand::Flush => {
+                        let result = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current()
+                                .block_on(memory_store_for_slash.flush_manager())
+                        });
+                        match result {
+                            Ok(()) => forja_core::engine::SlashCommandResult::Reply(
+                                "Session memory compressed into long-term storage.".to_string(),
+                            ),
+                            Err(error) => forja_core::engine::SlashCommandResult::Reply(format!(
+                                "Memory flush failed: {error}"
+                            )),
+                        }
+                    }
+                });
             }
 
             if text == "/skill list" {
@@ -1510,7 +1570,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let identity_name = bootstrap_outcome.profile.identity.assistant_name.clone();
     let displayed_greeting = bootstrap_outcome.greeting;
     let mut engine = engine
-        .with_memory(memory_store)
+        .with_memory(Arc::new(memory_store.clone()))
         .with_slash_handler(slash_handler);
 
     println!(
@@ -1535,6 +1595,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             let _ = tokio::signal::ctrl_c().await;
         })
         .await?;
+
+    if let Err(error) = memory_store.flush_manager().await {
+        eprintln!("[Memory] final flush failed: {error}");
+    }
 
     Ok(())
 }

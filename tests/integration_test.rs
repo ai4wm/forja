@@ -4,6 +4,7 @@ use forja_core::prompt::assemble_system_prompt;
 use forja_core::prompt::loader::{DEFAULT_BASE, PromptLoader};
 use forja_core::safety::{is_dangerous_command, should_confirm_command};
 use forja_core::skill::{SkillLoader, skills_dir_from_home};
+use forja_memory::{MemoryCommand, parse_memory_command};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -351,4 +352,18 @@ fn skills_directory_is_created_automatically() {
     let _ = loader.load_all().unwrap();
 
     assert!(skills_dir.exists());
+}
+
+#[test]
+fn parse_memory_command_matches_supported_variants() {
+    assert_eq!(parse_memory_command("/memory"), Some(MemoryCommand::Stats));
+    assert_eq!(
+        parse_memory_command("/memory search deploy"),
+        Some(MemoryCommand::Search("deploy".to_string()))
+    );
+    assert_eq!(
+        parse_memory_command("/memory clear session"),
+        Some(MemoryCommand::ClearSession)
+    );
+    assert_eq!(parse_memory_command("/memory flush"), Some(MemoryCommand::Flush));
 }

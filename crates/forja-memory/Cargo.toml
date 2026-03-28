@@ -8,9 +8,13 @@ repository = "https://github.com/ai4wm/forja"
 
 [dependencies]
 forja-core = { version = "0.1.1", path = "../forja-core" }
-tokio = { version = "1.0", features = ["fs", "io-util"] }
+tokio = { version = "1.0", features = ["fs", "io-util", "sync"] }
 chrono = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9" # YAML frontmatter parsing
 async-trait = "0.1"
+dirs-next = "2.0"
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 
