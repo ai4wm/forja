@@ -49,3 +49,12 @@ error.log
 
 # Codex
 codex-reference/
+
+# Project docs linked from README
+!docs/ARCHITECTURE.md
+!docs/ROADMAP.md
+
+# Project docs linked from README
+!docs/ARCHITECTURE.md
+!docs/ROADMAP.md
+!AGENTS.md
