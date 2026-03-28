@@ -514,11 +514,42 @@ Keep the greeting warm, concise, and under 25 words."
     )
 }
 
+fn background_status_line(status: &background_runtime::BackgroundStatusSnapshot) -> String {
+    if status.provider == "disabled" {
+        return format!("[System] Background model: disabled ({})", status.note);
+    }
+
+    format!(
+        "[System] Background model: {}/{} ({})",
+        status.provider, status.model, status.note
+    )
+}
+
+async fn wait_for_startup_background_status_line(
+    status_rx: &mut mpsc::UnboundedReceiver<String>,
+    background_status: &Arc<std::sync::Mutex<background_runtime::BackgroundStatusSnapshot>>,
+) -> String {
+    match tokio::time::timeout(Duration::from_secs(5), status_rx.recv()).await {
+        Ok(Some(line)) => line,
+        Ok(None) | Err(_) => background_status
+            .lock()
+            .map(|status| {
+                if status.provider == "disabled" && status.note == "initializing" {
+                    "[System] Background model: pending (startup wait timed out)".to_string()
+                } else {
+                    background_status_line(&status)
+                }
+            })
+            .unwrap_or_else(|_| "[System] Background model: pending (startup wait timed out)".to_string()),
+    }
+}
+
 fn spawn_background_discovery(
     cfg: config::ForjaConfig,
     home_dir: std::path::PathBuf,
     background_manager: Arc<tokio::sync::Mutex<BackgroundManager>>,
     background_status: Arc<std::sync::Mutex<background_runtime::BackgroundStatusSnapshot>>,
+    startup_status_tx: Option<mpsc::UnboundedSender<String>>,
 ) {
     tokio::spawn(async move {
         match background_runtime::discover_background_provider(&cfg, &home_dir).await {
@@ -534,18 +565,17 @@ fn spawn_background_discovery(
                 let active = manager.is_active();
                 drop(manager);
 
-                if let Ok(mut status) = background_status.lock() {
-                    *status = background_runtime::BackgroundStatusSnapshot::selected(
-                        &candidate,
-                        cfg.background.interval_seconds,
-                        active,
-                    );
-                }
-
-                println!(
-                    "Background model: {}/{} ({})",
-                    candidate.provider, candidate.model, candidate.kind
+                let snapshot = background_runtime::BackgroundStatusSnapshot::selected(
+                    &candidate,
+                    cfg.background.interval_seconds,
+                    active,
                 );
+                if let Ok(mut status) = background_status.lock() {
+                    *status = snapshot.clone();
+                }
+                if let Some(startup_status_tx) = startup_status_tx {
+                    let _ = startup_status_tx.send(background_status_line(&snapshot));
+                }
             }
             background_runtime::BackgroundDiscovery::Disabled(reason) => {
                 let mut manager = background_manager.lock().await;
@@ -553,15 +583,17 @@ fn spawn_background_discovery(
                 manager.disable();
                 drop(manager);
 
+                let snapshot = background_runtime::BackgroundStatusSnapshot::disabled(
+                    cfg.background.interval_seconds,
+                    &reason,
+                );
                 if let Ok(mut status) = background_status.lock() {
-                    *status = background_runtime::BackgroundStatusSnapshot::disabled(
-                        cfg.background.interval_seconds,
-                        &reason,
-                    );
+                    *status = snapshot.clone();
                 }
-
                 eprintln!("[WARN] Background model disabled: {reason}");
-                println!("Background model: disabled ({reason})");
+                if let Some(startup_status_tx) = startup_status_tx {
+                    let _ = startup_status_tx.send(background_status_line(&snapshot));
+                }
             }
         }
     });
@@ -1078,6 +1110,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let background_manager = Arc::new(tokio::sync::Mutex::new(BackgroundManager::new(
         background_interval,
     )));
+    let (startup_background_status_tx, mut startup_background_status_rx) =
+        mpsc::unbounded_channel::<String>();
     let background_status = Arc::new(std::sync::Mutex::new(
         background_runtime::BackgroundStatusSnapshot::disabled(
             background_interval,
@@ -1114,21 +1148,24 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
 
     if forja_cfg.background.provider.eq_ignore_ascii_case("off") {
+        let snapshot = background_runtime::BackgroundStatusSnapshot::disabled(
+            background_interval,
+            "disabled by config",
+        );
         if let Ok(mut status) = background_status.lock() {
-            *status = background_runtime::BackgroundStatusSnapshot::disabled(
-                background_interval,
-                "disabled by config",
-            );
+            *status = snapshot.clone();
         }
-        println!("Background model: disabled (disabled by config)");
+        let _ = startup_background_status_tx.send(background_status_line(&snapshot));
     } else {
         spawn_background_discovery(
             forja_cfg.clone(),
             background_home_dir.clone(),
             background_manager.clone(),
             background_status.clone(),
+            Some(startup_background_status_tx.clone()),
         );
     }
+    drop(startup_background_status_tx);
 
     // Channel setup
     let (channel, interactive_identity_supported, _print_initial_prompt): (
@@ -1772,6 +1809,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             background_home_dir_for_slash.clone(),
                             background_manager_for_slash.clone(),
                             background_status_for_slash.clone(),
+                            None,
                         );
                         forja_core::engine::SlashCommandResult::Reply(
                             "Background discovery retry started.".to_string(),
@@ -2166,6 +2204,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     println!("[System] Assistant: {assistant_name}");
     println!("[System] Engine is ready. Type /models to list models, /model <name> to switch.");
+    println!(
+        "{}",
+        wait_for_startup_background_status_line(
+            &mut startup_background_status_rx,
+            &background_status,
+        )
+        .await
+    );
     if let Err(error) = channel
         .send(Message::text(Role::Assistant, &startup_greeting, None))
         .await
@@ -2190,7 +2236,12 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_startup_greeting_prompt, fallback_startup_greeting, has_tui_flag};
+    use super::{
+        background_status_line, build_startup_greeting_prompt, fallback_startup_greeting,
+        has_tui_flag, wait_for_startup_background_status_line,
+    };
+    use crate::background_runtime::BackgroundStatusSnapshot;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn detects_tui_flag_in_argument_list() {
@@ -2228,6 +2279,38 @@ mod tests {
         assert!(prompt.contains("first_session_today"));
         assert!(prompt.contains("long_absence_detected"));
         assert!(prompt.contains("Write one natural greeting sentence."));
+    }
+
+    #[test]
+    fn background_status_line_uses_system_prefix_and_selected_model() {
+        let status = BackgroundStatusSnapshot {
+            provider: "ollama".to_string(),
+            model: "qwen3.5:9b".to_string(),
+            interval_seconds: 30,
+            active: true,
+            note: "local".to_string(),
+        };
+
+        assert_eq!(
+            background_status_line(&status),
+            "[System] Background model: ollama/qwen3.5:9b (local)"
+        );
+    }
+
+    #[tokio::test]
+    async fn startup_background_wait_returns_timeout_line_when_status_is_still_initializing() {
+        let (_status_tx, mut status_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let status = Arc::new(Mutex::new(BackgroundStatusSnapshot::disabled(
+            30,
+            "initializing",
+        )));
+
+        let line = wait_for_startup_background_status_line(&mut status_rx, &status).await;
+
+        assert_eq!(
+            line,
+            "[System] Background model: pending (startup wait timed out)"
+        );
     }
 }
 
