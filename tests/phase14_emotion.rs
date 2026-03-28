@@ -1,9 +1,6 @@
 use async_trait::async_trait;
 use chrono::{Duration, Local, TimeZone};
-use forja_core::emotion::{
-    default_startup_greeting, generate_startup_greeting, EmotionEngine, MoodState,
-    RelationshipContext,
-};
+use forja_core::emotion::EmotionEngine;
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::MemoryStore;
 use forja_core::types::MemoryEntry;
@@ -14,19 +11,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{Mutex, oneshot};
 use tokio_stream::Stream;
-
-fn mood_state(mood: &str, intensity: u8, reason: &str, tone_instruction: &str) -> MoodState {
-    MoodState {
-        mood: mood.to_string(),
-        intensity,
-        reason: reason.to_string(),
-        tone_instruction: tone_instruction.to_string(),
-        updated_at: Local
-            .with_ymd_and_hms(2026, 3, 26, 12, 0, 0)
-            .single()
-            .unwrap(),
-    }
-}
 
 fn collect_texts(messages: &[Message]) -> String {
     messages
@@ -51,7 +35,6 @@ fn build_memory_line(date: chrono::NaiveDate, time: &str, role: &str, content: &
 
 enum ProviderStep {
     Text(String),
-    Error(String),
 }
 
 struct ScriptedProvider {
@@ -88,7 +71,6 @@ impl LlmProvider for ScriptedProvider {
 
         match self.steps.lock().await.pop_front().unwrap() {
             ProviderStep::Text(text) => Ok(Message::text(Role::Assistant, text, None)),
-            ProviderStep::Error(error) => Err(ForjaError::LlmError(error)),
         }
     }
 
@@ -183,144 +165,95 @@ impl MemoryStore for RecordingMemoryStore {
     }
 }
 
-#[tokio::test]
-async fn emotion_analyze_parses_json_response() {
-    let provider = ScriptedProvider::new(vec![ProviderStep::Text(
-        r#"{"mood":"focused","intensity":4,"reason":"집중 흐름 유지","tone_instruction":"짧고 또렷하게 도와주세요"}"#.to_string(),
-    )]);
-    let mut emotion = EmotionEngine::new(MoodState::neutral());
-
-    let mood = emotion
-        .analyze(
-            &[Message::text(Role::User, "Phase 14까지 밀고 가자", None)],
-            &provider,
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(mood.mood, "focused");
-    assert_eq!(mood.intensity, 4);
-    assert_eq!(mood.reason, "집중 흐름 유지");
-    assert_eq!(mood.tone_instruction, "짧고 또렷하게 도와주세요");
-}
-
-#[tokio::test]
-async fn emotion_analyze_keeps_previous_state_on_invalid_json() {
-    let previous = mood_state("concerned", 3, "어려운 구간 지속", "차분하게 안정감을 주세요");
-    let provider = ScriptedProvider::new(vec![ProviderStep::Text("not-json".to_string())]);
-    let mut emotion = EmotionEngine::new(previous.clone());
-
-    let mood = emotion
-        .analyze(
-            &[Message::text(Role::User, "왜 계속 안되지", None)],
-            &provider,
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(mood, previous);
-}
-
-#[tokio::test]
-async fn emotion_analyze_keeps_previous_state_on_provider_failure() {
-    let previous = mood_state("happy", 2, "안정적인 대화", "밝지만 차분하게 답하세요");
-    let provider = ScriptedProvider::new(vec![ProviderStep::Error("network fail".to_string())]);
-    let mut emotion = EmotionEngine::new(previous.clone());
-
-    let mood = emotion
-        .analyze(
-            &[Message::text(Role::User, "도와줘", None)],
-            &provider,
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(mood, previous);
-}
-
 #[test]
-fn mood_tags_round_trip_through_memory_lines() {
-    let mood = mood_state("excited", 5, "성과가 연속으로 누적", "함께 기세를 살려주세요");
-    let tag = mood.to_memory_tag();
-    let line = format!("12:00 | system | {tag}");
-    let restored = EmotionEngine::restore_from_memory(&format!("--- 2026-03-26 ---\n{line}\n"))
+fn detect_signals_marks_first_session_today_and_late_night() {
+    let engine = EmotionEngine::new();
+    let now = Local
+        .with_ymd_and_hms(2026, 3, 29, 1, 30, 0)
+        .single()
         .unwrap();
 
-    assert_eq!(tag, "[mood:excited:5:성과가 연속으로 누적]");
-    assert_eq!(restored.mood, "excited");
-    assert_eq!(restored.intensity, 5);
-    assert_eq!(restored.reason, "성과가 연속으로 누적");
-}
-
-#[test]
-fn relationship_detects_late_night_work() {
-    let today = Local::now().date_naive();
-    let memory = format!(
-        "{}\n01:20 | assistant | 아직도 작업 중이네요\n02:10 | user | 네, 조금만 더 할게요",
-        build_memory_line(today, "00:40", "user", "새벽에도 계속 작업합니다")
+    let signals = engine.detect_signals(
+        &[Message::text(Role::User, "Keep moving on this bug", None)],
+        "",
+        now,
     );
 
-    let patterns = RelationshipContext::detect_patterns(&memory);
-
-    assert!(patterns.iter().any(|pattern| pattern == "late_night_detected"));
+    assert!(signals.iter().any(|signal| signal == "late_night_detected"));
+    assert!(signals.iter().any(|signal| signal == "first_session_today"));
 }
 
 #[test]
-fn relationship_detects_long_gap() {
-    let old_day = Local::now().date_naive() - Duration::days(4);
-    let memory = build_memory_line(old_day, "12:00", "user", "오랜만의 기록입니다");
+fn detect_signals_marks_long_absence_from_old_memory() {
+    let engine = EmotionEngine::new();
+    let now = Local
+        .with_ymd_and_hms(2026, 3, 29, 10, 0, 0)
+        .single()
+        .unwrap();
+    let old_day = now.date_naive() - Duration::days(5);
+    let memory = build_memory_line(old_day, "12:00", "user", "Returning after a break");
 
-    let patterns = RelationshipContext::detect_patterns(&memory);
+    let signals = engine.detect_signals(&[], &memory, now);
 
-    assert!(patterns.iter().any(|pattern| pattern == "long_absence_detected"));
+    assert!(signals.iter().any(|signal| signal == "long_absence_detected"));
 }
 
 #[test]
-fn relationship_detects_error_streak() {
-    let today = Local::now().date_naive();
+fn detect_signals_marks_high_frequency_for_dense_recent_activity() {
+    let engine = EmotionEngine::new();
+    let now = Local
+        .with_ymd_and_hms(2026, 3, 29, 10, 0, 0)
+        .single()
+        .unwrap();
+    let today = now.date_naive();
     let memory = format!(
-        "{}\n10:05 | assistant | another error happened\n10:10 | user | still failed again",
-        build_memory_line(today, "10:00", "user", "error keeps happening")
+        "{}\n09:20 | assistant | Another quick update\n09:30 | user | Keep going\n09:40 | assistant | Applied another change\n09:50 | user | Check the next failure",
+        build_memory_line(today, "09:10", "user", "Rapid follow-up")
     );
 
-    let patterns = RelationshipContext::detect_patterns(&memory);
+    let signals = engine.detect_signals(&[], &memory, now);
 
-    assert!(patterns.iter().any(|pattern| pattern == "error_streak_detected"));
+    assert!(signals.iter().any(|signal| signal == "high_frequency_detected"));
 }
 
 #[test]
-fn relationship_detects_progress_streak() {
-    let today = Local::now().date_naive();
-    let memory = format!(
-        "{}\n09:20 | assistant | commit까지 끝났네요",
-        build_memory_line(today, "09:00", "user", "Phase 14 completed and ready to push")
+fn detect_signals_marks_frustration_from_recent_messages() {
+    let engine = EmotionEngine::new();
+    let now = Local
+        .with_ymd_and_hms(2026, 3, 29, 10, 0, 0)
+        .single()
+        .unwrap();
+
+    let signals = engine.detect_signals(
+        &[Message::text(
+            Role::User,
+            "This keeps failing with the same error and it is getting frustrating",
+            None,
+        )],
+        "",
+        now,
     );
 
-    let patterns = RelationshipContext::detect_patterns(&memory);
-
-    assert!(patterns.iter().any(|pattern| pattern == "progress_streak_detected"));
+    assert!(signals.iter().any(|signal| signal == "frustration_detected"));
 }
 
 #[tokio::test]
-async fn tone_instruction_is_injected_into_system_prompt() {
-    let provider = Arc::new(ScriptedProvider::new(vec![
-        ProviderStep::Text(
-            r#"{"mood":"focused","intensity":4,"reason":"집중","tone_instruction":"짧고 또렷하게 안내하세요"}"#.to_string(),
-        ),
-        ProviderStep::Text("main response".to_string()),
-    ]));
+async fn emotion_signals_are_injected_into_system_prompt() {
+    let provider = Arc::new(ScriptedProvider::new(vec![ProviderStep::Text(
+        "main response".to_string(),
+    )]));
     let memory_store = Arc::new(RecordingMemoryStore::new(
-        "--- 2026-03-26 ---\n10:00 | user | 최근 commit이 계속 이어졌습니다",
+        "--- 2026-03-24 ---\n10:00 | user | Earlier work log",
     ));
     let channel = Arc::new(QueueChannel::new(vec![Message::text(
         Role::User,
-        "오늘도 이어서 진행하자",
+        "This error keeps failing again",
         None,
     )]));
     let mut engine = Engine::new(provider.clone(), channel.clone())
         .with_system_prompt("base system prompt".to_string())
         .with_memory(memory_store)
-        .with_emotion(EmotionEngine::new(MoodState::neutral()));
+        .with_emotion(EmotionEngine::new());
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
     let run_handle = tokio::spawn(async move {
@@ -343,31 +276,29 @@ async fn tone_instruction_is_injected_into_system_prompt() {
     run_handle.await.unwrap();
 
     let requests = provider.chat_texts().await;
-    let main_request = &requests[1];
+    let main_request = &requests[0];
 
-    assert!(main_request.contains("System:You are Forja, a personal AI assistant."));
     assert!(main_request.contains("base system prompt"));
-    assert!(main_request.contains("[tone]"));
-    assert!(main_request.contains("짧고 또렷하게 안내하세요"));
-    assert!(main_request.contains("[memory.md - Persistent Memory]"));
+    assert!(main_request.contains("# Emotion Signals"));
+    assert!(main_request.contains("frustration_detected"));
+    assert!(main_request.contains("long_absence_detected"));
 }
 
 #[tokio::test]
-async fn emotion_failures_do_not_block_main_response() {
-    let provider = Arc::new(ScriptedProvider::new(vec![
-        ProviderStep::Error("emotion analysis failed".to_string()),
-        ProviderStep::Text("assistant fallback reply".to_string()),
-    ]));
+async fn emotion_detection_does_not_add_extra_memory_entries() {
+    let provider = Arc::new(ScriptedProvider::new(vec![ProviderStep::Text(
+        "assistant reply".to_string(),
+    )]));
     let memory_store = Arc::new(RecordingMemoryStore::new(""));
     let channel = Arc::new(QueueChannel::new(vec![Message::text(
         Role::User,
-        "응답은 계속 와야 해",
+        "Continue with the next step",
         None,
     )]));
     let mut engine = Engine::new(provider, channel.clone())
         .with_system_prompt("base system prompt".to_string())
-        .with_memory(memory_store)
-        .with_emotion(EmotionEngine::new(MoodState::neutral()));
+        .with_memory(memory_store.clone())
+        .with_emotion(EmotionEngine::new());
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
     let run_handle = tokio::spawn(async move {
@@ -390,106 +321,8 @@ async fn emotion_failures_do_not_block_main_response() {
     run_handle.await.unwrap();
 
     let sent = channel.sent_texts().await;
-    assert_eq!(sent, vec!["assistant fallback reply".to_string()]);
-}
-
-#[tokio::test]
-async fn mood_changes_are_saved_as_system_memory_tags() {
-    let provider = Arc::new(ScriptedProvider::new(vec![
-        ProviderStep::Text(
-            r#"{"mood":"happy","intensity":3,"reason":"밝은 성과 연속","tone_instruction":"기분 좋게 맞춰주세요"}"#.to_string(),
-        ),
-        ProviderStep::Text("assistant reply".to_string()),
-    ]));
-    let memory_store = Arc::new(RecordingMemoryStore::new(""));
-    let channel = Arc::new(QueueChannel::new(vec![Message::text(
-        Role::User,
-        "이번 단계도 끝내자",
-        None,
-    )]));
-    let mut engine = Engine::new(provider, channel.clone())
-        .with_system_prompt("base system prompt".to_string())
-        .with_memory(memory_store.clone())
-        .with_emotion(EmotionEngine::new(MoodState::neutral()));
-    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
-
-    let run_handle = tokio::spawn(async move {
-        engine
-            .run(async {
-                let _ = shutdown_rx.await;
-            })
-            .await
-            .unwrap();
-    });
-
-    for _ in 0..50 {
-        if channel.sent_count().await >= 1 {
-            break;
-        }
-        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
-    }
-
-    shutdown_tx.send(()).unwrap();
-    run_handle.await.unwrap();
-
     let saved_entries = memory_store.saved_entries().await;
 
-    assert!(saved_entries
-        .iter()
-        .any(|entry| entry.tags.iter().any(|tag| tag == "system")
-            && entry.content.contains("[mood:happy:3:밝은 성과 연속]")));
-}
-
-#[tokio::test]
-async fn startup_greeting_uses_memory_context_when_available() {
-    let provider = ScriptedProvider::new(vec![ProviderStep::Text(
-        "주인님, 오늘도 늦게까지 하고 계셨네요.".to_string(),
-    )]);
-    let memory = format!(
-        "{}\n01:10 | assistant | 잠깐 쉬고 하셔도 됩니다",
-        build_memory_line(Local::now().date_naive(), "00:40", "user", "새벽 작업 기록")
-    );
-
-    let greeting = generate_startup_greeting(&provider, "황비서", "주인님", &memory, false)
-        .await
-        .unwrap();
-
-    assert_eq!(greeting, Some("주인님, 오늘도 늦게까지 하고 계셨네요.".to_string()));
-}
-
-#[tokio::test]
-async fn startup_greeting_falls_back_to_default_when_memory_is_empty() {
-    let provider = ScriptedProvider::new(vec![]);
-    let default_greeting = default_startup_greeting("주인님");
-
-    let greeting = generate_startup_greeting(&provider, "황비서", "주인님", "", false)
-        .await
-        .unwrap();
-
-    assert_eq!(greeting, Some(default_greeting));
-}
-
-#[tokio::test]
-async fn startup_greeting_falls_back_to_default_on_provider_failure() {
-    let provider = ScriptedProvider::new(vec![ProviderStep::Error("greeting failed".to_string())]);
-    let default_greeting = default_startup_greeting("주인님");
-    let memory = build_memory_line(Local::now().date_naive(), "09:00", "user", "최근 기록");
-
-    let greeting = generate_startup_greeting(&provider, "황비서", "주인님", &memory, false)
-        .await
-        .unwrap();
-
-    assert_eq!(greeting, Some(default_greeting));
-}
-
-#[tokio::test]
-async fn startup_greeting_is_skipped_on_first_run() {
-    let provider = ScriptedProvider::new(vec![ProviderStep::Text("ignored".to_string())]);
-    let memory = build_memory_line(Local::now().date_naive(), "09:00", "user", "최근 기록");
-
-    let greeting = generate_startup_greeting(&provider, "황비서", "주인님", &memory, true)
-        .await
-        .unwrap();
-
-    assert_eq!(greeting, None);
+    assert_eq!(sent, vec!["assistant reply".to_string()]);
+    assert!(!saved_entries.iter().any(|entry| entry.tags.iter().any(|tag| tag == "system")));
 }

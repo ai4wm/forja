@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use chrono::{Duration, Local};
-use forja_core::emotion::generate_startup_greeting_with_context;
 use forja_core::error::{ForjaError, Result};
 use forja_core::serendipity::SerendipityEngine;
 use forja_core::traits::MemoryStore;
@@ -12,17 +11,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{Mutex, oneshot};
 use tokio_stream::Stream;
-
-fn collect_texts(messages: &[Message]) -> String {
-    messages
-        .iter()
-        .filter_map(|message| match &message.content {
-            Content::Text { text, .. } => Some(format!("{:?}:{text}", message.role)),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
 
 enum ProviderStep {
     Text(String),
@@ -40,15 +28,6 @@ impl ScriptedProvider {
             steps: Mutex::new(steps.into()),
             chat_requests: Mutex::new(Vec::new()),
         }
-    }
-
-    async fn chat_texts(&self) -> Vec<String> {
-        self.chat_requests
-            .lock()
-            .await
-            .iter()
-            .map(|messages| collect_texts(messages))
-            .collect()
     }
 }
 
@@ -308,37 +287,3 @@ async fn serendipity_failure_keeps_main_response_intact() {
     assert_eq!(sent, vec!["assistant fallback reply".to_string()]);
 }
 
-#[tokio::test]
-async fn startup_greeting_can_include_daily_summary_and_knowledge() {
-    let provider = ScriptedProvider::new(vec![ProviderStep::Text(
-        "주인님, 좋은 아침입니다. 어제 Phase 13i를 마치셨고 오늘은 Phase 16부터 시작하시면 됩니다.".to_string(),
-    )]);
-    let memory = "--- 2026-03-26 ---\n09:00 | user | Phase 13i done";
-    let knowledge = "[knowledge - Topic-based Persistent Knowledge]\n\n## projects.md\n- [2026-03-26] Phase 16 is next";
-
-    let greeting = generate_startup_greeting_with_context(
-        &provider,
-        "황비서",
-        "주인님",
-        memory,
-        knowledge,
-        false,
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(
-        greeting,
-        Some(
-            "주인님, 좋은 아침입니다. 어제 Phase 13i를 마치셨고 오늘은 Phase 16부터 시작하시면 됩니다.".to_string()
-        )
-    );
-
-    let requests = provider.chat_texts().await;
-    let request = &requests[0];
-
-    assert!(request.contains("Also, if there are unfinished tasks or a useful daily summary, include it naturally in your greeting."));
-    assert!(request.contains("Memory:"));
-    assert!(request.contains("Knowledge:"));
-    assert!(request.contains("Phase 16 is next"));
-}

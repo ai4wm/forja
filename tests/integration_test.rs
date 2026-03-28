@@ -1,16 +1,9 @@
-use async_trait::async_trait;
-use forja_core::emotion::{default_startup_greeting, generate_startup_greeting};
-use forja_core::error::{ForjaError, Result};
 use forja_core::mode::{parse_slash_command, ExecMode, ModeState, Role, SlashCommand, ThinkLevel};
 use forja_core::prompt::assemble_system_prompt;
 use forja_core::prompt::loader::{DEFAULT_BASE, PromptLoader};
 use forja_core::safety::{is_dangerous_command, should_confirm_command};
-use forja_core::traits::LlmProvider;
-use forja_core::{Message, Role as MessageRole, ToolDefinition};
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio_stream::Stream;
 
 fn unique_temp_dir(name: &str) -> PathBuf {
     let nanos = SystemTime::now()
@@ -18,29 +11,6 @@ fn unique_temp_dir(name: &str) -> PathBuf {
         .unwrap_or_default()
         .as_nanos();
     std::env::temp_dir().join(format!("forja_integration_{name}_{nanos}"))
-}
-
-struct NoneGreetingProvider;
-
-#[async_trait]
-impl LlmProvider for NoneGreetingProvider {
-    async fn chat(
-        &self,
-        _messages: &[Message],
-        _tools: Option<&[ToolDefinition]>,
-    ) -> Result<Message> {
-        Ok(Message::text(MessageRole::Assistant, "NONE", None))
-    }
-
-    async fn stream(
-        &self,
-        _messages: &[Message],
-        _tools: Option<&[ToolDefinition]>,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
-        Err(ForjaError::LlmError(
-            "stream is not used in this integration test".to_string(),
-        ))
-    }
 }
 
 #[test]
@@ -60,6 +30,7 @@ fn prompt_loader_falls_back_to_default_base() {
     let loader = PromptLoader::new(prompts_dir.as_path());
     let expected = DEFAULT_BASE
         .replace("{assistant_name}", "Forja")
+        .replace("{user_name}", "User")
         .replace("{user_title}", "User");
 
     assert_eq!(loader.load_base("Forja", "User"), expected);
@@ -85,7 +56,7 @@ fn prompt_loader_replaces_supported_base_placeholders_in_assembled_prompt() {
     std::fs::create_dir_all(&prompts_dir).unwrap();
     std::fs::write(
         prompts_dir.join("base.md"),
-        "Assistant={assistant_name}; User={user_title}",
+        "Assistant={assistant_name}; User={user_name}",
     )
     .unwrap();
 
@@ -107,9 +78,19 @@ fn prompt_loader_replaces_supported_base_placeholders_in_assembled_prompt() {
         "",
     );
 
-    // The public PromptLoader API supports `{assistant_name}` and `{user_title}`.
-    // `{user_name}` is not a supported public placeholder in the current API.
     assert!(prompt.contains("Assistant=Nova; User=Minji"));
+}
+
+#[test]
+fn prompt_loader_initialization_creates_default_emotion_prompt() {
+    let prompts_dir = unique_temp_dir("emotion_defaults");
+    let loader = PromptLoader::new(prompts_dir.as_path());
+
+    loader.ensure_default_files().unwrap();
+
+    let emotion = std::fs::read_to_string(prompts_dir.join("emotion.md")).unwrap();
+    assert!(emotion.contains("# Emotion Signals"));
+    assert!(emotion.contains("late_night_detected"));
 }
 
 #[test]
@@ -202,17 +183,6 @@ fn slash_role_commands_update_mode_state() {
 fn help_command_reply_is_not_reachable_via_public_forja_core_api() {
     // `/help` is handled inside the binary's private slash-handler closure in `src/main.rs`.
     // There is no public forja_core API to exercise that branch from an integration test yet.
-}
-
-#[tokio::test]
-#[ignore = "greeting returns None when provider says NONE"]
-async fn startup_greeting_falls_back_to_default_when_provider_returns_none() {
-    let greeting =
-        generate_startup_greeting(&NoneGreetingProvider, "Forja", "User", "prior memory", false)
-            .await
-            .unwrap();
-
-    assert_eq!(greeting, Some(default_startup_greeting("User")));
 }
 
 #[test]

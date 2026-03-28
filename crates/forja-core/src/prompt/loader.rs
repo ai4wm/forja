@@ -9,6 +9,7 @@ pub const DEFAULT_ASSISTANT: &str = super::assistant::DEFAULT_ASSISTANT_PROMPT;
 pub const DEFAULT_ANALYST: &str = super::analyst::DEFAULT_ANALYST_PROMPT;
 pub const DEFAULT_THINK_MIN: &str = super::think::DEFAULT_THINK_MIN;
 pub const DEFAULT_THINK_MAX: &str = super::think::DEFAULT_THINK_MAX;
+pub const DEFAULT_EMOTION: &str = "# Emotion Signals\n\nWhen these signals are present, adjust your response naturally:\n\n- late_night_detected: The user is working late. Be brief and caring.\n- long_absence_detected: The user has not been here for a while. Welcome them back warmly.\n- high_frequency_detected: The user is very active. Be efficient and skip pleasantries.\n- frustration_detected: The user seems frustrated. Be calm and solution-focused.\n- first_session_today: This is the first interaction today. Greet naturally.";
 pub const DEFAULT_MEMORY_RULES: &str = "## Mandatory Rules (NEVER violate)\n1. You have a rolling memory system. The records below are real past conversations.\n2. When asked \"do you remember?\", if the information exists below, answer \"Yes, I remember.\"\n3. NEVER use phrases like \"current session\", \"provided in this conversation\", or \"I cannot browse past records.\"\n4. Only say \"I don't have that in my records\" if the information is truly absent below.\n5. Do NOT downplay your memory capabilities. The records below ARE your memory.";
 
 static PROMPT_LOADER: OnceLock<PromptLoader> = OnceLock::new();
@@ -32,6 +33,7 @@ impl PromptLoader {
 
         for (relative_path, contents) in [
             ("base.md", DEFAULT_BASE),
+            ("emotion.md", DEFAULT_EMOTION),
             ("memory-rules.md", DEFAULT_MEMORY_RULES),
             ("roles/coder.md", DEFAULT_CODER),
             ("roles/writer.md", DEFAULT_WRITER),
@@ -46,11 +48,11 @@ impl PromptLoader {
         Ok(())
     }
 
-    pub fn load_base(&self, assistant_name: &str, user_title: &str) -> String {
+    pub fn load_base(&self, assistant_name: &str, user_name: &str) -> String {
         render_base_prompt(
             &self.load_or_default("base.md", DEFAULT_BASE),
             assistant_name,
-            user_title,
+            user_name,
         )
     }
 
@@ -84,6 +86,10 @@ impl PromptLoader {
         self.load_or_default("memory-rules.md", DEFAULT_MEMORY_RULES)
     }
 
+    pub fn load_emotion(&self) -> String {
+        self.load_or_default("emotion.md", DEFAULT_EMOTION)
+    }
+
     pub fn load_file(&self, relative_path: &str) -> Option<String> {
         std::fs::read_to_string(self.prompts_dir.join(relative_path)).ok()
     }
@@ -102,10 +108,11 @@ pub fn prompt_loader() -> &'static PromptLoader {
     PROMPT_LOADER.get_or_init(|| PromptLoader::new(Path::new(".forja/prompts")))
 }
 
-fn render_base_prompt(template: &str, assistant_name: &str, user_title: &str) -> String {
+fn render_base_prompt(template: &str, assistant_name: &str, user_name: &str) -> String {
     template
         .replace("{assistant_name}", assistant_name)
-        .replace("{user_title}", user_title)
+        .replace("{user_name}", user_name)
+        .replace("{user_title}", user_name)
 }
 
 fn write_missing_file(path: &Path, contents: &str) -> io::Result<()> {

@@ -173,7 +173,7 @@ fn prompt_loader_prefers_prompt_files_on_disk() {
     std::fs::create_dir_all(prompts_dir.join("think")).unwrap();
     std::fs::write(
         prompts_dir.join("base.md"),
-        "Base for {assistant_name} -> {user_title}",
+        "Base for {assistant_name} -> {user_name}",
     )
     .unwrap();
     std::fs::write(prompts_dir.join("roles").join("coder.md"), "disk coder").unwrap();
@@ -182,10 +182,7 @@ fn prompt_loader_prefers_prompt_files_on_disk() {
 
     let loader = crate::prompt::loader::PromptLoader::new(prompts_dir.as_path());
 
-    assert_eq!(
-        loader.load_base("Nova", "Captain"),
-        "Base for Nova -> Captain"
-    );
+    assert_eq!(loader.load_base("Nova", "Captain"), "Base for Nova -> Captain");
     assert_eq!(loader.load_role("coder"), "disk coder");
     assert_eq!(loader.load_think("min"), "disk think");
     assert_eq!(loader.load_memory_rules(), "disk memory rules");
@@ -212,6 +209,7 @@ fn prompt_loader_writes_missing_default_files_without_overwriting_existing_files
     );
     assert!(prompts_dir.join("base.md").exists());
     assert!(prompts_dir.join("memory-rules.md").exists());
+    assert!(prompts_dir.join("emotion.md").exists());
     assert!(prompts_dir.join("roles").join("writer.md").exists());
     assert!(prompts_dir.join("roles").join("assistant.md").exists());
     assert!(prompts_dir.join("roles").join("analyst.md").exists());
@@ -228,7 +226,12 @@ fn assemble_system_prompt_uses_prompt_loader_content() {
     std::fs::create_dir_all(prompts_dir.join("think")).unwrap();
     std::fs::write(
         prompts_dir.join("base.md"),
-        "Base prompt for {assistant_name} and {user_title}",
+        "Base prompt for {assistant_name} and {user_name}",
+    )
+    .unwrap();
+    std::fs::write(
+        prompts_dir.join("emotion.md"),
+        "# Emotion Signals\n- late_night_detected: Be brief and caring.",
     )
     .unwrap();
     std::fs::write(prompts_dir.join("roles").join("coder.md"), "role from disk").unwrap();
@@ -249,7 +252,7 @@ fn assemble_system_prompt_uses_prompt_loader_content() {
         "identity section",
         "",
         "tools section",
-        "",
+        "late_night_detected\nfrustration_detected",
         "",
         "",
         "",
@@ -260,6 +263,9 @@ fn assemble_system_prompt_uses_prompt_loader_content() {
     assert!(prompt.contains("role from disk"));
     assert!(prompt.contains("identity section"));
     assert!(prompt.contains("tools section"));
+    assert!(prompt.contains("# Emotion Signals"));
+    assert!(prompt.contains("late_night_detected"));
+    assert!(prompt.contains("frustration_detected"));
 
     let _ = std::fs::remove_dir_all(prompts_dir);
 }

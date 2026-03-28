@@ -1,9 +1,7 @@
 use super::Engine;
-use crate::emotion::{MoodState, RelationshipContext};
 use crate::emotion::EmotionEngine;
 use crate::types::{Message, Role};
-
-
+use chrono::Local;
 
 impl Engine {
     pub fn with_emotion(mut self, emotion: EmotionEngine) -> Self {
@@ -14,41 +12,22 @@ impl Engine {
     pub(super) async fn refresh_turn_emotion_context(&mut self) {
         self.turn_tone_context = None;
         self.turn_relationship_context = None;
-        let recent_messages = self.recent_emotion_messages();
-        let provider = self.provider.clone();
 
-        let Some(emotion) = &mut self.emotion else {
+        let Some(emotion) = &self.emotion else {
             return;
         };
 
-        let previous = emotion.current.clone();
-        let analyzed = match emotion
-            .analyze(&recent_messages, provider.as_ref())
-            .await
-        {
-            Ok(mood) => mood,
-            Err(error) => {
-                eprintln!("[Emotion] analyze failed: {error}");
-                previous.clone()
-            }
-        };
-
-        self.turn_tone_context = Some(format!("[tone]\n{}", analyzed.tone_instruction));
+        let recent_messages = self.recent_emotion_messages();
 
         #[cfg(feature = "memory")]
-        {
-            let memory_contents = self.load_memory_contents_or_empty().await;
-            let patterns = RelationshipContext::detect_patterns(&memory_contents);
-            if !patterns.is_empty() {
-                self.turn_relationship_context = Some(format!(
-                    "[relationship]\n{}",
-                    patterns.join("\n")
-                ));
-            }
-        }
+        let memory_contents = self.load_memory_contents_or_empty().await;
 
-        if mood_has_changed(&previous, &analyzed) {
-            self.persist_mood_change(&analyzed).await;
+        #[cfg(not(feature = "memory"))]
+        let memory_contents = String::new();
+
+        let signals = emotion.detect_signals(&recent_messages, &memory_contents, Local::now());
+        if !signals.is_empty() {
+            self.turn_tone_context = Some(signals.join("\n"));
         }
     }
 
@@ -64,45 +43,4 @@ impl Engine {
             .cloned()
             .collect()
     }
-    async fn persist_mood_change(&self, mood: &MoodState) {
-        #[cfg(feature = "memory")]
-        {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            use crate::types::MemoryEntry;
-            use uuid::Uuid;
-
-            let Some(memory) = &self.memory else {
-                return;
-            };
-
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            let entry = MemoryEntry {
-                id: format!("system_mood_{}_{}", now, Uuid::new_v4()),
-                timestamp: now,
-                tags: vec!["system".to_string()],
-                content: mood.to_memory_tag(),
-                score: 0.0,
-                metadata: Default::default(),
-            };
-
-            if let Err(error) = memory.save(&entry).await {
-                eprintln!("[Emotion] failed to save mood tag: {error}");
-            }
-        }
-
-        #[cfg(not(feature = "memory"))]
-        let _ = mood;
-    }
 }
-
-fn mood_has_changed(previous: &MoodState, next: &MoodState) -> bool {
-    previous.mood != next.mood
-        || previous.intensity != next.intensity
-        || previous.reason != next.reason
-}
-
-
-

@@ -2,27 +2,22 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-const DEFAULT_IDENTITY_NAME: &str = "Forja";
-const DEFAULT_TONE: &str = "formal";
-const DEFAULT_ROLE: &str = "AI assistant";
+const DEFAULT_ASSISTANT_NAME: &str = "Forja";
+const DEFAULT_LANGUAGE: &str = "auto";
+const DEFAULT_TONE: &str = "friendly";
 const DEFAULT_USER_NAME: &str = "User";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityProfile {
-    pub name: String,
-    pub role: String,
+    pub user_name: String,
+    pub assistant_name: String,
+    pub language: String,
     pub tone: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UserProfile {
-    pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BootstrapProfile {
     pub identity: IdentityProfile,
-    pub user: UserProfile,
 }
 
 #[derive(Debug, Clone)]
@@ -41,8 +36,7 @@ pub struct BootstrapPaths {
 
 #[derive(Debug, Clone)]
 struct UserDocument {
-    profile: Option<UserProfile>,
-    body: Option<String>,
+    user_name: Option<String>,
     raw_content: String,
 }
 
@@ -65,9 +59,9 @@ impl BootstrapPaths {
 
 impl BootstrapProfile {
     pub fn greeting(&self) -> String {
-        let user_name = &self.user.name;
-        let identity_name = &self.identity.name;
-        format!("Hello, {user_name}! I am {identity_name}. How can I help?")
+        let user_name = &self.identity.user_name;
+        let assistant_name = &self.identity.assistant_name;
+        format!("Hello, {user_name}! I am {assistant_name}. How can I help?")
     }
 }
 
@@ -115,102 +109,95 @@ pub fn compose_system_prompt_prefix(paths: &BootstrapPaths) -> io::Result<String
     }
 
     Ok(format!(
-        "Bootstrap identity and user profile. Apply these rules before any project prompt.\n\n{}",
+        "Bootstrap identity profile. Apply these rules before any project prompt.\n\n{}",
         sections.join("\n\n")
     ))
 }
 
 fn load_profile(paths: &BootstrapPaths) -> io::Result<BootstrapProfile> {
     let identity_raw = std::fs::read_to_string(&paths.identity_path)?;
-    let (identity_frontmatter, _) = parse_frontmatter_document(&identity_raw).ok_or_else(|| {
+    let (frontmatter, _) = parse_frontmatter_document(&identity_raw).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
             "identity.md frontmatter could not be parsed",
         )
     })?;
 
-    let identity = IdentityProfile {
-        name: required_frontmatter_value(&identity_frontmatter, "name")?,
-        role: required_frontmatter_value(&identity_frontmatter, "role")?,
-        tone: required_frontmatter_value(&identity_frontmatter, "tone")?,
-    };
+    let user_doc = load_user_document(paths)?;
+    let legacy_user_name = user_doc.as_ref().and_then(|doc| doc.user_name.clone());
+    let legacy_assistant_name = frontmatter.get("name").cloned();
+    let legacy_tone = frontmatter.get("tone").cloned();
 
-    let user = if let Some(user_doc) = load_user_document(paths)? {
-        if let Some(profile) = user_doc.profile {
-            profile
-        } else {
-            UserProfile {
-                name: DEFAULT_USER_NAME.to_string(),
-            }
+    let profile = if frontmatter.contains_key("assistant_name") || frontmatter.contains_key("user_name")
+    {
+        IdentityProfile {
+            user_name: required_frontmatter_value(&frontmatter, "user_name")?,
+            assistant_name: required_frontmatter_value(&frontmatter, "assistant_name")?,
+            language: optional_frontmatter_value(&frontmatter, "language")
+                .unwrap_or_else(|| DEFAULT_LANGUAGE.to_string()),
+            tone: optional_frontmatter_value(&frontmatter, "tone")
+                .unwrap_or_else(|| DEFAULT_TONE.to_string()),
         }
     } else {
-        UserProfile {
-            name: DEFAULT_USER_NAME.to_string(),
+        IdentityProfile {
+            user_name: legacy_user_name.unwrap_or_else(|| DEFAULT_USER_NAME.to_string()),
+            assistant_name: legacy_assistant_name.unwrap_or_else(|| DEFAULT_ASSISTANT_NAME.to_string()),
+            language: DEFAULT_LANGUAGE.to_string(),
+            tone: legacy_tone.unwrap_or_else(|| DEFAULT_TONE.to_string()),
         }
     };
 
-    Ok(BootstrapProfile { identity, user })
+    Ok(BootstrapProfile { identity: profile })
 }
 
 fn run_onboarding(paths: &BootstrapPaths, mode: OnboardingMode) -> io::Result<BootstrapOutcome> {
     std::fs::create_dir_all(&paths.forja_dir)?;
 
     let existing_profile = load_profile(paths).ok();
-    let preserved_user_body = preserved_user_body(paths)?;
-
-    let identity_name_default = existing_profile
+    let default_user_name = match mode {
+        OnboardingMode::Initial => existing_profile
+            .as_ref()
+            .map(|profile| profile.identity.user_name.as_str()),
+        OnboardingMode::Reset => existing_profile
+            .as_ref()
+            .map(|profile| profile.identity.user_name.as_str()),
+    };
+    let default_assistant_name = existing_profile
         .as_ref()
-        .map(|profile| profile.identity.name.as_str())
-        .unwrap_or(DEFAULT_IDENTITY_NAME);
-    let tone_default = existing_profile
+        .map(|profile| profile.identity.assistant_name.as_str())
+        .unwrap_or(DEFAULT_ASSISTANT_NAME);
+    let default_language = existing_profile
+        .as_ref()
+        .map(|profile| profile.identity.language.as_str())
+        .unwrap_or(DEFAULT_LANGUAGE);
+    let default_tone = existing_profile
         .as_ref()
         .map(|profile| profile.identity.tone.as_str())
         .unwrap_or(DEFAULT_TONE);
-    let role_default = existing_profile
-        .as_ref()
-        .map(|profile| profile.identity.role.as_str())
-        .unwrap_or(DEFAULT_ROLE);
-    let user_name_default = match &mode {
-        OnboardingMode::Initial => None,
-        OnboardingMode::Reset => existing_profile.as_ref().map(|profile| profile.user.name.as_str()),
-    };
 
-    let identity_name = prompt_with_default("What should I call myself?", identity_name_default)?;
-    let user_name = prompt_required("How should I address you?", user_name_default)?;
-    let tone = prompt_with_default("What speaking style should I use? (formal/casual)", tone_default)?;
-    let role = prompt_with_default("What is my primary role?", role_default)?;
+    let user_name = prompt_required("What should I call you?", default_user_name)?;
+    let assistant_name = prompt_with_default("What's my name?", default_assistant_name)?;
+    let language = prompt_with_default("What language do you prefer?", default_language)?;
+    let tone = prompt_with_default(
+        "What tone do you prefer? (formal/casual/friendly)",
+        default_tone,
+    )?;
 
     let profile = BootstrapProfile {
         identity: IdentityProfile {
-            name: identity_name,
-            role,
+            user_name,
+            assistant_name,
+            language,
             tone,
         },
-        user: UserProfile { name: user_name },
     };
 
     write_identity_file(paths, &profile.identity)?;
-    write_user_file(paths, &profile.user, preserved_user_body.as_deref())?;
-
-    if !cfg!(windows)
-        && paths.legacy_user_prompt_path != paths.user_path
-        && paths.legacy_user_prompt_path.exists()
-    {
-        let _ = std::fs::remove_file(&paths.legacy_user_prompt_path);
-    }
 
     Ok(BootstrapOutcome {
         greeting: Some(profile.greeting()),
         profile,
     })
-}
-
-fn preserved_user_body(paths: &BootstrapPaths) -> io::Result<Option<String>> {
-    if let Some(user_doc) = load_user_document(paths)? {
-        return Ok(user_doc.body);
-    }
-
-    Ok(None)
 }
 
 fn load_user_document(paths: &BootstrapPaths) -> io::Result<Option<UserDocument>> {
@@ -231,54 +218,28 @@ fn read_user_document(path: &Path) -> io::Result<Option<UserDocument>> {
     }
 
     let raw_content = std::fs::read_to_string(path)?;
-
-    if let Some((frontmatter, body)) = parse_frontmatter_document(&raw_content) {
-        let profile = frontmatter.get("name").map(|name| UserProfile {
-            name: name.to_string(),
-        });
-        let body = normalized_optional_body(body);
-
+    if let Some((frontmatter, _body)) = parse_frontmatter_document(&raw_content) {
         return Ok(Some(UserDocument {
-            profile,
-            body,
+            user_name: optional_frontmatter_value(&frontmatter, "name"),
             raw_content,
         }));
     }
 
-    let body = normalized_optional_body(raw_content.clone());
     Ok(Some(UserDocument {
-        profile: None,
-        body,
+        user_name: None,
         raw_content,
     }))
 }
 
 fn write_identity_file(paths: &BootstrapPaths, identity: &IdentityProfile) -> io::Result<()> {
-    let name = sanitize_frontmatter_value(&identity.name);
-    let role = sanitize_frontmatter_value(&identity.role);
-    let tone = sanitize_frontmatter_value(&identity.tone);
-    let content = format!("---\nname: {name}\nrole: {role}\ntone: {tone}\n---\n");
+    let content = format!(
+        "---\nuser_name: {}\nassistant_name: {}\nlanguage: {}\ntone: {}\n---\n",
+        quote_yaml_value(&identity.user_name),
+        quote_yaml_value(&identity.assistant_name),
+        quote_yaml_value(&identity.language),
+        quote_yaml_value(&identity.tone),
+    );
     std::fs::write(&paths.identity_path, content)
-}
-
-fn write_user_file(
-    paths: &BootstrapPaths,
-    user: &UserProfile,
-    preserved_body: Option<&str>,
-) -> io::Result<()> {
-    let name = sanitize_frontmatter_value(&user.name);
-    let mut content = format!("---\nname: {name}\n---\n");
-
-    if let Some(body) = preserved_body {
-        let body = body.trim();
-        if !body.is_empty() {
-            content.push('\n');
-            content.push_str(body);
-            content.push('\n');
-        }
-    }
-
-    std::fs::write(&paths.user_path, content)
 }
 
 fn prompt_with_default(question: &str, default: &str) -> io::Result<String> {
@@ -338,16 +299,20 @@ fn required_frontmatter_value(
     values: &HashMap<String, String>,
     key: &str,
 ) -> io::Result<String> {
+    optional_frontmatter_value(values, key).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("missing required frontmatter key: {key}"),
+        )
+    })
+}
+
+fn optional_frontmatter_value(values: &HashMap<String, String>, key: &str) -> Option<String> {
     values
         .get(key)
         .map(|value| value.trim().to_string())
+        .map(|value| unquote_frontmatter_value(&value))
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("missing required frontmatter key: {key}"),
-            )
-        })
 }
 
 fn parse_frontmatter_document(content: &str) -> Option<(HashMap<String, String>, String)> {
@@ -369,23 +334,22 @@ fn parse_frontmatter_document(content: &str) -> Option<(HashMap<String, String>,
     Some((values, body.to_string()))
 }
 
-fn normalized_optional_body(body: impl Into<String>) -> Option<String> {
-    let body = body.into();
-    let trimmed = body.trim().to_string();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    Some(trimmed)
+fn quote_yaml_value(value: &str) -> String {
+    let escaped = value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    format!("\"{escaped}\"")
 }
 
-fn sanitize_frontmatter_value(value: &str) -> String {
-    value
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .to_string()
+fn unquote_frontmatter_value(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
+        return trimmed[1..trimmed.len() - 1]
+            .replace("\\\"", "\"")
+            .replace("\\\\", "\\");
+    }
+
+    trimmed.to_string()
 }
 
 #[cfg(test)]
@@ -402,37 +366,62 @@ mod tests {
     }
 
     #[test]
-    fn compose_prompt_prefix_includes_identity_and_user_files() {
+    fn compose_prompt_prefix_includes_identity_file() {
         let home_dir = unique_temp_dir("bootstrap_prompt");
         let paths = BootstrapPaths::from_home(&home_dir);
         std::fs::create_dir_all(&paths.forja_dir).unwrap();
         std::fs::write(
             &paths.identity_path,
-            "---\nname: Forja\nrole: AI assistant\ntone: formal\n---\n",
+            "---\nuser_name: \"Owner\"\nassistant_name: \"Forja\"\nlanguage: \"auto\"\ntone: \"friendly\"\n---\n",
         )
         .unwrap();
-        std::fs::write(&paths.user_path, "---\nname: User\n---\n").unwrap();
 
         let prompt = compose_system_prompt_prefix(&paths).unwrap();
 
         assert!(prompt.contains("[identity.md]"));
-        assert!(prompt.contains("name: Forja"));
-        assert!(prompt.contains("[user.md]"));
-        assert!(prompt.contains("name: User"));
+        assert!(prompt.contains("assistant_name: \"Forja\""));
+        assert!(prompt.contains("user_name: \"Owner\""));
 
         let _ = std::fs::remove_dir_all(&home_dir);
     }
 
     #[test]
-    fn preserved_user_body_survives_frontmatter_round_trip() {
+    fn load_profile_reads_new_identity_frontmatter() {
+        let home_dir = unique_temp_dir("bootstrap_identity_profile");
+        let paths = BootstrapPaths::from_home(&home_dir);
+        std::fs::create_dir_all(&paths.forja_dir).unwrap();
+        std::fs::write(
+            &paths.identity_path,
+            "---\nuser_name: \"Owner\"\nassistant_name: \"Forja\"\nlanguage: \"auto\"\ntone: \"friendly\"\n---\n",
+        )
+        .unwrap();
+
+        let profile = load_profile(&paths).unwrap();
+
+        assert_eq!(profile.identity.user_name, "Owner");
+        assert_eq!(profile.identity.assistant_name, "Forja");
+        assert_eq!(profile.identity.language, "auto");
+        assert_eq!(profile.identity.tone, "friendly");
+
+        let _ = std::fs::remove_dir_all(&home_dir);
+    }
+
+    #[test]
+    fn legacy_user_body_survives_in_prompt_prefix() {
         let home_dir = unique_temp_dir("bootstrap_user_body");
         let paths = BootstrapPaths::from_home(&home_dir);
         std::fs::create_dir_all(&paths.forja_dir).unwrap();
-        std::fs::write(&paths.user_path, "---\nname: User\n---\n\nKeep legacy prompt").unwrap();
+        std::fs::write(
+            &paths.identity_path,
+            "---\nuser_name: \"Owner\"\nassistant_name: \"Forja\"\nlanguage: \"auto\"\ntone: \"friendly\"\n---\n",
+        )
+        .unwrap();
+        std::fs::write(&paths.user_path, "---\nname: Owner\n---\n\nKeep legacy prompt").unwrap();
 
-        let body = preserved_user_body(&paths).unwrap();
+        let prompt = compose_system_prompt_prefix(&paths).unwrap();
 
-        assert_eq!(body.as_deref(), Some("Keep legacy prompt"));
+        assert!(prompt.contains("[user.md]"));
+        assert!(prompt.contains("Keep legacy prompt"));
 
         let _ = std::fs::remove_dir_all(&home_dir);
     }

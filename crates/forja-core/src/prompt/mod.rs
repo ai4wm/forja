@@ -13,16 +13,16 @@ pub fn assemble_system_prompt(
     prompt_loader: &loader::PromptLoader,
     mode_state: &ModeState,
     assistant_name: &str,
-    user_title: &str,
+    user_name: &str,
     identity: &str,
     user: &str,
     tools: &str,
-    emotion_tone: &str,
+    emotion_signals: &str,
     relationship: &str,
     knowledge: &str,
     memory: &str,
 ) -> String {
-    let mut sections = vec![prompt_loader.load_base(assistant_name, user_title)];
+    let mut sections = vec![prompt_loader.load_base(assistant_name, user_name)];
 
     let think = prompt_loader.load_think(match mode_state.think_level {
         crate::mode::ThinkLevel::Min => "min",
@@ -48,11 +48,22 @@ pub fn assemble_system_prompt(
         identity,
         user,
         tools,
-        emotion_tone,
-        relationship,
-        knowledge,
-        memory,
     ] {
+        let trimmed = section.trim();
+        if !trimmed.is_empty() {
+            sections.push(trimmed.to_string());
+        }
+    }
+
+    if !emotion_signals.trim().is_empty() {
+        let emotion_prompt = prompt_loader.load_emotion();
+        if !emotion_prompt.trim().is_empty() {
+            sections.push(emotion_prompt);
+        }
+        sections.push(format!("[active_emotion_signals]\n{}", emotion_signals.trim()));
+    }
+
+    for section in [relationship, knowledge, memory] {
         let trimmed = section.trim();
         if !trimmed.is_empty() {
             sections.push(trimmed.to_string());

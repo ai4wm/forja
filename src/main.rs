@@ -5,16 +5,14 @@ mod provider_registry;
 
 use async_trait::async_trait;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
-use forja_core::emotion::{
-    EmotionEngine, MoodState, generate_startup_greeting, generate_startup_greeting_with_context,
-};
+use forja_core::emotion::EmotionEngine;
 use forja_core::error::{ForjaError, Result};
 use forja_core::mode::{
     ExecMode, ModeState, Role as ModeRole, SlashCommand, ThinkLevel, detect_image_path,
     parse_image_command, parse_screenshot_command, parse_slash_command,
 };
 use forja_core::prompt::loader::{PromptLoader, install_prompt_loader};
-use forja_core::traits::{LlmProvider, MemoryStore};
+use forja_core::traits::LlmProvider;
 use forja_core::{
     Channel, Content, Engine, KnowledgeManager, Message, Role, SerendipityEngine, ToolDefinition,
 };
@@ -484,17 +482,6 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let info = config::provider_info(&forja_cfg);
     print_banner(&info);
-    let assistant_name = forja_cfg
-        .assistant_name
-        .clone()
-        .or_else(|| std::env::var("FORJA_ASSISTANT_NAME").ok())
-        .unwrap_or_else(|| "Forja".to_string());
-    let user_title = forja_cfg
-        .user_title
-        .clone()
-        .or_else(|| std::env::var("FORJA_USER_TITLE").ok())
-        .unwrap_or_else(|| "User".to_string());
-
     let shell_enabled = !matches!(
         std::env::var("FORJA_SHELL"),
         Ok(value) if value.eq_ignore_ascii_case("false")
@@ -514,6 +501,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let bootstrap_paths = bootstrap::default_paths();
     initialize_prompt_loader(&forja_cfg, &bootstrap_paths)?;
     let bootstrap_outcome = bootstrap::ensure_bootstrap(&bootstrap_paths)?;
+    let assistant_name = bootstrap_outcome.profile.identity.assistant_name.clone();
+    let user_name = bootstrap_outcome.profile.identity.user_name.clone();
     let (combined_prompt, loaded_project_file) = build_system_prompt(&bootstrap_paths)?;
     let tool_prompt = build_tool_prompt(
         shell_enabled,
@@ -599,7 +588,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     engine = engine
         .with_mode(mode_state.clone())
         .with_tool_prompt(tool_prompt);
-    engine = engine.with_assistant_profile(assistant_name.clone(), user_title.clone());
+    engine = engine.with_assistant_profile(assistant_name.clone(), user_name.clone());
 
     if !combined_prompt.is_empty() {
         engine = engine.with_system_prompt(combined_prompt);
@@ -646,43 +635,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let memory_contents = match memory_store.load_all().await {
-        Ok(contents) => contents,
-        Err(error) => {
-            eprintln!("[Memory] failed to load memory for emotion bootstrap: {error}");
-            String::new()
-        }
-    };
-    let knowledge_contents = match knowledge_manager.load_all_context() {
-        Ok(contents) => contents,
-        Err(error) => {
-            eprintln!("[Knowledge] failed to load knowledge for startup greeting: {error}");
-            String::new()
-        }
-    };
-    let restored_mood =
-        EmotionEngine::restore_from_memory(&memory_contents).unwrap_or_else(MoodState::neutral);
-    let startup_greeting = if serendipity_enabled {
-        generate_startup_greeting_with_context(
-            provider.as_ref(),
-            &bootstrap_outcome.profile.identity.name,
-            &bootstrap_outcome.profile.user.name,
-            &memory_contents,
-            &knowledge_contents,
-            bootstrap_outcome.greeting.is_some(),
-        )
-        .await.unwrap_or(None)
-    } else {
-        generate_startup_greeting(
-            provider.as_ref(),
-            &bootstrap_outcome.profile.identity.name,
-            &bootstrap_outcome.profile.user.name,
-            &memory_contents,
-            bootstrap_outcome.greeting.is_some(),
-        )
-        .await.unwrap_or(None)
-    };
-    engine = engine.with_emotion(EmotionEngine::new(restored_mood));
+    engine = engine.with_emotion(EmotionEngine::new());
 
     let capture_backend_for_vision: Arc<dyn forja_tools::ScreenCaptureBackend> = if use_mock {
         Arc::new(MockCaptureBackend::new())
@@ -1017,8 +970,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         },
     );
 
-    let identity_name = bootstrap_outcome.profile.identity.name.clone();
-    let displayed_greeting = bootstrap_outcome.greeting.or(startup_greeting);
+    let identity_name = bootstrap_outcome.profile.identity.assistant_name.clone();
+    let displayed_greeting = bootstrap_outcome.greeting;
     let mut engine = engine
         .with_memory(memory_store)
         .with_slash_handler(slash_handler);
