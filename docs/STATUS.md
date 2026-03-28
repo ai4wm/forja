@@ -4,8 +4,8 @@ Last updated: 2026-03-29
 
 ## Task Record
 
-- Changed files: `src/main.rs`, `docs/STATUS.md`
-- Dependencies for next task: keep startup sequencing aligned across CLI, Telegram, and TUI if additional system banners are added; consider whether `/background` and `/agent` status output should reuse the same formatted background status line used at startup; keep Web UI deferred while TUI and background recovery behavior stabilize
+- Changed files: `crates/forja-core/src/engine.rs`, `docs/STATUS.md`
+- Dependencies for next task: keep CLI streaming and non-streaming output prefixes aligned if additional channel-specific formatting is introduced; consider whether source-level regression coverage for cosmetic output fixes should be replaced with a behavioral stdout capture test later; keep Web UI deferred while TUI and background recovery behavior stabilize
 - Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo clippy --workspace -- -D warnings`
 
 ## Feature Status
@@ -13,7 +13,7 @@ Last updated: 2026-03-29
 | Feature | Status | File(s) | Notes |
 | --- | --- | --- | --- |
 | Engine loop | Done | `crates/forja-core/src/engine.rs`, `src/main.rs` | Main runtime loop, tool recursion, slash interception, and channel dispatch are wired. |
-| Streaming | Done | `crates/forja-core/src/engine.rs`, `crates/forja-llm/src/client.rs` | Streaming-first path exists with fallback to non-streaming tool handling. |
+| Streaming | Done | `crates/forja-core/src/engine.rs`, `crates/forja-llm/src/client.rs` | Streaming-first path exists with fallback to non-streaming tool handling, and CLI streaming now uses the same `● ` prefix that non-streaming terminal replies use. |
 | Prompt loader | Done | `crates/forja-core/src/prompt/loader.rs`, `crates/forja-core/src/prompt/mod.rs`, `src/main.rs` | File-based prompts are loaded from `~/.forja/prompts/` by default and bootstrapped with defaults. |
 | Session buffer | Done | `crates/forja-memory/src/session.rs`, `crates/forja-memory/src/manager.rs` | Ephemeral per-process session memory tracks recent messages and estimated token usage before compression. |
 | Auto compression | Done | `crates/forja-memory/src/compressor.rs`, `crates/forja-memory/src/manager.rs` | Session overflow now compresses the oldest half of buffered messages into rule-based summaries without LLM calls. |

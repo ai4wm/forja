@@ -531,6 +531,7 @@ impl Engine {
                     if first_token {
                         finish_thinking_spinner();
                         self.channel.cancel_typing().await; // Stop typing indicators on channels like Telegram.
+                        if self.channel.is_cli_source() { print!("● "); }
                         first_token = false;
                     }
 
@@ -549,6 +550,20 @@ impl Engine {
             if self.channel.is_cli_source() { println!(); }
             Ok(Some(full_text))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn cli_streaming_prefix_matches_render_cli_output_prefix() {
+        let source = include_str!("engine.rs");
+        let first_token_block = source
+            .split("if first_token {")
+            .nth(1)
+            .unwrap_or_default();
+
+        assert!(first_token_block.contains("print!(\"● \");"));
     }
 }
 
