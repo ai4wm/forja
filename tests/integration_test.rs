@@ -3,6 +3,8 @@ use forja_core::mode::{parse_slash_command, ExecMode, ModeState, Role, SlashComm
 use forja_core::prompt::assemble_system_prompt;
 use forja_core::prompt::loader::{DEFAULT_BASE, PromptLoader};
 use forja_core::safety::{is_dangerous_command, should_confirm_command};
+use forja_core::skill_eval::{SkillAction, benchmark_skill, eval_skill, parse_skill_action};
+use forja_core::skill_improve::{SuggestionPriority, suggest_improvements};
 use forja_core::skill::{SkillLoader, skills_dir_from_home};
 use forja_memory::{MemoryCommand, parse_memory_command};
 use std::path::PathBuf;
@@ -265,7 +267,7 @@ fn skill_loader_parses_frontmatter_and_body() {
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::write(
         skill_dir.join("SKILL.md"),
-        "---\nname: deploy-vercel\ndescription: Deploy current project to Vercel\ntriggers:\n  - deploy\n  - vercel\nscripts:\n  - deploy.sh\nenv:\n  - VERCEL_TOKEN\n---\n\n# Deploy to Vercel\n\nRun the deploy steps.",
+        "---\nname: deploy-vercel\ndescription: Deploy current project to Vercel\ntriggers:\n  - deploy\n  - vercel\nscripts:\n  - deploy.sh\nenv:\n  - VERCEL_TOKEN\ntests:\n  - name: basic deploy\n    input: deploy\n    expected_contains:\n      - success\n    expected_not_contains:\n      - error\n---\n\n# Deploy to Vercel\n\nRun the deploy steps.",
     )
     .unwrap();
 
@@ -278,6 +280,11 @@ fn skill_loader_parses_frontmatter_and_body() {
     assert_eq!(skills[0].triggers, vec!["deploy", "vercel"]);
     assert_eq!(skills[0].scripts, vec!["deploy.sh"]);
     assert_eq!(skills[0].env, vec!["VERCEL_TOKEN"]);
+    assert_eq!(skills[0].tests.len(), 1);
+    assert_eq!(skills[0].tests[0].name, "basic deploy");
+    assert_eq!(skills[0].tests[0].input, "deploy");
+    assert_eq!(skills[0].tests[0].expected_contains, vec!["success"]);
+    assert_eq!(skills[0].tests[0].expected_not_contains, vec!["error"]);
     assert!(skills[0].instructions.contains("# Deploy to Vercel"));
 }
 
@@ -366,4 +373,128 @@ fn parse_memory_command_matches_supported_variants() {
         Some(MemoryCommand::ClearSession)
     );
     assert_eq!(parse_memory_command("/memory flush"), Some(MemoryCommand::Flush));
+}
+
+#[test]
+fn skill_eval_counts_pass_and_fail_cases() {
+    let skill = forja_core::skill::Skill {
+        name: "demo".to_string(),
+        description: "Demo".to_string(),
+        triggers: vec!["demo".to_string()],
+        scripts: vec!["demo.sh".to_string()],
+        env: Vec::new(),
+        instructions: "demo".to_string(),
+        base_dir: unique_temp_dir("skill_eval_counts"),
+        tests: vec![
+            forja_core::skill_eval::SkillTestCase {
+                name: "pass".to_string(),
+                input: "demo".to_string(),
+                expected_contains: vec!["success".to_string()],
+                expected_not_contains: vec!["error".to_string()],
+                timeout_secs: 30,
+            },
+            forja_core::skill_eval::SkillTestCase {
+                name: "fail".to_string(),
+                input: "demo".to_string(),
+                expected_contains: vec!["missing".to_string()],
+                expected_not_contains: Vec::new(),
+                timeout_secs: 30,
+            },
+        ],
+    };
+
+    let result = eval_skill(&skill, &skill.tests, |_skill, _input, _timeout_secs| {
+        Ok("success output".to_string())
+    });
+
+    assert_eq!(result.passed, 1);
+    assert_eq!(result.failed, 1);
+    assert_eq!(result.results.len(), 2);
+}
+
+#[test]
+fn skill_improve_generates_timeout_and_error_suggestions() {
+    let skill = forja_core::skill::Skill {
+        name: "demo".to_string(),
+        description: "Demo".to_string(),
+        triggers: vec!["demo".to_string()],
+        scripts: vec!["demo.sh".to_string()],
+        env: Vec::new(),
+        instructions: "demo".to_string(),
+        base_dir: unique_temp_dir("skill_improve"),
+        tests: Vec::new(),
+    };
+    let eval_result = forja_core::skill_eval::EvalResult {
+        passed: 0,
+        failed: 2,
+        results: vec![
+            forja_core::skill_eval::TestResult {
+                case_name: "timeout".to_string(),
+                passed: false,
+                actual_output: String::new(),
+                failure_reason: Some("timeout".to_string()),
+            },
+            forja_core::skill_eval::TestResult {
+                case_name: "error".to_string(),
+                passed: false,
+                actual_output: "fatal error".to_string(),
+                failure_reason: Some("expected_not_contains matched: error".to_string()),
+            },
+        ],
+        duration_ms: 100,
+    };
+
+    let suggestions = suggest_improvements(&skill, &eval_result);
+
+    assert_eq!(suggestions.len(), 2);
+    assert!(suggestions
+        .iter()
+        .any(|suggestion| suggestion.priority == SuggestionPriority::High));
+}
+
+#[test]
+fn skill_benchmark_aggregates_pass_rate_and_duration() {
+    let skill = forja_core::skill::Skill {
+        name: "demo".to_string(),
+        description: "Demo".to_string(),
+        triggers: vec!["demo".to_string()],
+        scripts: vec!["demo.sh".to_string()],
+        env: Vec::new(),
+        instructions: "demo".to_string(),
+        base_dir: unique_temp_dir("skill_benchmark"),
+        tests: vec![forja_core::skill_eval::SkillTestCase {
+            name: "pass".to_string(),
+            input: "demo".to_string(),
+            expected_contains: vec!["success".to_string()],
+            expected_not_contains: Vec::new(),
+            timeout_secs: 30,
+        }],
+    };
+
+    let benchmark = benchmark_skill(&skill, &skill.tests, 3, |_skill, _input, _timeout_secs| {
+        Ok("success output".to_string())
+    });
+
+    assert_eq!(benchmark.run_count, 3);
+    assert!(benchmark.pass_rate >= 1.0);
+    assert!(benchmark.avg_duration_ms <= benchmark.max_duration_ms);
+}
+
+#[test]
+fn parse_skill_action_matches_eval_improve_and_benchmark_commands() {
+    assert_eq!(
+        parse_skill_action("/skill eval git-summary"),
+        Some(SkillAction::Eval("git-summary".to_string()))
+    );
+    assert_eq!(
+        parse_skill_action("/skill improve git-summary"),
+        Some(SkillAction::Improve("git-summary".to_string()))
+    );
+    assert_eq!(
+        parse_skill_action("/skill benchmark git-summary 5"),
+        Some(SkillAction::Benchmark {
+            name: "git-summary".to_string(),
+            runs: 5,
+        })
+    );
 }

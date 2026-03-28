@@ -4,8 +4,8 @@ Last updated: 2026-03-29
 
 ## Task Record
 
-- Changed files: `crates/forja-memory/Cargo.toml`, `crates/forja-memory/src/lib.rs`, `crates/forja-memory/src/session.rs`, `crates/forja-memory/src/compressor.rs`, `crates/forja-memory/src/longterm.rs`, `crates/forja-memory/src/manager.rs`, `src/main.rs`, `tests/integration_test.rs`, `docs/STATUS.md`
-- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; decide whether to replace the temporary TF-IDF/BM25-style ranking with a stronger scorer once a true shared search layer exists; decide whether `/memory search` should support highlighted snippets and timestamps; Phase 28 should add agent-scoped long-term memory wiring on top of the existing path helper
+- Changed files: `crates/forja-core/Cargo.toml`, `crates/forja-core/src/lib.rs`, `crates/forja-core/src/skill.rs`, `crates/forja-core/src/skill_eval.rs`, `crates/forja-core/src/skill_improve.rs`, `src/main.rs`, `tests/integration_test.rs`, `examples/skills/hello-world/SKILL.md`, `examples/skills/git-summary/SKILL.md`, `docs/STATUS.md`
+- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; decide whether eval results should be persisted to a dedicated skill history file in addition to MemoryManager; expand direct integration coverage for `/skill eval`, `/skill improve`, and `/skill benchmark`; decide whether benchmark output should retain per-case breakdowns or only aggregate stats
 - Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo clippy --workspace -- -D warnings`
 
 ## Feature Status
@@ -42,7 +42,9 @@ Last updated: 2026-03-29
 | Skill system (execution) | Done | `src/main.rs`, `crates/forja-tools/src/shell.rs` | Skill scripts are executed from their skill directory with skill-scoped environment injection and ExecMode-aware confirmation behavior. |
 | Skill system (trigger matching) | Done | `crates/forja-core/src/intent.rs`, `crates/forja-core/src/skill.rs`, `tests/integration_test.rs` | Built-in commands are checked first, then installed skills are matched by trigger to produce `InternalCommand::Skill`. |
 | Skill system (slash commands) | Done | `src/main.rs`, `crates/forja-core/src/engine.rs` | `/skill list`, `/skill run <name> [args]`, `/skill info <name>`, and `/skill reload` are handled in the runtime slash path. |
-| Skill system (eval/improve/benchmark) | Not started | `docs/ROADMAP.md` | Deferred to Phase 22b. |
+| Skill system (eval) | Done | `crates/forja-core/src/skill_eval.rs`, `crates/forja-core/src/skill.rs`, `src/main.rs`, `tests/integration_test.rs` | Skills can now load structured test cases and run rule-based evaluations through callback-backed script execution. |
+| Skill system (improve) | Done | `crates/forja-core/src/skill_improve.rs`, `src/main.rs`, `tests/integration_test.rs` | Improvement suggestions are generated from eval failures without LLM calls and are recorded through the memory layer. |
+| Skill system (benchmark) | Done | `crates/forja-core/src/skill_eval.rs`, `src/main.rs`, `tests/integration_test.rs` | Benchmark runs aggregate pass rate and timing statistics across repeated evaluations. |
 | Background model manager | Done | `crates/forja-core/src/background.rs`, `src/background_runtime.rs`, `src/main.rs` | Background manager start/stop/status handling is implemented, and startup auto-discovery runs without blocking the foreground engine. |
 | Groq provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | Groq is available through the OpenAI-compatible client path and can be selected with registry-backed models. |
 | OpenRouter provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | OpenRouter is available through the OpenAI-compatible client path with curated free-model registry entries and background-model probing support. |

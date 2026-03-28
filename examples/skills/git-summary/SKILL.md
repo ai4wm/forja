@@ -8,6 +8,16 @@ triggers:
 scripts:
   - summary.sh
 env:
+tests:
+  - name: basic output
+    input: git summary
+    expected_contains:
+      - commit
+  - name: no error
+    input: git summary
+    expected_not_contains:
+      - error
+      - fatal
 ---
 
 # Git Summary

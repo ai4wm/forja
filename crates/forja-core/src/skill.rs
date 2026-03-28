@@ -1,3 +1,5 @@
+use crate::skill_eval::{SkillTestCase, SkillTestSuite};
+use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
@@ -14,6 +16,7 @@ pub struct Skill {
     pub env: Vec<String>,
     pub instructions: String,
     pub base_dir: PathBuf,
+    pub tests: Vec<SkillTestCase>,
 }
 
 #[derive(Debug, Default)]
@@ -61,6 +64,13 @@ impl SkillLoader {
         self.skills
             .iter()
             .find(|skill| normalize(&skill.name) == target)
+    }
+
+    pub fn skill_test_suite(&self, name: &str) -> Option<SkillTestSuite> {
+        self.find_by_name(name).map(|skill| SkillTestSuite {
+            skill_name: skill.name.clone(),
+            cases: skill.tests.clone(),
+        })
     }
 
     pub fn skills(&self) -> &[Skill] {
@@ -146,7 +156,7 @@ fn active_skill_context_lock() -> &'static Mutex<Option<String>> {
 fn load_skill_dir(path: PathBuf) -> std::io::Result<Skill> {
     let skill_doc_path = path.join("SKILL.md");
     let raw = fs::read_to_string(skill_doc_path)?;
-    let (frontmatter, instructions) = parse_frontmatter_document(&raw).ok_or_else(|| {
+    let parsed = parse_skill_document(&raw).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             "SKILL.md frontmatter could not be parsed",
@@ -154,104 +164,46 @@ fn load_skill_dir(path: PathBuf) -> std::io::Result<Skill> {
     })?;
 
     Ok(Skill {
-        name: required_scalar(&frontmatter, "name")?,
-        description: required_scalar(&frontmatter, "description")?,
-        triggers: list_value(&frontmatter, "triggers"),
-        scripts: list_value(&frontmatter, "scripts"),
-        env: list_value(&frontmatter, "env"),
-        instructions: instructions.trim().to_string(),
+        name: parsed.frontmatter.name,
+        description: parsed.frontmatter.description,
+        triggers: parsed.frontmatter.triggers,
+        scripts: parsed.frontmatter.scripts,
+        env: parsed.frontmatter.env,
+        instructions: parsed.instructions.trim().to_string(),
         base_dir: path,
+        tests: parsed.frontmatter.tests,
     })
 }
 
-fn required_scalar(
-    frontmatter: &SkillFrontmatter,
-    key: &str,
-) -> std::io::Result<String> {
-    frontmatter
-        .get(key)
-        .and_then(|value| match value {
-            SkillValue::Scalar(value) => Some(value.clone()),
-            SkillValue::List(_) => None,
-        })
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("missing required skill key: {key}"),
-            )
-        })
-}
-
-fn list_value(frontmatter: &SkillFrontmatter, key: &str) -> Vec<String> {
-    frontmatter
-        .get(key)
-        .and_then(|value| match value {
-            SkillValue::List(values) => Some(values.clone()),
-            SkillValue::Scalar(_) => None,
-        })
-        .unwrap_or_default()
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum SkillValue {
-    Scalar(String),
-    List(Vec<String>),
+struct ParsedSkillDocument {
+    frontmatter: SkillFrontmatter,
+    instructions: String,
 }
 
-type SkillFrontmatter = std::collections::HashMap<String, SkillValue>;
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+struct SkillFrontmatter {
+    name: String,
+    description: String,
+    #[serde(default)]
+    triggers: Vec<String>,
+    #[serde(default)]
+    scripts: Vec<String>,
+    #[serde(default)]
+    env: Vec<String>,
+    #[serde(default)]
+    tests: Vec<SkillTestCase>,
+}
 
-fn parse_frontmatter_document(content: &str) -> Option<(SkillFrontmatter, String)> {
+fn parse_skill_document(content: &str) -> Option<ParsedSkillDocument> {
     let normalized = content.replace("\r\n", "\n");
     let stripped = normalized.strip_prefix("---\n")?;
     let (frontmatter_raw, body) = stripped.split_once("\n---\n")?;
-    let mut values = SkillFrontmatter::new();
-    let mut current_list_key: Option<String> = None;
-
-    for line in frontmatter_raw.lines() {
-        let trimmed = line.trim_end();
-        if trimmed.trim().is_empty() {
-            continue;
-        }
-
-        if let Some(item) = trimmed.trim_start().strip_prefix("- ") {
-            let key = current_list_key.clone()?;
-            values
-                .entry(key)
-                .and_modify(|value| {
-                    if let SkillValue::List(items) = value {
-                        items.push(unquote(item.trim()));
-                    }
-                })
-                .or_insert_with(|| SkillValue::List(vec![unquote(item.trim())]));
-            continue;
-        }
-
-        let (key, value) = trimmed.split_once(':')?;
-        let key = key.trim().to_string();
-        let value = value.trim();
-
-        if value.is_empty() {
-            current_list_key = Some(key.clone());
-            values.insert(key, SkillValue::List(Vec::new()));
-        } else {
-            current_list_key = None;
-            values.insert(key, SkillValue::Scalar(unquote(value)));
-        }
-    }
-
-    Some((values, body.to_string()))
-}
-
-fn unquote(value: &str) -> String {
-    let trimmed = value.trim();
-    if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
-        return trimmed[1..trimmed.len() - 1]
-            .replace("\\\"", "\"")
-            .replace("\\\\", "\\");
-    }
-
-    trimmed.to_string()
+    let frontmatter = serde_yaml::from_str::<SkillFrontmatter>(frontmatter_raw).ok()?;
+    Some(ParsedSkillDocument {
+        frontmatter,
+        instructions: body.to_string(),
+    })
 }
 
 fn normalize(value: &str) -> String {
@@ -284,7 +236,7 @@ mod tests {
         std::fs::create_dir_all(&skill_dir).unwrap();
         std::fs::write(
             skill_dir.join("SKILL.md"),
-            "---\nname: hello-world\ndescription: Say hello\ntriggers:\n  - hello\nscripts:\n  - hello.sh\nenv:\n  - DEMO_KEY\n---\n\n# Hello\n\nRun hello.sh",
+            "---\nname: hello-world\ndescription: Say hello\ntriggers:\n  - hello\nscripts:\n  - hello.sh\nenv:\n  - DEMO_KEY\ntests:\n  - name: hello output\n    input: hello\n    expected_contains:\n      - hello\n---\n\n# Hello\n\nRun hello.sh",
         )
         .unwrap();
 
@@ -295,6 +247,8 @@ mod tests {
         assert_eq!(skills[0].triggers, vec!["hello"]);
         assert_eq!(skills[0].scripts, vec!["hello.sh"]);
         assert_eq!(skills[0].env, vec!["DEMO_KEY"]);
+        assert_eq!(skills[0].tests.len(), 1);
+        assert_eq!(skills[0].tests[0].name, "hello output");
         assert!(skills[0].instructions.contains("# Hello"));
     }
 

@@ -18,7 +18,11 @@ use forja_core::skill::{
     Skill, SkillLoader, clear_active_skill_context, default_skills_dir, set_active_skill_context,
     set_skill_catalog_summary,
 };
-use forja_core::traits::{Channel as CoreChannelTrait, LlmProvider, Tool};
+use forja_core::skill_eval::{
+    BenchmarkResult, EvalResult, SkillAction, benchmark_skill, eval_skill, parse_skill_action,
+};
+use forja_core::skill_improve::{Suggestion, SuggestionPriority, suggest_improvements};
+use forja_core::traits::{Channel as CoreChannelTrait, LlmProvider, MemoryStore, Tool};
 use forja_core::{
     BackgroundManager, Channel, Content, Engine, KnowledgeManager, Message, Role,
     SerendipityEngine, ToolDefinition,
@@ -43,6 +47,7 @@ use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio_stream::{Stream, StreamExt};
 
 // Mock LLM used for local testing without a real API key.
@@ -440,6 +445,76 @@ fn memory_stats_text(stats: &forja_memory::manager::MemoryStats) -> String {
     )
 }
 
+fn eval_result_text(skill_name: &str, result: &EvalResult) -> String {
+    let mut lines = vec![format!(
+        "[eval] {skill_name}: {}/{} passed ({}ms)",
+        result.passed,
+        result.results.len(),
+        result.duration_ms
+    )];
+    lines.extend(result.results.iter().map(|case| {
+        if case.passed {
+            format!("  - {}: passed", case.case_name)
+        } else {
+            format!(
+                "  - {}: failed ({})",
+                case.case_name,
+                case.failure_reason.as_deref().unwrap_or("unknown")
+            )
+        }
+    }));
+    lines.join("\n")
+}
+
+fn benchmark_result_text(skill_name: &str, result: &BenchmarkResult) -> String {
+    format!(
+        "[benchmark] {skill_name}: pass_rate={:.2}, avg={}ms, min={}ms, max={}ms, runs={}",
+        result.pass_rate,
+        result.avg_duration_ms,
+        result.min_duration_ms,
+        result.max_duration_ms,
+        result.run_count
+    )
+}
+
+fn suggestions_text(skill_name: &str, suggestions: &[Suggestion]) -> String {
+    if suggestions.is_empty() {
+        return format!("[improve] {skill_name}: no suggestions");
+    }
+
+    let mut lines = vec![format!("[improve] {skill_name}:")];
+    lines.extend(suggestions.iter().map(|suggestion| {
+        let priority = match suggestion.priority {
+            SuggestionPriority::High => "high",
+            SuggestionPriority::Medium => "medium",
+            SuggestionPriority::Low => "low",
+        };
+        format!("- [{priority}] {}", suggestion.description)
+    }));
+    lines.join("\n")
+}
+
+async fn record_skill_history(
+    memory_store: &MemoryManagerStore,
+    skill_name: &str,
+    category: &str,
+    text: &str,
+) {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let entry = forja_core::types::MemoryEntry {
+        id: format!("skill_{category}_{skill_name}_{timestamp}"),
+        timestamp,
+        tags: vec!["system".to_string()],
+        content: format!("[skill:{category}:{skill_name}] {text}"),
+        score: 0.0,
+        metadata: Default::default(),
+    };
+    let _ = memory_store.save(&entry).await;
+}
+
 fn reload_skill_loader(loader: &mut SkillLoader) -> std::io::Result<usize> {
     let skills = loader.load_all()?;
     set_skill_catalog_summary(loader.summary());
@@ -562,6 +637,7 @@ async fn execute_skill(
     args: &str,
     cfg: &config::ForjaConfig,
     exec_mode_handle: Arc<std::sync::Mutex<ExecMode>>,
+    timeout_secs: u64,
 ) -> Result<String> {
     if skill.scripts.is_empty() {
         return Ok("Skill has no scripts to execute.".to_string());
@@ -571,7 +647,7 @@ async fn execute_skill(
     let confirmation = StdinConfirmation::from_shared(exec_mode_handle.clone());
     let shell_tool = ShellTool::with_settings(
         Arc::new(StdinConfirmation::new(ExecMode::Trust)),
-        Duration::from_secs(30),
+        Duration::from_secs(timeout_secs.max(1)),
         false,
     );
     let mut outputs = Vec::new();
@@ -1311,6 +1387,90 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 return Some(forja_core::engine::SlashCommandResult::Reply(reply));
             }
 
+            if let Some(action) = parse_skill_action(text) {
+                let skill_name = match &action {
+                    SkillAction::Eval(name)
+                    | SkillAction::Improve(name)
+                    | SkillAction::Benchmark { name, .. } => name.clone(),
+                };
+
+                let skill = match skill_loader_for_slash.lock() {
+                    Ok(loader) => loader.find_by_name(&skill_name).cloned(),
+                    Err(_) => None,
+                };
+
+                let Some(skill) = skill else {
+                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                        "Skill not found: {skill_name}"
+                    )));
+                };
+
+                if skill.tests.is_empty() {
+                    return Some(forja_core::engine::SlashCommandResult::Reply(format!(
+                        "Skill '{skill_name}' has no test cases."
+                    )));
+                }
+
+                let execute_case = |skill: &Skill, input: &str, timeout_secs: u64| {
+                    tokio::task::block_in_place(|| {
+                        tokio::runtime::Handle::current().block_on(execute_skill(
+                            skill,
+                            input,
+                            &cfg_for_handler,
+                            exec_mode_handle_for_slash.clone(),
+                            timeout_secs,
+                        ))
+                    })
+                };
+
+                return Some(match action {
+                    SkillAction::Eval(name) => {
+                        let result = eval_skill(&skill, &skill.tests, execute_case);
+                        let reply = eval_result_text(&name, &result);
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(record_skill_history(
+                                &memory_store_for_slash,
+                                &name,
+                                "eval",
+                                &reply,
+                            ))
+                        });
+                        forja_core::engine::SlashCommandResult::Reply(reply)
+                    }
+                    SkillAction::Improve(name) => {
+                        let result = eval_skill(&skill, &skill.tests, execute_case);
+                        let suggestions = suggest_improvements(&skill, &result);
+                        let reply = format!(
+                            "{}\n\n{}",
+                            eval_result_text(&name, &result),
+                            suggestions_text(&name, &suggestions)
+                        );
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(record_skill_history(
+                                &memory_store_for_slash,
+                                &name,
+                                "improve",
+                                &reply,
+                            ))
+                        });
+                        forja_core::engine::SlashCommandResult::Reply(reply)
+                    }
+                    SkillAction::Benchmark { name, runs } => {
+                        let result = benchmark_skill(&skill, &skill.tests, runs, execute_case);
+                        let reply = benchmark_result_text(&name, &result);
+                        tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(record_skill_history(
+                                &memory_store_for_slash,
+                                &name,
+                                "benchmark",
+                                &reply,
+                            ))
+                        });
+                        forja_core::engine::SlashCommandResult::Reply(reply)
+                    }
+                });
+            }
+
             if let Some(name) = text.strip_prefix("/skill info ") {
                 let reply = match skill_loader_for_slash.lock() {
                     Ok(loader) => match loader.find_by_name(name.trim()) {
@@ -1354,6 +1514,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                         &args,
                         &cfg_for_handler,
                         exec_mode_handle_for_slash.clone(),
+                        30,
                     ))
                 });
 

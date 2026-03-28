@@ -12,6 +12,8 @@ pub mod prompt;
 pub mod safety;
 pub mod serendipity;
 pub mod skill;
+pub mod skill_eval;
+pub mod skill_improve;
 pub mod traits;
 pub mod types;
 

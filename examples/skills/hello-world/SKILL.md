@@ -7,6 +7,11 @@ triggers:
   - greeting
 scripts:
 env:
+tests:
+  - name: no script fallback
+    input: hello
+    expected_contains:
+      - Skill has no scripts to execute.
 ---
 
 # Hello World
