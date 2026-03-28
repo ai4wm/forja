@@ -43,6 +43,9 @@ use forja_tools::XcapBackend;
 use forja_channel::notify_beep::BeepNotifier;
 use forja_channel::notify_terminal::TerminalNotifier;
 use forja_channel::notify_toast::ToastNotifier;
+use forja_channel::switchable::SwitchableChannel;
+#[cfg(feature = "tui")]
+use forja_channel::tui_channel::{AgentStatusInfo, DisplayBuffer};
 use forja_tools::confirm::ConfirmationHandler;
 use forja_tools::{
     BrowserTool, ClaudeCodeTool, CodexTool, FileTool, GeminiCliTool, GptVisionAnalyzer, InputTool,
@@ -57,6 +60,8 @@ use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(feature = "tui")]
+use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt};
@@ -411,6 +416,10 @@ fn role_label(role: ModeRole) -> &'static str {
     }
 }
 
+fn has_tui_flag(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == "--tui")
+}
+
 fn internal_command_to_input(command: &InternalCommand) -> String {
     match command {
         InternalCommand::Mode(ExecMode::Safe) => "/mode safe".to_string(),
@@ -429,6 +438,7 @@ fn internal_command_to_input(command: &InternalCommand) -> String {
         InternalCommand::Screenshot(Some(prompt)) => format!("/ss {prompt}"),
         InternalCommand::Screenshot(None) => "/ss".to_string(),
         InternalCommand::Help => "/help".to_string(),
+        InternalCommand::Tui => "/tui".to_string(),
         InternalCommand::Models => "/models".to_string(),
         InternalCommand::Model(model) => format!("/model {model}"),
         InternalCommand::Background(BackgroundCmd::Status) => "/background".to_string(),
@@ -816,6 +826,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut force_setup = false;
     let mut force_safe = false;
     let mut force_trust = false;
+    let mut force_tui = has_tui_flag(&args);
     let mut new_provider = None;
     let mut new_model = None;
 
@@ -825,6 +836,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             "--setup" => force_setup = true,
             "--safe" => force_safe = true,
             "--trust" => force_trust = true,
+            "--tui" => force_tui = true,
             "--provider" => {
                 if i + 1 < args.len() {
                     new_provider = Some(args[i + 1].clone());
@@ -1118,11 +1130,81 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let memory_base_dir = default_memory_base_dir();
     let memory_store = MemoryManagerStore::new(&memory_base_dir, None).await?;
     memory_store.load().await?;
-    let channel: Arc<dyn Channel> = Arc::new(MemoryAwareChannel::new(
+    let has_remote_sources = !interactive_identity_supported;
+    let base_channel: Arc<dyn Channel> = Arc::new(MemoryAwareChannel::new(
         channel.clone(),
         memory_store.clone(),
         Some(background_manager.clone()),
     ));
+    #[cfg(feature = "tui")]
+    let tui_messages = Arc::new(std::sync::Mutex::new(DisplayBuffer::default()));
+    #[cfg(feature = "tui")]
+    let tui_notifications = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+    #[cfg(feature = "tui")]
+    let tui_agent_status = Arc::new(std::sync::Mutex::new(AgentStatusInfo::default()));
+    #[cfg(feature = "tui")]
+    let switchable_channel = Arc::new(SwitchableChannel::new(
+        base_channel.clone(),
+        has_remote_sources,
+        tui_messages.clone(),
+        tui_notifications.clone(),
+        tui_agent_status.clone(),
+    ));
+    #[cfg(not(feature = "tui"))]
+    let switchable_channel = Arc::new(SwitchableChannel::new(base_channel.clone(), has_remote_sources));
+    let channel: Arc<dyn Channel> = switchable_channel.clone();
+    #[cfg(feature = "tui")]
+    {
+        if let Ok(mut status) = tui_agent_status.lock() {
+            status.exec_mode = exec_mode_label(exec_mode).to_string();
+            status.model_name = forja_cfg
+                .active
+                .model
+                .clone()
+                .unwrap_or_else(|| "unset".to_string());
+            status.think_level = think_level_label(think_level).to_string();
+            status.role = role_label(ModeRole::Auto).to_string();
+        }
+
+        let tui_agent_status_handle = tui_agent_status.clone();
+        let background_manager_for_tui = background_manager.clone();
+        let memory_store_for_tui = memory_store.clone();
+        let notification_router_for_tui = notification_router.clone();
+        let tui_notifications_handle = tui_notifications.clone();
+        let start_time = Instant::now();
+        tokio::spawn(async move {
+            loop {
+                let snapshot = background_manager_for_tui.lock().await.status_snapshot();
+                let memory_entries = memory_store_for_tui
+                    .stats()
+                    .await
+                    .map(|stats| stats.longterm_entries)
+                    .unwrap_or(0);
+                let notifications = notification_router_for_tui.history(50);
+                if let Ok(mut status) = tui_agent_status_handle.lock() {
+                    status.background_running = snapshot.running;
+                    status.background_paused = snapshot.paused;
+                    status.memory_entry_count = memory_entries;
+                    status.uptime_seconds = start_time.elapsed().as_secs();
+                    status.last_event = snapshot.last_events.last().cloned();
+                }
+                if let Ok(mut buffer) = tui_notifications_handle.lock() {
+                    buffer.clear();
+                    for notification in notifications {
+                        buffer.push_back(notification);
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        });
+        if force_tui {
+            switchable_channel.enter_tui();
+        }
+    }
+    #[cfg(not(feature = "tui"))]
+    if force_tui {
+        println!("[WARN] TUI feature is not enabled in this build.");
+    }
     {
         let channel_for_agent = channel.clone();
         let memory_store_for_agent = memory_store.clone();
@@ -1328,6 +1410,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let background_manager_for_slash = background_manager.clone();
     let main_provider_handle_for_slash = main_provider_handle.clone();
     let notification_router_for_slash = notification_router.clone();
+    #[cfg(feature = "tui")]
+    let switchable_channel_for_slash = switchable_channel.clone();
+    #[cfg(feature = "tui")]
+    let tui_agent_status_for_slash = tui_agent_status.clone();
     let slash_handler: forja_core::engine::SlashHandler = Arc::new(
         move |text: &str, provider: &mut Arc<dyn LlmProvider>, mode_state: &mut ModeState| {
             let original_text = text.trim();
@@ -1442,6 +1528,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                         if let Ok(mut shared_mode) = exec_mode_handle_for_slash.lock() {
                             *shared_mode = mode;
                         }
+                        #[cfg(feature = "tui")]
+                        if let Ok(mut status) = tui_agent_status_for_slash.lock() {
+                            status.exec_mode = exec_mode_label(mode).to_string();
+                        }
                         return Some(forja_core::engine::SlashCommandResult::Reply(format!(
                             "Mode switched to: {}",
                             exec_mode_label(mode)
@@ -1449,6 +1539,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     }
                     SlashCommand::Think(level) => {
                         mode_state.update_think_level(level);
+                        #[cfg(feature = "tui")]
+                        if let Ok(mut status) = tui_agent_status_for_slash.lock() {
+                            status.think_level = think_level_label(level).to_string();
+                        }
                         return Some(forja_core::engine::SlashCommandResult::Reply(format!(
                             "[System] Think updated: {}",
                             think_level_label(level)
@@ -1456,6 +1550,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     }
                     SlashCommand::Role(role) => {
                         mode_state.update_role(role);
+                        #[cfg(feature = "tui")]
+                        if let Ok(mut status) = tui_agent_status_for_slash.lock() {
+                            status.role = role_label(role).to_string();
+                        }
                         return Some(forja_core::engine::SlashCommandResult::Reply(format!(
                             "[System] Role updated: {}",
                             role_label(role)
@@ -1473,6 +1571,23 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
             if text == "/help" {
                 return Some(forja_core::engine::SlashCommandResult::Reply(help_text()));
+            }
+
+            if text == "/tui" {
+                #[cfg(feature = "tui")]
+                {
+                    switchable_channel_for_slash.enter_tui();
+                    return Some(forja_core::engine::SlashCommandResult::Reply(
+                        "TUI mode enabled. Press Ctrl+Q or Esc to return to CLI.".to_string(),
+                    ));
+                }
+
+                #[cfg(not(feature = "tui"))]
+                {
+                    return Some(forja_core::engine::SlashCommandResult::Reply(
+                        "TUI feature is not enabled in this build.".to_string(),
+                    ));
+                }
             }
 
             if let Some(notify_command) = parse_notify_command(text) {
@@ -1564,6 +1679,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                                 background_manager_for_slash.lock().await.pause();
                             })
                         });
+                        #[cfg(feature = "tui")]
+                        if let Ok(mut status) = tui_agent_status_for_slash.lock() {
+                            status.background_paused = true;
+                        }
                         forja_core::engine::SlashCommandResult::Reply(
                             "Agent loop paused.".to_string(),
                         )
@@ -1580,6 +1699,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                             })
                         });
                         let reply = if resumed {
+                            #[cfg(feature = "tui")]
+                            if let Ok(mut status) = tui_agent_status_for_slash.lock() {
+                                status.background_paused = false;
+                            }
                             "Agent loop resumed.".to_string()
                         } else {
                             "Agent is not configured or no background provider is active.".to_string()
@@ -1862,6 +1985,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                                 if let Ok(mut main_provider) = main_provider_handle_for_slash.lock() {
                                     *main_provider = client.clone();
                                 }
+                                #[cfg(feature = "tui")]
+                                if let Ok(mut status) = tui_agent_status_for_slash.lock() {
+                                    status.model_name = entry.model_id.to_string();
+                                }
                                 return Some(forja_core::engine::SlashCommandResult::Reply(
                                     format!(
                                         "✅ Switched model: **{}** ({}/{})",
@@ -1944,6 +2071,18 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::has_tui_flag;
+
+    #[test]
+    fn detects_tui_flag_in_argument_list() {
+        let args = vec!["forja".to_string(), "--tui".to_string()];
+        assert!(has_tui_flag(&args));
+        assert!(!has_tui_flag(&["forja".to_string()]));
+    }
 }
 
 

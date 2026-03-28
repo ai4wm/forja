@@ -4,9 +4,9 @@ Last updated: 2026-03-29
 
 ## Task Record
 
-- Changed files: `crates/forja-core/src/notification.rs`, `crates/forja-core/src/background.rs`, `crates/forja-core/src/lib.rs`, `crates/forja-channel/src/lib.rs`, `crates/forja-channel/src/notify_terminal.rs`, `crates/forja-channel/src/notify_beep.rs`, `crates/forja-channel/src/notify_toast.rs`, `src/config.rs`, `src/main.rs`, `docs/STATUS.md`
-- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; add direct integration coverage for `/notify test`, `/notify off`, `/notify on`, `/notify status`, and `/notify history`; decide whether notification history should persist across restarts; decide whether toast fallback should use a richer Windows-native path when BurntToast is unavailable
-- Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo clippy --workspace -- -D warnings`
+- Changed files: `Cargo.toml`, `Cargo.lock`, `crates/forja-channel/Cargo.toml`, `crates/forja-channel/src/lib.rs`, `crates/forja-channel/src/switchable.rs`, `crates/forja-channel/src/tui_channel.rs`, `crates/forja-channel/src/tui_layout.rs`, `crates/forja-channel/src/tui_input.rs`, `src/main.rs`, `crates/forja-core/src/intent.rs`, `docs/STATUS.md`
+- Dependencies for next task: keep `docs/STATUS.md` aligned with code changes; decide whether Telegram and TUI local input should share a cleaner remote/local split instead of the current wrapper-based delegation; expand direct integration coverage for `/tui` runtime switching and `--tui` startup behavior; keep Web UI deferred while TUI stabilizes
+- Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo build --workspace --no-default-features`; `cargo clippy --workspace -- -D warnings`
 
 ## Feature Status
 
@@ -59,6 +59,12 @@ Last updated: 2026-03-29
 | Agent → notification integration | Done | `crates/forja-core/src/background.rs`, `src/main.rs` | Autonomous report, escalate, and auto-fix paths now generate notifications while still delivering agent messages to the user. |
 | `/notify` commands | Done | `crates/forja-core/src/notification.rs`, `src/main.rs` | `/notify test`, `/notify off`, `/notify on`, `/notify status`, and `/notify history [n]` are handled in the runtime slash path. |
 | Notification history | Done | `crates/forja-core/src/notification.rs`, `src/main.rs` | The notification router keeps a 50-entry ring buffer and exposes history through slash commands. |
+| TUI mode | Done | `crates/forja-channel/src/switchable.rs`, `crates/forja-channel/src/tui_channel.rs`, `src/main.rs` | The runtime can enter a terminal UI mode through `--tui` or `/tui`, with a switchable channel wrapper preserving the engine channel interface. |
+| TUI layout (conversation + status + notifications) | Done | `crates/forja-channel/src/tui_layout.rs`, `crates/forja-channel/src/tui_channel.rs` | The TUI renders a structured conversation pane, agent status panel, notifications panel, and input bar. |
+| TUI key bindings | Done | `crates/forja-channel/src/tui_input.rs`, `crates/forja-channel/src/tui_channel.rs` | Enter, Ctrl+Q, Esc, Up/Down, Tab, Ctrl+L, and F1 are handled in the TUI input loop. |
+| `--tui` flag | Done | `Cargo.toml`, `src/main.rs` | The root binary accepts `--tui` and starts in TUI mode when the feature is enabled. |
+| `/tui` command | Done | `crates/forja-core/src/intent.rs`, `src/main.rs` | `/tui` and TUI-related intent parsing route into runtime TUI activation. |
+| Web UI | Deferred | `docs/ROADMAP.md` | Web UI remains out of scope for this phase. |
 | Background model manager | Done | `crates/forja-core/src/background.rs`, `src/background_runtime.rs`, `src/main.rs` | Background manager start/stop/status handling is implemented, and startup auto-discovery runs without blocking the foreground engine. |
 | Groq provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | Groq is available through the OpenAI-compatible client path and can be selected with registry-backed models. |
 | OpenRouter provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | OpenRouter is available through the OpenAI-compatible client path with curated free-model registry entries and background-model probing support. |

@@ -1,5 +1,6 @@
 use forja_core::intent::{BackgroundCmd, InternalCommand, detect_intent, detect_intent_with_skills};
 use forja_core::mode::{parse_slash_command, ExecMode, ModeState, Role, SlashCommand, ThinkLevel};
+use forja_core::notification::{NotifyCommand, parse_notify_command};
 use forja_core::prompt::assemble_system_prompt;
 use forja_core::prompt::loader::{DEFAULT_BASE, PromptLoader};
 use forja_core::safety::{is_dangerous_command, should_confirm_command};
@@ -261,6 +262,11 @@ fn detect_intent_maps_background_status_request() {
 }
 
 #[test]
+fn detect_intent_maps_tui_command() {
+    assert_eq!(detect_intent("/tui"), Some(InternalCommand::Tui));
+}
+
+#[test]
 fn skill_loader_parses_frontmatter_and_body() {
     let home_dir = unique_temp_dir("skill_loader_parse");
     let skill_dir = skills_dir_from_home(home_dir.as_path()).join("deploy-vercel");
@@ -496,5 +502,17 @@ fn parse_skill_action_matches_eval_improve_and_benchmark_commands() {
             name: "git-summary".to_string(),
             runs: 5,
         })
+    );
+}
+
+#[test]
+fn parse_notify_command_matches_runtime_commands() {
+    assert_eq!(parse_notify_command("/notify test"), Some(NotifyCommand::Test));
+    assert_eq!(parse_notify_command("/notify off"), Some(NotifyCommand::Off));
+    assert_eq!(parse_notify_command("/notify on"), Some(NotifyCommand::On));
+    assert_eq!(parse_notify_command("/notify status"), Some(NotifyCommand::Status));
+    assert_eq!(
+        parse_notify_command("/notify history 5"),
+        Some(NotifyCommand::History(5))
     );
 }

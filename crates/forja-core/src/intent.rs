@@ -8,6 +8,7 @@ pub enum InternalCommand {
     Role(Role),
     Screenshot(Option<String>),
     Help,
+    Tui,
     Models,
     Model(String),
     Background(BackgroundCmd),
@@ -32,6 +33,7 @@ pub fn detect_intent(input: &str) -> Option<InternalCommand> {
         .or_else(|| detect_role(&normalized))
         .or_else(|| detect_screenshot(&normalized))
         .or_else(|| detect_help(&normalized))
+        .or_else(|| detect_tui(&normalized))
         .or_else(|| detect_models(&normalized))
         .or_else(|| detect_background(&normalized))
         .or_else(|| detect_model(&normalized))
@@ -208,6 +210,14 @@ fn detect_help(input: &str) -> Option<InternalCommand> {
         ],
     ) {
         return Some(InternalCommand::Help);
+    }
+
+    None
+}
+
+fn detect_tui(input: &str) -> Option<InternalCommand> {
+    if matches_any(input, &["/tui", "open tui", "tui mode", "launch tui"]) {
+        return Some(InternalCommand::Tui);
     }
 
     None

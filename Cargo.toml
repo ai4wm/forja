@@ -40,8 +40,9 @@ sha2 = "0.10.9"
 serde_json = "1.0.149"
 
 [features]
-default = ["telegram", "vision"]
+default = ["telegram", "vision", "tui"]
 telegram = ["forja-channel/telegram"]
 discord = ["forja-channel/discord"]
 vision = ["forja-tools/vision"]
+tui = ["forja-channel/tui"]
 

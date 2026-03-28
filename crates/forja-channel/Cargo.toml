@@ -10,6 +10,7 @@ repository = "https://github.com/ai4wm/forja"
 default = []
 telegram = ["dep:teloxide"]
 discord = ["dep:serenity"]
+tui = ["dep:ratatui", "dep:crossterm"]
 
 [dependencies]
 forja-core = { version = "0.1.1", path = "../forja-core" }
@@ -19,5 +20,7 @@ async-trait = "0.1"
 # Feature flags: Optional dependencies
 teloxide = { version = "0.13", features = ["macros", "rustls"], optional = true }
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"], optional = true }
+ratatui = { version = "0.29", optional = true }
+crossterm = { version = "0.28", optional = true }
 
 
