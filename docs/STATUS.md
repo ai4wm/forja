@@ -1,0 +1,77 @@
+# Forja Status
+
+Last updated: 2026-03-29
+
+## Task Record
+
+- Changed files: `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/telegram.rs`, `src/main.rs`, `docs/STATUS.md`
+- Dependencies for next task: keep terminal output formatting aligned across CLI-only and MultiChannel modes after removing duplicate prompt printing; consider whether `MultiChannel` should reuse the same explicit input-prompt policy as `CliChannel` if a shared prompt renderer is introduced later; keep Web UI deferred while TUI and background recovery behavior stabilize
+- Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo clippy --workspace -- -D warnings`
+
+## Feature Status
+
+| Feature | Status | File(s) | Notes |
+| --- | --- | --- | --- |
+| Engine loop | Done | `crates/forja-core/src/engine.rs`, `src/main.rs` | Main runtime loop, tool recursion, slash interception, and channel dispatch are wired. |
+| Streaming | Done | `crates/forja-core/src/engine.rs`, `crates/forja-llm/src/client.rs` | Streaming-first path exists with fallback to non-streaming tool handling, and CLI streaming now uses the same `● ` prefix that non-streaming terminal replies use. |
+| Prompt loader | Done | `crates/forja-core/src/prompt/loader.rs`, `crates/forja-core/src/prompt/mod.rs`, `src/main.rs` | File-based prompts are loaded from `~/.forja/prompts/` by default and bootstrapped with defaults. |
+| Session buffer | Done | `crates/forja-memory/src/session.rs`, `crates/forja-memory/src/manager.rs` | Ephemeral per-process session memory tracks recent messages and estimated token usage before compression. |
+| Auto compression | Done | `crates/forja-memory/src/compressor.rs`, `crates/forja-memory/src/manager.rs` | Session overflow now compresses the oldest half of buffered messages into rule-based summaries without LLM calls. |
+| Long-term store | Done | `crates/forja-memory/src/longterm.rs`, `crates/forja-memory/src/manager.rs` | Long-term memory is stored in append-only `longterm.md` entries and searched with an internal keyword-ranking scorer. |
+| MemoryManager | Done | `crates/forja-memory/src/manager.rs`, `crates/forja-memory/src/lib.rs`, `src/main.rs` | `MemoryManager` now owns session, compression, and long-term recall, with a compatibility wrapper feeding query-aware context into the existing engine memory path. |
+| `/memory` commands | Done | `crates/forja-memory/src/manager.rs`, `src/main.rs`, `tests/integration_test.rs` | `/memory`, `/memory search <query>`, `/memory clear session`, and `/memory flush` are implemented in the runtime slash path. |
+| Per-agent memory paths | Not started (Phase 28) | `crates/forja-memory/src/longterm.rs` | The path helper exists, but agent-scoped memory routing is not wired into the runtime yet. |
+| Shell tool | Done | `crates/forja-tools/src/shell.rs`, `crates/forja-core/src/safety.rs`, `crates/forja-core/src/engine.rs` | Shell execution supports confirmation and mode-aware safety checks. |
+| Browser tool | Done | `crates/forja-tools/src/browser.rs`, `src/main.rs` | Chromium CDP backend, screenshotting, tab control, and confirmation flow are implemented. |
+| Vision tool | Done | `crates/forja-tools/src/vision.rs`, `src/main.rs` | Screen capture, region analysis, OCR, and image analysis flows are implemented. |
+| Input tool | Done | `crates/forja-tools/src/input.rs`, `src/main.rs` | Keyboard and mouse actions are implemented behind backend and confirmation layers. |
+| Search tool | Done | `crates/forja-tools/src/search.rs`, `src/main.rs` | DuckDuckGo, Brave, and Grok-backed search providers are supported. |
+| CLI channel | Done | `crates/forja-channel/src/cli.rs`, `src/main.rs` | Interactive terminal input/output is implemented. |
+| Telegram channel | Done | `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/telegram.rs`, `src/main.rs` | Telegram runs alongside CLI with allowlisted chat IDs, typing indicators, startup/system message delivery before the first remote input arrives, and guarded startup fallback to CLI-only if Telegram connection setup fails. Duplicate terminal prompt printing was removed from the Telegram-side send paths. |
+| ExecMode | Done | `crates/forja-core/src/mode.rs`, `crates/forja-core/src/safety.rs`, `crates/forja-tools/src/confirm.rs`, `src/main.rs` | `safe`, `auto`, and `trust` are resolved and enforced across shell, browser, and input paths. |
+| `/mode` | Done | `crates/forja-core/src/mode.rs`, `src/main.rs` | Switches execution mode at runtime. |
+| `/think` | Done | `crates/forja-core/src/mode.rs`, `src/main.rs` | Switches reasoning depth at runtime. |
+| `/role` | Done | `crates/forja-core/src/mode.rs`, `src/main.rs` | Switches role prompt selection at runtime. |
+| `/model` | Done | `src/main.rs`, `src/provider_registry.rs` | Resolves and switches the active provider/model entry. |
+| `/models` | Done | `src/main.rs`, `src/provider_registry.rs` | Lists active and available model entries. |
+| `/ss` | Done | `crates/forja-core/src/mode.rs`, `src/main.rs` | Captures the screen and routes it through the vision analyzer. |
+| `/image` | Done | `crates/forja-core/src/mode.rs`, `src/main.rs` | Loads an image file and routes it through the vision analyzer. |
+| `/help` | 🔧 Partial | `README.md`, `src/main.rs`, `tests/integration_test.rs` | The runtime slash handler now responds to `/help`, but direct integration coverage is still limited and the older ignored placeholder test remains. |
+| Natural language command mapping | Done | `crates/forja-core/src/intent.rs`, `crates/forja-core/src/lib.rs`, `src/main.rs`, `tests/integration_test.rs` | Natural language requests are mapped to internal commands through zero-cost pattern matching and routed through the existing slash-command execution path. |
+| Skill system (loader) | Done | `crates/forja-core/src/skill.rs`, `crates/forja-core/src/lib.rs`, `tests/integration_test.rs` | Skill folders under `~/.forja/skills/` are discovered, parsed, cached, and summarized for prompt use. |
+| Skill system (execution) | Done | `src/main.rs`, `crates/forja-tools/src/shell.rs` | Skill scripts are executed from their skill directory with skill-scoped environment injection and ExecMode-aware confirmation behavior. |
+| Skill system (trigger matching) | Done | `crates/forja-core/src/intent.rs`, `crates/forja-core/src/skill.rs`, `tests/integration_test.rs` | Built-in commands are checked first, then installed skills are matched by trigger to produce `InternalCommand::Skill`. |
+| Skill system (slash commands) | Done | `src/main.rs`, `crates/forja-core/src/engine.rs` | `/skill list`, `/skill run <name> [args]`, `/skill info <name>`, and `/skill reload` are handled in the runtime slash path. |
+| Skill system (eval) | Done | `crates/forja-core/src/skill_eval.rs`, `crates/forja-core/src/skill.rs`, `src/main.rs`, `tests/integration_test.rs` | Skills can now load structured test cases and run rule-based evaluations through callback-backed script execution. |
+| Skill system (improve) | Done | `crates/forja-core/src/skill_improve.rs`, `src/main.rs`, `tests/integration_test.rs` | Improvement suggestions are generated from eval failures without LLM calls and are recorded through the memory layer. |
+| Skill system (benchmark) | Done | `crates/forja-core/src/skill_eval.rs`, `src/main.rs`, `tests/integration_test.rs` | Benchmark runs aggregate pass rate and timing statistics across repeated evaluations. |
+| Event system | Done | `crates/forja-core/src/events.rs`, `crates/forja-core/src/background.rs` | Background events, severity classification, and a thread-safe event queue are implemented. |
+| File/System/Git/Idle watchers | Done | `crates/forja-core/src/watchers.rs`, `crates/forja-core/src/background.rs` | Polling-based watchers feed file, system, git, and idle events into the autonomous agent queue. |
+| Decision engine | Done | `crates/forja-core/src/decision.rs`, `crates/forja-core/src/background.rs` | Autonomous decisions are derived from event severity, ExecMode, and safe auto-fix rules. |
+| Autonomous loop | Done | `crates/forja-core/src/background.rs`, `src/main.rs` | The background agent drains events, logs/report/escalates them, and respects pause/resume plus ExecMode. |
+| Escalation bridge | Done | `crates/forja-core/src/background.rs`, `src/main.rs`, `crates/forja-memory/src/lib.rs` | Escalations are sent to the main model through an action channel, user-facing responses are delivered with `[Agent]`, and both sides are recorded in memory. |
+| `/agent` commands | Done | `crates/forja-core/src/background.rs`, `src/main.rs` | `/agent status`, `/agent logs [n]`, `/agent pause`, and `/agent resume` are implemented, with `/background` aliased to the agent controls. |
+| Agent log | Done | `crates/forja-core/src/background.rs`, `src/config.rs` | Append-only agent logging is written to the configured background log path and can be tailed from slash commands. |
+| Notification system (core) | Done | `crates/forja-core/src/notification.rs`, `crates/forja-core/src/background.rs` | Notification core models, routing, level filtering, command parsing, and history ring buffer are implemented. |
+| Terminal notifier | Done | `crates/forja-channel/src/notify_terminal.rs`, `crates/forja-channel/src/lib.rs` | Agent notifications can be rendered to stderr with ANSI-colored banners. |
+| Beep notifier | Done | `crates/forja-channel/src/notify_beep.rs`, `crates/forja-channel/src/lib.rs` | Warning and critical notifications can trigger a non-blocking system beep fallback. |
+| Windows toast notifier | Done | `crates/forja-channel/src/notify_toast.rs`, `crates/forja-channel/src/lib.rs` | Windows toast notifications use PowerShell BurntToast detection and spawn-based delivery when available. |
+| Agent → notification integration | Done | `crates/forja-core/src/background.rs`, `src/main.rs` | Autonomous report, escalate, and auto-fix paths now generate notifications while still delivering agent messages to the user. |
+| `/notify` commands | Done | `crates/forja-core/src/notification.rs`, `src/main.rs` | `/notify test`, `/notify off`, `/notify on`, `/notify status`, and `/notify history [n]` are handled in the runtime slash path. |
+| Notification history | Done | `crates/forja-core/src/notification.rs`, `src/main.rs` | The notification router keeps a 50-entry ring buffer and exposes history through slash commands. |
+| TUI mode | Done | `crates/forja-channel/src/switchable.rs`, `crates/forja-channel/src/tui_channel.rs`, `src/main.rs` | The runtime can enter a terminal UI mode through `--tui` or `/tui`, with a switchable channel wrapper preserving the engine channel interface. |
+| TUI layout (conversation + status + notifications) | Done | `crates/forja-channel/src/tui_layout.rs`, `crates/forja-channel/src/tui_channel.rs` | The TUI renders a structured conversation pane, agent status panel, notifications panel, and input bar. |
+| TUI key bindings | Done | `crates/forja-channel/src/tui_input.rs`, `crates/forja-channel/src/tui_channel.rs` | Enter, Ctrl+Q, Esc, Up/Down, Tab, Ctrl+L, and F1 are handled in the TUI input loop. |
+| `--tui` flag | Done | `Cargo.toml`, `src/main.rs` | The root binary accepts `--tui` and starts in TUI mode when the feature is enabled. |
+| `/tui` command | Done | `crates/forja-core/src/intent.rs`, `src/main.rs` | `/tui` and TUI-related intent parsing route into runtime TUI activation. |
+| Web UI | Deferred | `docs/ROADMAP.md` | Web UI remains out of scope for this phase. |
+| Background model manager | Done | `crates/forja-core/src/background.rs`, `src/background_runtime.rs`, `src/main.rs` | Background manager start/stop/status handling is implemented, startup auto-discovery runs without blocking the foreground engine, probe attempts use a 5-second timeout, and `/background retry` re-runs discovery gracefully. |
+| Groq provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | Groq is available through the OpenAI-compatible client path and can be selected with registry-backed models. |
+| OpenRouter provider | Done | `crates/forja-llm/src/presets.rs`, `src/provider_registry.rs`, `src/config.rs` | OpenRouter is available through the OpenAI-compatible client path with curated free-model registry entries and background-model probing support. |
+| Local model detection | Done | `crates/forja-llm/src/local.rs`, `src/background_runtime.rs`, `src/main.rs` | `~/.forja/models/` is created automatically, GGUF files are detected, and a stub local provider is available for future inference integration. |
+| emotion.rs refactor | Done | `crates/forja-core/src/emotion.rs`, `crates/forja-core/src/engine/emotion.rs`, `crates/forja-core/src/prompt/loader.rs`, `crates/forja-core/src/prompt/mod.rs` | Emotion handling is now key-based and local. `emotion.md` is auto-created when missing, and active signal keys are appended during prompt assembly. |
+| Identity onboarding | Done | `src/bootstrap.rs`, `src/main.rs`, `crates/forja-core/src/prompt/base.rs`, `crates/forja-core/src/prompt/loader.rs` | First-run onboarding now writes a single `identity.md` profile with `user_name`, `assistant_name`, `language`, and `tone`, and those values drive base prompt placeholder rendering. |
+| Startup greeting | Done | `src/main.rs`, `src/background_runtime.rs`, `crates/forja-channel/src/multi.rs` | Startup now waits for the background status message, prints it with a `[System]` prefix, and only then sends the greeting before the first input, using emotion signals and the main model when available with an identity-based fallback. |
+| Integration tests | Done | `tests/integration_test.rs`, `tests/phase13e_bootstrap.rs`, `tests/phase18_mode.rs` | Integration and phase-based coverage exists for major subsystems. |
+| CI/CD release | Done | `.github/workflows/ci.yml`, `.github/workflows/release.yml` | CI builds and tests the workspace, and tagged releases generate artifacts. |
+| Multilingual README | Done | `README.md`, `docs/README.ko.md`, `docs/README.ja.md`, `docs/README.zh-CN.md`, `docs/README.es.md`, `docs/README.pt-BR.md` | Root README links to translated documentation variants. |

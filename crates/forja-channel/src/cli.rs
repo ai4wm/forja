@@ -101,4 +101,17 @@ impl Channel for CliChannel {
     fn is_cli_source(&self) -> bool {
         true
     }
+
+
+    async fn cancel_typing(&self) {
+        print!("\r\x1b[K");
+        let _ = std::io::stdout().flush();
+    }
+
+    async fn log_line(&self, text: &str) {
+        print!("\r\x1b[K");
+        println!("{}", text);
+        let _ = std::io::stdout().flush();
+    }
 }
+

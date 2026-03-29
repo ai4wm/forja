@@ -542,11 +542,11 @@ fn start_pre_spinner() -> indicatif::ProgressBar {
     let spinner = ProgressBar::new_spinner();
     spinner.set_style(
         ProgressStyle::default_spinner()
-            .tick_strings(&["","","","","","","","","","",""])
+            .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"])
             .template("{spinner:.cyan} {msg}")
             .unwrap()
     );
-    spinner.set_message("Processing...");
+    spinner.set_message("Thinking...");
     spinner.enable_steady_tick(Duration::from_millis(80));
     spinner
 }

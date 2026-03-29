@@ -42,6 +42,11 @@ pub trait Channel: Send + Sync {
 
     /// Cancel typing state such as spinners or typing indicators.
     async fn cancel_typing(&self) {}
+
+    /// Print a CLI/log line after clearing transient typing UI such as spinners.
+    async fn log_line(&self, text: &str) {
+        let _ = text;
+    }
 }
 
 /// Tool implemented in forja-tools, such as shell or file operations.
@@ -60,3 +65,4 @@ pub trait Tool: Send + Sync {
     /// Executes the tool with structured JSON arguments.
     async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value>;
 }
+
