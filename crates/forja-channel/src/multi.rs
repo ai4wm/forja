@@ -456,7 +456,7 @@ impl Channel for MultiChannel {
                         let t = text.clone();
                         let _ = tokio::task::spawn_blocking(move || {
                             // Tool fallback: print response + restore prompt
-                            println!("● {}", t);
+                            println!("• {}", t);
                             print!("> ");
                             std::io::stdout().flush().ok();
                         }).await;
@@ -475,10 +475,10 @@ impl Channel for MultiChannel {
                                     )
                                 })?;
 
-                            // Print ● log to terminal
+                            // Print • log to terminal
                             let log_text = text.clone();
                             let _ = tokio::task::spawn_blocking(move || {
-                                println!("● {}", log_text);
+                                println!("• {}", log_text);
                                 print!("> ");
                                 std::io::stdout().flush().ok();
                             }).await;

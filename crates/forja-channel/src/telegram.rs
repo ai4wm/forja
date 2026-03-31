@@ -244,7 +244,7 @@ impl Channel for TelegramChannel {
                 let log_text = text.clone();
                 let _ = tokio::task::spawn_blocking(move || {
                     use std::io::Write;
-                    println!("● {}", log_text);
+                    println!("• {}", log_text);
                     print!("> ");
                     std::io::stdout().flush().ok();
                 }).await;

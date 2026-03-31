@@ -4,14 +4,15 @@ Last updated: 2026-04-01
 
 ## Task Record
 
-- Changed files: `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/tests.rs`, `docs/STATUS.md`
-- Dependencies for next task: verify whether outbound Telegram send retries or worker liveness reporting should be added now that the bot runtime is isolated behind a thread boundary
-- Verification: `cargo build --workspace` passed; `cargo clippy --workspace -- -D warnings` passed; `cargo test` passed; `cargo test -p forja-channel --features telegram` passed
+- Changed files: `src/main.rs`, `docs/STATUS.md`
+- Dependencies for next task: decide whether the shutdown gate should surface a user-facing "already shutting down" notice on repeated Ctrl+C, or remain silent while cleanup continues
+- Verification: `cargo build --workspace` passed; `cargo clippy --workspace -- -D warnings` passed; `cargo test` passed
 
 ## Feature Status
 
 | Feature | Status | File(s) | Notes |
 | --- | --- | --- | --- |
+| Ctrl+C graceful exit | Done | `src/main.rs` | The main runtime now uses a shared shutdown gate instead of waiting directly on `tokio::signal::ctrl_c()`, so the first Ctrl+C triggers cleanup and repeated Ctrl+C presses are ignored until the existing `std::process::exit(0)` path runs. |
 | Isolated Telegram runtime | Done | `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/tests.rs` | `MultiChannel` now starts Telegram inside a dedicated `std::thread` with its own Tokio runtime, keeps Telegram send, typing, and shutdown traffic behind an internal command channel, and joins the worker thread during shutdown so Telegram failures do not unwind the engine runtime. |
 | ANSI stage progress text | Done | `crates/forja-channel/src/multi.rs`, `crates/forja-core/src/engine.rs`, `src/main.rs`, `tests/phase13f_memory.rs` | The engine now emits CLI-only ANSI-colored bullet markers such as `• Loading emotion context...`, `• Loading knowledge...`, `• Loading memory...`, `• Calling LLM...`, and `• Compressing context...` at the actual runtime call sites, `MultiChannel` now prints those log lines on the CLI path, and `[System]` tags were removed from user-visible main runtime output. |
 | Channel path unification | Done | `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/tests.rs`, `crates/forja-core/src/emotion.rs`, `crates/forja-core/src/engine.rs`, `src/bootstrap.rs`, `src/main.rs`, `tests/phase13e_bootstrap.rs`, `tests/phase13f_memory.rs`, `tests/phase13i_knowledge.rs`, `tests/phase14_emotion.rs` | `main` now always constructs `MultiChannel`, Telegram startup failure degrades to a CLI-only `MultiChannel` instead of switching to `CliChannel`, engine profile fallbacks no longer hardcode `Forja` or `User`, and startup greeting paths no longer emit fixed English fallback text. |

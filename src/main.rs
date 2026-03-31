@@ -43,11 +43,42 @@ use forja_tools::{
 use forja_memory::MarkdownMemoryStore;
 use provider_registry::ProviderRegistry;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 // Mock LLM used for local testing without a real API key.
 
 struct MockLlmProvider;
+
+#[derive(Clone, Default)]
+struct ShutdownSignal {
+    started: Arc<AtomicBool>,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+impl ShutdownSignal {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn trigger(&self) {
+        if !self.started.swap(true, Ordering::SeqCst) {
+            self.notify.notify_one();
+        }
+    }
+
+    fn is_started(&self) -> bool {
+        self.started.load(Ordering::SeqCst)
+    }
+
+    async fn wait(&self) {
+        if self.is_started() {
+            return;
+        }
+
+        self.notify.notified().await;
+    }
+}
 
 #[async_trait]
 impl LlmProvider for MockLlmProvider {
@@ -532,7 +563,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         println!("MultiChannel continuing in CLI-only mode.");
     }
     if !telegram_requested {
-        println!("• MultiChannel starting with CLI only.");
+        println!("MultiChannel starting with CLI only.");
     }
     let interactive_identity_supported = !telegram_connected;
     let print_initial_prompt = true;
@@ -833,11 +864,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     if ClaudeCodeTool::is_installed().await {
         engine.register_tool(Arc::new(ClaudeCodeTool::new()));
-        println!("• Claude Code tool registered.");
+        println!("Claude Code tool registered.");
     }
     if CodexTool::is_installed().await {
         engine.register_tool(Arc::new(CodexTool::new()));
-        println!("• Codex tool registered.");
+        println!("Codex tool registered.");
     }
     if GeminiCliTool::is_installed().await {
         engine.register_tool(Arc::new(GeminiCliTool::new()));
@@ -1124,9 +1155,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         std::io::stdout().flush().ok();
     }
 
-    let run_result = engine.run_streaming(async {
-        let _ = tokio::signal::ctrl_c().await;
-    }).await;
+    let shutdown_signal = ShutdownSignal::new();
+    let ctrlc_shutdown_signal = shutdown_signal.clone();
+    ctrlc::set_handler(move || {
+        ctrlc_shutdown_signal.trigger();
+    })?;
+
+    let run_result = engine.run_streaming(shutdown_signal.wait()).await;
 
     println!("\nShutting down...");
     engine.shutdown();
@@ -1138,7 +1173,38 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     channel.shutdown();
     tokio::time::sleep(Duration::from_secs(1)).await;
-    run_result?;
+    if let Err(error) = run_result {
+        return Err(error.into());
+    }
 
-    Ok(())
+    std::process::exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ShutdownSignal;
+
+    #[tokio::test]
+    async fn shutdown_signal_wait_returns_after_first_trigger() {
+        let signal = ShutdownSignal::new();
+        let wait_future = signal.wait();
+
+        signal.trigger();
+        signal.trigger();
+
+        tokio::time::timeout(std::time::Duration::from_millis(50), wait_future)
+            .await
+            .unwrap();
+        assert!(signal.is_started());
+    }
+
+    #[tokio::test]
+    async fn shutdown_signal_wait_returns_immediately_after_trigger() {
+        let signal = ShutdownSignal::new();
+        signal.trigger();
+
+        tokio::time::timeout(std::time::Duration::from_millis(50), signal.wait())
+            .await
+            .unwrap();
+    }
 }
