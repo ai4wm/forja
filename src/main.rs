@@ -532,7 +532,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         println!("MultiChannel continuing in CLI-only mode.");
     }
     if !telegram_requested {
-        println!("MultiChannel starting with CLI only.");
+        println!("• MultiChannel starting with CLI only.");
     }
     let interactive_identity_supported = !telegram_connected;
     let print_initial_prompt = true;
@@ -833,11 +833,11 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     if ClaudeCodeTool::is_installed().await {
         engine.register_tool(Arc::new(ClaudeCodeTool::new()));
-        println!("Claude Code tool registered.");
+        println!("• Claude Code tool registered.");
     }
     if CodexTool::is_installed().await {
         engine.register_tool(Arc::new(CodexTool::new()));
-        println!("Codex tool registered.");
+        println!("• Codex tool registered.");
     }
     if GeminiCliTool::is_installed().await {
         engine.register_tool(Arc::new(GeminiCliTool::new()));

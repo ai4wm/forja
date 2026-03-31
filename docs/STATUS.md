@@ -4,14 +4,15 @@ Last updated: 2026-04-01
 
 ## Task Record
 
-- Changed files: `crates/forja-channel/src/multi.rs`, `crates/forja-core/src/engine.rs`, `src/main.rs`, `tests/phase13f_memory.rs`, `docs/STATUS.md`
-- Dependencies for next task: decide whether other user-visible runtime statuses such as warnings and startup notices should also move to a fully color-coded bullet style, or remain plain text without tags
-- Verification: `cargo build --workspace` passed; `cargo clippy --workspace -- -D warnings` passed; `cargo test` passed
+- Changed files: `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/tests.rs`, `docs/STATUS.md`
+- Dependencies for next task: verify whether outbound Telegram send retries or worker liveness reporting should be added now that the bot runtime is isolated behind a thread boundary
+- Verification: `cargo build --workspace` passed; `cargo clippy --workspace -- -D warnings` passed; `cargo test` passed; `cargo test -p forja-channel --features telegram` passed
 
 ## Feature Status
 
 | Feature | Status | File(s) | Notes |
 | --- | --- | --- | --- |
+| Isolated Telegram runtime | Done | `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/tests.rs` | `MultiChannel` now starts Telegram inside a dedicated `std::thread` with its own Tokio runtime, keeps Telegram send, typing, and shutdown traffic behind an internal command channel, and joins the worker thread during shutdown so Telegram failures do not unwind the engine runtime. |
 | ANSI stage progress text | Done | `crates/forja-channel/src/multi.rs`, `crates/forja-core/src/engine.rs`, `src/main.rs`, `tests/phase13f_memory.rs` | The engine now emits CLI-only ANSI-colored bullet markers such as `• Loading emotion context...`, `• Loading knowledge...`, `• Loading memory...`, `• Calling LLM...`, and `• Compressing context...` at the actual runtime call sites, `MultiChannel` now prints those log lines on the CLI path, and `[System]` tags were removed from user-visible main runtime output. |
 | Channel path unification | Done | `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/tests.rs`, `crates/forja-core/src/emotion.rs`, `crates/forja-core/src/engine.rs`, `src/bootstrap.rs`, `src/main.rs`, `tests/phase13e_bootstrap.rs`, `tests/phase13f_memory.rs`, `tests/phase13i_knowledge.rs`, `tests/phase14_emotion.rs` | `main` now always constructs `MultiChannel`, Telegram startup failure degrades to a CLI-only `MultiChannel` instead of switching to `CliChannel`, engine profile fallbacks no longer hardcode `Forja` or `User`, and startup greeting paths no longer emit fixed English fallback text. |
 | Graceful shutdown socket cleanup | Done | `crates/forja-channel/src/lib.rs`, `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/telegram.rs`, `crates/forja-channel/src/tests.rs`, `crates/forja-core/src/engine.rs`, `crates/forja-core/src/traits.rs`, `src/main.rs` | Channels now expose a shared `shutdown()` hook, Telegram and MultiChannel retain teloxide shutdown tokens instead of relying on internal Ctrl+C handlers, the engine resets heartbeat and transient state through `Engine::shutdown()`, and `main` performs ordered shutdown with dashboard stop, channel shutdown, and a one-second drain delay before exit. |
