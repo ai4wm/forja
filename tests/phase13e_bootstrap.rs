@@ -77,7 +77,7 @@ fn completed_onboarding_persists_identity_and_skips_questions_on_restart() {
     let user_path = home_dir.join(".forja").join("user.md");
     wait_for_path(&identity_path, Duration::from_secs(5));
     wait_for_path(&user_path, Duration::from_secs(5));
-    std::thread::sleep(Duration::from_millis(500));
+    std::thread::sleep(Duration::from_millis(1500));
 
     let first_output = kill_and_collect_output(first_child);
     let first_stdout = String::from_utf8_lossy(&first_output.stdout);

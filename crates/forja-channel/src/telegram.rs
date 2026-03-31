@@ -5,9 +5,13 @@ use forja_core::gateway::adapter::{ChannelAdapter, TelegramAdapter};
 #[cfg(feature = "telegram")]
 use forja_core::{Channel, Content, Message as CoreMessage, Role};
 #[cfg(feature = "telegram")]
+use reqwest::Client;
+#[cfg(feature = "telegram")]
 use teloxide::{prelude::*, RequestError};
 #[cfg(feature = "telegram")]
 use tokio::sync::{mpsc, Mutex};
+#[cfg(feature = "telegram")]
+use std::time::Duration;
 
 #[cfg(feature = "telegram")]
 use teloxide::dispatching::UpdateFilterExt;
@@ -28,8 +32,35 @@ pub struct TelegramChannel {
 #[cfg(feature = "telegram")]
 impl TelegramChannel {
     /// Constructor. Starts bot long-polling in a background task.
-    pub async fn new(bot_token: String, allowed_chat_ids: Vec<i64>) -> Self {
-        let bot = Bot::new(bot_token);
+    pub async fn new(
+        bot_token: String,
+        allowed_chat_ids: Vec<i64>,
+    ) -> forja_core::error::Result<Self> {
+        let client = Client::builder()
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(60))
+            .build()
+            .map_err(|error| {
+                forja_core::error::ForjaError::ChannelError(format!(
+                    "Failed to build reqwest client: {}",
+                    error
+                ))
+            })?;
+        let bot = Bot::with_client(bot_token, client);
+        match tokio::time::timeout(Duration::from_secs(60), bot.get_me()).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                return Err(forja_core::error::ForjaError::ChannelError(format!(
+                    "Telegram getMe failed: {}",
+                    error
+                )))
+            }
+            Err(_) => {
+                return Err(forja_core::error::ForjaError::ChannelError(
+                    "Telegram getMe timed out after 60 seconds".to_string(),
+                ))
+            }
+        }
         // Channel buffer size 100 (can be optimized)
         let (tx, rx) = mpsc::channel::<(i64, CoreMessage)>(100);
 
@@ -78,13 +109,13 @@ impl TelegramChannel {
                 .await;
         });
 
-        Self {
+        Ok(Self {
             bot,
             receiver: Mutex::new(rx),
             last_chat_id: Mutex::new(None),
             allowed_chat_ids,
             typing_handle: Mutex::new(None),
-        }
+        })
     }
 }
 

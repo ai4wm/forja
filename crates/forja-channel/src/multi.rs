@@ -1,8 +1,12 @@
 use async_trait::async_trait;
 use forja_core::gateway::adapter::{ChannelAdapter, CliAdapter, TelegramAdapter};
 use forja_core::{Channel, Content, Role, Message as CoreMessage};
+#[cfg(feature = "telegram")]
+use reqwest::Client;
 use crate::cli::process_line;
 use std::io::Write;
+#[cfg(feature = "telegram")]
+use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 
 #[cfg(feature = "telegram")]
@@ -67,9 +71,36 @@ impl MultiChannel {
     }
 
     #[cfg(feature = "telegram")]
-    pub async fn new_both(bot_token: String, allowed_chat_ids: Vec<i64>) -> Self {
+    pub async fn new_both(
+        bot_token: String,
+        allowed_chat_ids: Vec<i64>,
+    ) -> forja_core::error::Result<Self> {
         let (tx, rx) = mpsc::channel::<(ChannelSource, CoreMessage)>(100);
-        let bot = Bot::new(bot_token);
+        let client = Client::builder()
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(60))
+            .build()
+            .map_err(|error| {
+                forja_core::error::ForjaError::ChannelError(format!(
+                    "Failed to build reqwest client: {}",
+                    error
+                ))
+            })?;
+        let bot = Bot::with_client(bot_token, client);
+        match tokio::time::timeout(Duration::from_secs(60), bot.get_me()).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(error)) => {
+                return Err(forja_core::error::ForjaError::ChannelError(format!(
+                    "Telegram getMe failed: {}",
+                    error
+                )))
+            }
+            Err(_) => {
+                return Err(forja_core::error::ForjaError::ChannelError(
+                    "Telegram getMe timed out after 60 seconds".to_string(),
+                ))
+            }
+        }
         
         let tx_tg = tx.clone();
         let allowed = allowed_chat_ids.clone();
@@ -138,12 +169,12 @@ impl MultiChannel {
             }
         });
 
-        Self {
+        Ok(Self {
             receiver: Mutex::new(rx),
             last_source: Mutex::new(None),
             telegram_bot: Some(bot),
             typing_handle: Mutex::new(None),
-        }
+        })
     }
 }
 

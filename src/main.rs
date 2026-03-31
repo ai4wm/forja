@@ -526,11 +526,22 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                 } else {
                     println!("[System] MultiChannel starting with CLI + Telegram (IDs: {:?})", allowed);
                 }
-                (
-                    Arc::new(forja_channel::multi::MultiChannel::new_both(token, allowed).await),
-                    false,
-                    true,
-                )
+                match forja_channel::multi::MultiChannel::new_both(token, allowed).await {
+                    Ok(channel) => (
+                        Arc::new(channel),
+                        false,
+                        true,
+                    ),
+                    Err(error) => {
+                        println!("[WARN] Telegram initialization failed: {error}");
+                        println!("[System] Falling back to CLI-only mode.");
+                        (
+                            Arc::new(forja_channel::cli::CliChannel::new()),
+                            true,
+                            false,
+                        )
+                    }
+                }
             } else {
                 println!("[System] CLI mode (Telegram not configured)");
                 (
