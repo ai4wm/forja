@@ -59,20 +59,7 @@ impl Engine {
     }
 
     pub(super) async fn check_and_flush_context(&mut self) -> Result<()> {
-        let estimated_tokens: usize = self
-            .conversation_history
-            .iter()
-            .map(|message| message.content_text_len() / 4)
-            .sum();
-
-        if estimated_tokens > 32_000 {
-            if let Some(memory) = &self.memory {
-                memory.flush().await?;
-            }
-            let drain_count = self.conversation_history.len() / 2;
-            self.conversation_history.drain(0..drain_count);
-        }
-
+        self.compress_context().await?;
         Ok(())
     }
 

@@ -1,3 +1,5 @@
+use crate::context::token_counter::count_message_tokens;
+use crate::context::SummaryCallback;
 use crate::error::{ForjaError, Result};
 use crate::emotion::EmotionEngine;
 use crate::knowledge::KnowledgeManager;
@@ -10,6 +12,7 @@ use chrono::{DateTime, Local};
 use std::collections::HashMap;
 use std::sync::Arc;
 mod emotion;
+mod context;
 mod knowledge;
 mod mode;
 mod serendipity;
@@ -18,6 +21,7 @@ mod memory;
 
 #[cfg(feature = "memory")]
 use crate::traits::MemoryStore;
+use self::context::EngineContextDefaults;
 
 const MAX_TOOL_DEPTH: usize = 10;
 
@@ -42,7 +46,11 @@ pub struct Engine {
     channel: Arc<dyn Channel>,
     tools: HashMap<String, Arc<dyn Tool>>,
     conversation_history: Vec<Message>,
-    max_history: usize,
+    total_tokens: usize,
+    max_context_tokens: usize,
+    context_model: String,
+    context_warning_emitted: bool,
+    context_summary_callback: Option<SummaryCallback>,
     system_prompt: Option<String>,
     tool_prompt: Option<String>,
     assistant_name: String,
@@ -65,12 +73,18 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(provider: Arc<dyn LlmProvider>, channel: Arc<dyn Channel>) -> Self {
+        let context_defaults = EngineContextDefaults::default();
+
         Self {
             provider,
             channel,
             tools: HashMap::new(),
             conversation_history: Vec::new(),
-            max_history: 100,
+            total_tokens: 0,
+            max_context_tokens: context_defaults.max_context_tokens,
+            context_model: context_defaults.context_model,
+            context_warning_emitted: false,
+            context_summary_callback: None,
             system_prompt: None,
             tool_prompt: None,
             assistant_name: "Forja".to_string(),
@@ -127,16 +141,12 @@ impl Engine {
         if text.trim_start().starts_with('/') { Some("") } else { None }
     }
 
-    /// Adds a message to conversation history and compacts it when it exceeds the window.
+    /// Adds a message to conversation history and updates the tracked token total.
     fn push_message(&mut self, msg: Message) {
+        self.total_tokens = self
+            .total_tokens
+            .saturating_add(count_message_tokens(&msg, &self.context_model));
         self.conversation_history.push(msg);
-        while self.conversation_history.len() > self.max_history {
-            if let Some(pos) = self.conversation_history.iter().position(|m| m.role != Role::System) {
-                self.conversation_history.remove(pos);
-            } else {
-                break;
-            }
-        }
     }
 
     fn request_messages(&self) -> Vec<Message> {
@@ -173,7 +183,7 @@ impl Engine {
         self.system_prompt = next_system_prompt.clone();
 
         if reset_history {
-            self.conversation_history.clear();
+            self.clear_conversation_history();
         }
         if let Some(system_prompt) = next_system_prompt {
             self.system_prompt = Some(system_prompt);
@@ -193,6 +203,7 @@ impl Engine {
             .collect();
         let tools = if tool_defs.is_empty() { None } else { Some(tool_defs.as_slice()) };
 
+        self.compress_context().await?;
         let request_messages = self.request_messages();
         let response_msg = self.provider.chat(&request_messages, tools).await?;
 
@@ -246,8 +257,6 @@ impl Engine {
                 // Wait for incoming messages from the channel.
                 result = self.channel.receive() => {
                     let user_msg = result?;
-                    
-                    #[cfg(feature = "memory")]
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
                     self.refresh_turn_role(&user_msg);
@@ -335,7 +344,6 @@ impl Engine {
                         continue;
                     }
 
-                    #[cfg(feature = "memory")]
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
                     self.refresh_turn_role(&user_msg);
@@ -347,91 +355,33 @@ impl Engine {
                     self.refresh_turn_memory_context(&user_msg).await;
                     pre_spinner.finish_and_clear();
 
-                    // Catch errors across streaming and fallback handling.
-                    let response_result = async {
-                        // Try a streaming LLM call first.
-                        let streaming_result = self.stream_step_with_tools().await
-                            .unwrap_or(None);
+                    let mut response_result = self.execute_streaming_turn_once().await;
+                    let should_retry_with_emergency = response_result
+                        .as_ref()
+                        .err()
+                        .map(|error| {
+                            let err_str = error.to_string().to_lowercase();
+                            err_str.contains("token")
+                                || err_str.contains("limit")
+                                || err_str.contains("exceeded")
+                                || err_str.contains("context")
+                        })
+                        .unwrap_or(false);
 
-                        match streaming_result {
-                            Some(text) => {
-                                let streamed_text = text;
-                                let text = self
-                                    .maybe_append_serendipity_to_text(streamed_text.clone())
-                                    .await;
-                                // Streaming text path succeeded.
-                                let response_msg = crate::types::Message::text(
-                                    crate::types::Role::Assistant, &text, None
-                                );
-                                self.push_message(response_msg.clone());
-                                
-                                if self.channel.is_cli_source() {
-                                    if let Some(suffix) = text.strip_prefix(&streamed_text)
-                                        && !suffix.is_empty() {
-                                            print!("{suffix}");
-                                            std::io::Write::flush(&mut std::io::stdout()).ok();
-                                        }
-                                    // CLI already showed streamed text, restore the prompt only.
-                                    let _ = tokio::task::spawn_blocking(|| {
-                                        use std::io::Write;
-                                        println!();
-                                        print!("> ");
-                                        std::io::stdout().flush().ok();
-                                    }).await;
-                                } else {
-                                    // Non-CLI channels receive the final message through send().
-                                    self.channel.send(response_msg).await?;
-                                }
-                                
-                                Ok::<Option<String>, crate::error::ForjaError>(Some(text))
-                            }
-                            None => {
-                                use indicatif::{ProgressBar, ProgressStyle};
-                                use std::time::Duration;
-
-                                // Start spinner when streaming is unavailable, e.g. tool-call path.
-                                let spinner = ProgressBar::new_spinner();
-                                spinner.set_style(
-                                    ProgressStyle::default_spinner()
-                                        .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"])
-                                        .template("{spinner:.cyan} {msg}")
-                                        .unwrap()
-                                );
-                                spinner.set_message("Thinking...");
-                                spinner.enable_steady_tick(Duration::from_millis(80));
-
-                                // Fallback to the non-streaming chat path.
-                                let final_msg = self.handle_step(0).await?;
-                                let final_msg = self.maybe_append_serendipity_to_message(final_msg).await;
-                                
-                                // Stop spinner after the response arrives.
-                                spinner.finish_and_clear();
-
-                                self.channel.send(final_msg.clone()).await?;
-                                
-                                Ok::<Option<String>, crate::error::ForjaError>(
-                                    if let Content::Text { text, .. } = &final_msg.content {
-                                        Some(text.clone())
-                                    } else {
-                                        None
-                                    }
-                                )
-                            }
-                        }
-                    }.await;
+                    if should_retry_with_emergency {
+                        response_result = if let Err(error) = self.emergency_compress_context().await {
+                            Err(error)
+                        } else {
+                            self.execute_streaming_turn_once().await
+                        };
+                    }
 
                     let final_assistant_text = match response_result {
                         Ok(text_opt) => text_opt,
                         Err(e) => {
                             let err_text = format!("⚠️ Error: {}", e);
                             eprintln!("[Engine Error] {}", err_text);
-                            
-                            // Reset history if the error looks like a token/context overflow.
-                            let err_str = e.to_string().to_lowercase();
-                            if err_str.contains("token") || err_str.contains("limit") || err_str.contains("exceeded") || err_str.contains("context") {
-                                self.conversation_history.clear();
-                            }
-                            
+
                             // Send the error text back through the active channel.
                             let _ = self.channel.send(crate::types::Message::text(crate::types::Role::Assistant, err_text, None)).await;
                             None
@@ -452,6 +402,73 @@ impl Engine {
         }
 
         Ok(())
+    }
+
+    #[cfg(feature = "runtime")]
+    async fn execute_streaming_turn_once(&mut self) -> Result<Option<String>> {
+        self.compress_context().await?;
+
+        // Try a streaming LLM call first.
+        let streaming_result = self.stream_step_with_tools().await.unwrap_or(None);
+
+        match streaming_result {
+            Some(text) => {
+                let streamed_text = text;
+                let text = self
+                    .maybe_append_serendipity_to_text(streamed_text.clone())
+                    .await;
+                let response_msg = crate::types::Message::text(
+                    crate::types::Role::Assistant,
+                    &text,
+                    None,
+                );
+                self.push_message(response_msg.clone());
+
+                if self.channel.is_cli_source() {
+                    if let Some(suffix) = text.strip_prefix(&streamed_text)
+                        && !suffix.is_empty() {
+                            print!("{suffix}");
+                            std::io::Write::flush(&mut std::io::stdout()).ok();
+                        }
+                    let _ = tokio::task::spawn_blocking(|| {
+                        use std::io::Write;
+                        println!();
+                        print!("> ");
+                        std::io::stdout().flush().ok();
+                    })
+                    .await;
+                } else {
+                    self.channel.send(response_msg).await?;
+                }
+
+                Ok(Some(text))
+            }
+            None => {
+                use indicatif::{ProgressBar, ProgressStyle};
+                use std::time::Duration;
+
+                let spinner = ProgressBar::new_spinner();
+                spinner.set_style(
+                    ProgressStyle::default_spinner()
+                        .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"])
+                        .template("{spinner:.cyan} {msg}")
+                        .unwrap()
+                );
+                spinner.set_message("Thinking...");
+                spinner.enable_steady_tick(Duration::from_millis(80));
+
+                let final_msg = self.handle_step(0).await?;
+                let final_msg = self.maybe_append_serendipity_to_message(final_msg).await;
+                spinner.finish_and_clear();
+                self.channel.send(final_msg.clone()).await?;
+
+                Ok(if let Content::Text { text, .. } = &final_msg.content {
+                    Some(text.clone())
+                } else {
+                    None
+                })
+            }
+        }
     }
 
     /// Streams tokens progressively, including tool definitions in the request.

@@ -82,6 +82,7 @@ impl KeysSection {
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct AgentSection {
     pub system_prompt: Option<String>,
+    pub max_context_tokens: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
@@ -113,6 +114,10 @@ pub fn load_config() -> ForjaConfig {
     if let Ok(v) = std::env::var("FORJA_PROVIDER") { config.active.provider = Some(v); }
     if let Ok(v) = std::env::var("FORJA_MODEL")    { config.active.model = Some(v); }
     if let Ok(v) = std::env::var("FORJA_SYSTEM_PROMPT") { config.agent.system_prompt = Some(v); }
+    if let Ok(v) = std::env::var("FORJA_MAX_CONTEXT_TOKENS")
+        && let Ok(parsed) = v.parse::<usize>() {
+            config.agent.max_context_tokens = Some(parsed);
+        }
 
     // API key environment override for the current provider
     if let Ok(key) = std::env::var("FORJA_API_KEY")

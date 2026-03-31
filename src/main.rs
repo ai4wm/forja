@@ -543,9 +543,54 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     };
 
     // System prompt setup
+    let max_context_tokens = forja_cfg.agent.max_context_tokens.unwrap_or(128_000);
+    let context_model = forja_cfg
+        .active
+        .model
+        .clone()
+        .unwrap_or_else(|| "cl100k_base".to_string());
     let mut engine = Engine::new(provider.clone(), channel.clone());
-    engine = engine.with_mode(mode_state.clone()).with_tool_prompt(tool_prompt);
+    engine = engine
+        .with_mode(mode_state.clone())
+        .with_tool_prompt(tool_prompt)
+        .with_context_settings(max_context_tokens, context_model);
     engine = engine.with_assistant_profile(assistant_name.clone(), user_title.clone());
+    let context_summary_provider = provider.clone();
+    engine = engine.with_context_summary_callback(Box::new(move |messages: Vec<Message>| {
+        let summary_provider = context_summary_provider.clone();
+        Box::pin(async move {
+            let block = messages
+                .into_iter()
+                .map(|message| {
+                    let role = match message.role {
+                        Role::User => "User",
+                        Role::Assistant => "Assistant",
+                        Role::System => "System",
+                        Role::Tool => "Tool",
+                    };
+                    let body = match message.content {
+                        Content::Text { text, .. } => text,
+                        Content::ToolCall {
+                            tool_name,
+                            arguments,
+                            reasoning_content,
+                            ..
+                        } => {
+                            let reasoning = reasoning_content.unwrap_or_default();
+                            format!("tool={tool_name} arguments={arguments} reasoning={reasoning}")
+                        }
+                        Content::ToolResult { result, .. } => {
+                            format!("tool_result={result}")
+                        }
+                    };
+                    format!("{role}: {body}")
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n");
+
+            summarize_memory_block(summary_provider, block).await
+        })
+    }));
 
     if !combined_prompt.is_empty() {
         engine = engine.with_system_prompt(combined_prompt);
