@@ -436,13 +436,6 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let info = config::provider_info(&forja_cfg);
     print_banner(&info);
-    let assistant_name = forja_cfg.assistant_name.clone()
-        .or_else(|| std::env::var("FORJA_ASSISTANT_NAME").ok())
-        .unwrap_or_else(|| "Forja".to_string());
-    let user_title = forja_cfg.user_title.clone()
-        .or_else(|| std::env::var("FORJA_USER_TITLE").ok())
-        .unwrap_or_else(|| "User".to_string());
-
     let shell_enabled = !matches!(
         std::env::var("FORJA_SHELL"),
         Ok(value) if value.eq_ignore_ascii_case("false")
@@ -471,6 +464,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     if let Some(file_name) = loaded_project_file {
         println!("[System] Loaded {file_name}");
     }
+    let assistant_name = forja_cfg.assistant_name.clone()
+        .or_else(|| std::env::var("FORJA_ASSISTANT_NAME").ok())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| bootstrap_outcome.profile.identity.name.clone());
+    let user_title = forja_cfg.user_title.clone()
+        .or_else(|| std::env::var("FORJA_USER_TITLE").ok())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| bootstrap_outcome.profile.user.name.clone());
 
     // Initialize ProviderRegistry
     let registry = ProviderRegistry::from_config(&forja_cfg);
@@ -504,57 +505,38 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let exec_mode_handle = Arc::new(std::sync::Mutex::new(exec_mode));
 
     // Channel setup
-    let (channel, interactive_identity_supported, print_initial_prompt): (
-        Arc<dyn Channel>,
-        bool,
-        bool,
-    ) = {
-        #[cfg(feature = "telegram")]
-        {
-            let bot_token = forja_cfg.channel.telegram.bot_token.clone()
-                .or_else(|| std::env::var("TELEGRAM_BOT_TOKEN").ok());
-
-            if let Some(token) = bot_token {
-                let allowed = forja_cfg.channel.telegram.allowed_chat_ids.clone();
-                if allowed.is_empty() {
-                    println!("[WARN] Telegram allowed_chat_ids is empty.");
-                } else {
-                    println!("[System] MultiChannel starting with CLI + Telegram (IDs: {:?})", allowed);
-                }
-                match forja_channel::multi::MultiChannel::new_both(token, allowed).await {
-                    Ok(channel) => (
-                        Arc::new(channel),
-                        false,
-                        true,
-                    ),
-                    Err(error) => {
-                        println!("[WARN] Telegram initialization failed: {error}");
-                        println!("[System] Falling back to CLI-only mode.");
-                        (
-                            Arc::new(forja_channel::cli::CliChannel::new()),
-                            true,
-                            false,
-                        )
-                    }
-                }
-            } else {
-                println!("[System] CLI mode (Telegram not configured)");
-                (
-                    Arc::new(forja_channel::cli::CliChannel::new()),
-                    true,
-                    false,
-                )
-            }
+    #[cfg(feature = "telegram")]
+    let bot_token = forja_cfg.channel.telegram.bot_token.clone()
+        .or_else(|| std::env::var("TELEGRAM_BOT_TOKEN").ok());
+    #[cfg(not(feature = "telegram"))]
+    let bot_token: Option<String> = None;
+    #[cfg(feature = "telegram")]
+    let allowed_chat_ids = forja_cfg.channel.telegram.allowed_chat_ids.clone();
+    #[cfg(not(feature = "telegram"))]
+    let allowed_chat_ids = Vec::new();
+    let telegram_requested = bot_token.is_some();
+    #[cfg(feature = "telegram")]
+    if telegram_requested {
+        if allowed_chat_ids.is_empty() {
+            println!("[WARN] Telegram allowed_chat_ids is empty.");
+        } else {
+            println!(
+                "[System] MultiChannel starting with CLI + Telegram (IDs: {:?})",
+                allowed_chat_ids
+            );
         }
-        #[cfg(not(feature = "telegram"))]
-        {
-            (
-                Arc::new(forja_channel::cli::CliChannel::new()),
-                true,
-                false,
-            )
-        }
-    };
+    }
+    let multi_channel = forja_channel::multi::MultiChannel::new(bot_token, allowed_chat_ids).await;
+    let telegram_connected = multi_channel.has_telegram();
+    if telegram_requested && !telegram_connected {
+        println!("[System] MultiChannel continuing in CLI-only mode.");
+    }
+    if !telegram_requested {
+        println!("[System] MultiChannel starting with CLI only.");
+    }
+    let interactive_identity_supported = !telegram_connected;
+    let print_initial_prompt = true;
+    let channel: Arc<dyn Channel> = Arc::new(multi_channel);
 
     // System prompt setup
     let max_context_tokens = forja_cfg.agent.max_context_tokens.unwrap_or(128_000);
@@ -738,8 +720,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let startup_greeting = if serendipity_enabled {
         generate_startup_greeting_with_context(
             provider.as_ref(),
-            &bootstrap_outcome.profile.identity.name,
-            &bootstrap_outcome.profile.user.name,
+            &assistant_name,
+            &user_title,
             &memory_contents,
             &knowledge_contents,
             bootstrap_outcome.greeting.is_some(),
@@ -749,8 +731,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     } else {
         generate_startup_greeting(
             provider.as_ref(),
-            &bootstrap_outcome.profile.identity.name,
-            &bootstrap_outcome.profile.user.name,
+            &assistant_name,
+            &user_title,
             &memory_contents,
             bootstrap_outcome.greeting.is_some(),
         )
@@ -1112,7 +1094,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             };
 
             return Some(forja_core::engine::SlashCommandResult::UpdateSystemPrompt {
-                reply: outcome.profile.greeting(),
+                reply: outcome.greeting.unwrap_or_default(),
                 system_prompt: Some(system_prompt),
                 reset_history: true,
             });
@@ -1121,7 +1103,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         None
     });
 
-    let identity_name = bootstrap_outcome.profile.identity.name.clone();
+    let identity_name = assistant_name.clone();
     let displayed_greeting = bootstrap_outcome.greeting.or(startup_greeting);
     let mut engine = engine.with_memory(memory_store).with_slash_handler(slash_handler);
 

@@ -63,14 +63,6 @@ impl BootstrapPaths {
     }
 }
 
-impl BootstrapProfile {
-    pub fn greeting(&self) -> String {
-        let user_name = &self.user.name;
-        let identity_name = &self.identity.name;
-        format!("Hello, {user_name}! I am {identity_name}. How can I help?")
-    }
-}
-
 pub fn default_paths() -> BootstrapPaths {
     let home_dir = std::env::var("FORJA_HOME_DIR")
         .map(PathBuf::from)
@@ -200,7 +192,7 @@ fn run_onboarding(paths: &BootstrapPaths, mode: OnboardingMode) -> io::Result<Bo
     }
 
     Ok(BootstrapOutcome {
-        greeting: Some(profile.greeting()),
+        greeting: None,
         profile,
     })
 }

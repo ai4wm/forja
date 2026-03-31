@@ -171,10 +171,6 @@ impl RelationshipContext {
     }
 }
 
-pub fn default_startup_greeting(user_name: &str) -> String {
-    format!("{user_name}, how can I help?")
-}
-
 pub async fn generate_startup_greeting(
     provider: &dyn LlmProvider,
     identity_name: &str,
@@ -206,7 +202,7 @@ pub async fn generate_startup_greeting_with_context(
     }
 
     if memory_content.trim().is_empty() && knowledge_content.trim().is_empty() {
-        return Ok(Some(default_startup_greeting(user_name)));
+        return Ok(None);
     }
 
     let response = match provider
@@ -246,11 +242,11 @@ Knowledge:\n\
         .await
     {
         Ok(response) => response,
-        Err(_) => return Ok(Some(default_startup_greeting(user_name))),
+        Err(_) => return Ok(None),
     };
 
     let Content::Text { text, .. } = response.content else {
-        return Ok(Some(default_startup_greeting(user_name)));
+        return Ok(None);
     };
     let trimmed = text.trim();
 
@@ -259,7 +255,7 @@ Knowledge:\n\
     }
 
     if trimmed.is_empty() {
-        return Ok(Some(default_startup_greeting(user_name)));
+        return Ok(None);
     }
 
     Ok(Some(trimmed.to_string()))

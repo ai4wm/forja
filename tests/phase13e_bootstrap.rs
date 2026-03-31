@@ -88,7 +88,7 @@ fn completed_onboarding_persists_identity_and_skips_questions_on_restart() {
     assert!(identity.contains("tone: 존댓말"));
     assert!(identity.contains("role: 개인 비서"));
     assert!(user.contains("name: 주인님"));
-    assert!(first_stdout.contains("Hello, 주인님! I am 황비서. How can I help?"));
+    assert!(!first_stdout.contains("Hello, 주인님! I am 황비서. How can I help?"));
 
     let second_child = spawn_forja(&home_dir);
     std::thread::sleep(Duration::from_millis(800));

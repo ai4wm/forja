@@ -1,10 +1,13 @@
 use async_trait::async_trait;
-use forja_core::gateway::adapter::{ChannelAdapter, CliAdapter, TelegramAdapter};
+use forja_core::gateway::adapter::{ChannelAdapter, CliAdapter};
 use forja_core::{Channel, Content, Role, Message as CoreMessage};
+#[cfg(feature = "telegram")]
+use forja_core::gateway::adapter::TelegramAdapter;
 #[cfg(feature = "telegram")]
 use reqwest::Client;
 use crate::cli::process_line;
 use std::io::Write;
+#[cfg(feature = "telegram")]
 use std::sync::Mutex as StdMutex;
 #[cfg(feature = "telegram")]
 use std::time::Duration;
@@ -34,8 +37,7 @@ pub struct MultiChannel {
 }
 
 impl MultiChannel {
-    /// CLI only (no Telegram)
-    pub async fn new_cli_only() -> Self {
+    pub async fn new(bot_token: Option<String>, allowed_chat_ids: Vec<i64>) -> Self {
         let (tx, rx) = mpsc::channel::<(ChannelSource, CoreMessage)>(100);
 
         let tx_cli = tx.clone();
@@ -65,123 +67,112 @@ impl MultiChannel {
             }
         });
 
+        #[cfg(feature = "telegram")]
+        let (telegram_bot, shutdown_token) = if let Some(bot_token) = bot_token {
+            let telegram_init = async {
+                let client = Client::builder()
+                    .connect_timeout(Duration::from_secs(30))
+                    .timeout(Duration::from_secs(60))
+                    .build()
+                    .map_err(|error| {
+                        forja_core::error::ForjaError::ChannelError(format!(
+                            "Failed to build reqwest client: {error}"
+                        ))
+                    })?;
+                let bot = Bot::with_client(bot_token, client);
+                match tokio::time::timeout(Duration::from_secs(60), bot.get_me()).await {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(error)) => {
+                        return Err(forja_core::error::ForjaError::ChannelError(format!(
+                            "Telegram getMe failed: {error}"
+                        )))
+                    }
+                    Err(_) => {
+                        return Err(forja_core::error::ForjaError::ChannelError(
+                            "Telegram getMe timed out after 60 seconds".to_string(),
+                        ))
+                    }
+                }
+
+                let tx_tg = tx.clone();
+                let allowed = allowed_chat_ids.clone();
+                let handler = teloxide::types::Update::filter_message().endpoint(
+                    move |msg: teloxide::types::Message, bot: Bot, tx_tg: mpsc::Sender<(ChannelSource, CoreMessage)>| {
+                        let allowed = allowed.clone();
+                        async move {
+                            let chat_id = msg.chat.id.0;
+                            if !allowed.contains(&chat_id) {
+                                let _ = bot.send_message(msg.chat.id, "[DENIED] Authorized users only.").await;
+                                return Ok::<(), teloxide::RequestError>(());
+                            }
+                            if let Some(text) = msg.text() {
+                                let core_msg = CoreMessage::text(Role::User, text.to_string(), None);
+                                let _ = tx_tg.send((ChannelSource::Telegram { chat_id }, core_msg)).await;
+                            }
+                            Ok::<(), teloxide::RequestError>(())
+                        }
+                    }
+                );
+
+                let bot_dispatcher = bot.clone();
+                let mut dispatcher = Dispatcher::builder(bot_dispatcher, handler)
+                    .dependencies(teloxide::dptree::deps![tx_tg])
+                    .build();
+                let shutdown_token = dispatcher.shutdown_token();
+                tokio::spawn(async move {
+                    dispatcher.dispatch().await;
+                });
+
+                Ok::<_, forja_core::error::ForjaError>((Some(bot), Some(shutdown_token)))
+            }
+            .await;
+
+            match telegram_init {
+                Ok(resources) => resources,
+                Err(error) => {
+                    eprintln!("[WARN] Telegram initialization failed: {error}");
+                    (None, None)
+                }
+            }
+        } else {
+            (None, None)
+        };
+
+        #[cfg(not(feature = "telegram"))]
+        let _ = (bot_token, allowed_chat_ids);
+
         Self {
             receiver: Mutex::new(rx),
             last_source: Mutex::new(Some(ChannelSource::Cli)),
             #[cfg(feature = "telegram")]
-            telegram_bot: None,
+            telegram_bot,
             #[cfg(feature = "telegram")]
             typing_handle: StdMutex::new(None),
             #[cfg(feature = "telegram")]
-            shutdown_token: StdMutex::new(None),
+            shutdown_token: StdMutex::new(shutdown_token),
         }
     }
 
+    /// CLI only (no Telegram)
+    pub async fn new_cli_only() -> Self {
+        Self::new(None, Vec::new()).await
+    }
+
     #[cfg(feature = "telegram")]
-    pub async fn new_both(
-        bot_token: String,
-        allowed_chat_ids: Vec<i64>,
-    ) -> forja_core::error::Result<Self> {
-        let (tx, rx) = mpsc::channel::<(ChannelSource, CoreMessage)>(100);
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(30))
-            .timeout(Duration::from_secs(60))
-            .build()
-            .map_err(|error| {
-                forja_core::error::ForjaError::ChannelError(format!(
-                    "Failed to build reqwest client: {}",
-                    error
-                ))
-            })?;
-        let bot = Bot::with_client(bot_token, client);
-        match tokio::time::timeout(Duration::from_secs(60), bot.get_me()).await {
-            Ok(Ok(_)) => {}
-            Ok(Err(error)) => {
-                return Err(forja_core::error::ForjaError::ChannelError(format!(
-                    "Telegram getMe failed: {}",
-                    error
-                )))
-            }
-            Err(_) => {
-                return Err(forja_core::error::ForjaError::ChannelError(
-                    "Telegram getMe timed out after 60 seconds".to_string(),
-                ))
-            }
+    pub async fn new_both(bot_token: String, allowed_chat_ids: Vec<i64>) -> Self {
+        Self::new(Some(bot_token), allowed_chat_ids).await
+    }
+
+    pub fn has_telegram(&self) -> bool {
+        #[cfg(feature = "telegram")]
+        {
+            self.telegram_bot.is_some()
         }
-        
-        let tx_tg = tx.clone();
-        let allowed = allowed_chat_ids.clone();
-        
-        // Telegram dispatcher setup
-        let handler = teloxide::types::Update::filter_message().endpoint(
-            move |msg: teloxide::types::Message, bot: Bot, tx_tg: mpsc::Sender<(ChannelSource, CoreMessage)>| {
-                let allowed = allowed.clone();
-                async move {
-                    let chat_id = msg.chat.id.0;
-                    if !allowed.contains(&chat_id) {
-                        let _ = bot.send_message(msg.chat.id, "[DENIED] Authorized users only.").await;
-                        return Ok::<(), teloxide::RequestError>(());
-                    }
-                    if let Some(text) = msg.text() {
-                        let core_msg = CoreMessage::text(Role::User, text.to_string(), None);
-                        let _ = tx_tg.send((ChannelSource::Telegram { chat_id }, core_msg)).await;
-                    }
-                    Ok::<(), teloxide::RequestError>(())
-                }
-            }
-        );
 
-        let bot_dispatcher = bot.clone();
-        let mut dispatcher = Dispatcher::builder(bot_dispatcher, handler)
-            .dependencies(teloxide::dptree::deps![tx_tg])
-            .build();
-        let shutdown_token = dispatcher.shutdown_token();
-        tokio::spawn(async move {
-            dispatcher.dispatch().await;
-        });
-
-        // CLI stdin spawn
-        let tx_cli = tx.clone();
-        tokio::spawn(async move {
-            loop {
-                let line = tokio::task::spawn_blocking(|| {
-                    let mut buffer = String::new();
-                    loop {
-                        let mut input = String::new();
-                        if std::io::stdin().read_line(&mut input).ok().unwrap_or(0) == 0 {
-                            return String::new();
-                        }
-                        let trimmed = input.trim_end_matches(['\r', '\n']);
-                        if process_line(trimmed, &mut buffer) {
-                            print!("... ");
-                            std::io::stdout().flush().ok();
-                            continue;
-                        }
-
-                        return buffer;
-                    }
-                })
-                .await
-                .unwrap_or_default();
-
-                if line.is_empty() {
-                    continue;
-                }
-                
-                let core_msg = CoreMessage::text(Role::User, line, None);
-                if tx_cli.send((ChannelSource::Cli, core_msg)).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        Ok(Self {
-            receiver: Mutex::new(rx),
-            last_source: Mutex::new(None),
-            telegram_bot: Some(bot),
-            typing_handle: StdMutex::new(None),
-            shutdown_token: StdMutex::new(Some(shutdown_token)),
-        })
+        #[cfg(not(feature = "telegram"))]
+        {
+            false
+        }
     }
 
     fn shutdown_inner(&self) {

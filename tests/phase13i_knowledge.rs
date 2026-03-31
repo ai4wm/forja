@@ -306,6 +306,7 @@ async fn engine_injects_relevant_knowledge_into_system_prompt() {
         None,
     )]));
     let mut engine = Engine::new(provider.clone(), channel.clone())
+        .with_assistant_profile("Forja".to_string(), "User".to_string())
         .with_system_prompt("[identity.md]\nForja\n\n[user.md]\nOwner".to_string())
         .with_knowledge(knowledge);
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
@@ -355,6 +356,7 @@ async fn knowledge_detection_failure_does_not_block_main_response() {
         None,
     )]));
     let mut engine = Engine::new(provider, channel.clone())
+        .with_assistant_profile("Forja".to_string(), "User".to_string())
         .with_system_prompt("base system prompt".to_string())
         .with_knowledge(knowledge);
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();

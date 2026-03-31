@@ -129,8 +129,8 @@ impl Engine {
             ralf_config: RalfConfig::default(),
             system_prompt: None,
             tool_prompt: None,
-            assistant_name: "Forja".to_string(),
-            user_title: "User".to_string(),
+            assistant_name: String::new(),
+            user_title: String::new(),
             slash_handler: None,
             dashboard_handler: None,
             mode_state: ModeState::default(),
@@ -515,8 +515,10 @@ impl Engine {
                             }
                             SlashCommandResult::UpdateSystemPrompt { reply, system_prompt, reset_history } => {
                                 self.apply_system_prompt_update(system_prompt, reset_history);
-                                let reply_msg = Message::text(Role::Assistant, &reply, None);
-                                let _ = self.channel.send(reply_msg).await;
+                                if !reply.trim().is_empty() {
+                                    let reply_msg = Message::text(Role::Assistant, &reply, None);
+                                    let _ = self.channel.send(reply_msg).await;
+                                }
                             }
                         }
                         continue;

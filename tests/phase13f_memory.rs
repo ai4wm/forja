@@ -155,6 +155,7 @@ async fn restart_loads_memory_md_into_engine_prompt() {
         None,
     )]));
     let mut engine = Engine::new(provider.clone(), channel.clone())
+        .with_assistant_profile("Forja".to_string(), "User".to_string())
         .with_system_prompt("base system prompt".to_string())
         .with_memory(restarted_store);
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();

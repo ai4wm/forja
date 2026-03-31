@@ -1,8 +1,7 @@
 use async_trait::async_trait;
 use chrono::{Duration, Local, TimeZone};
 use forja_core::emotion::{
-    default_startup_greeting, generate_startup_greeting, EmotionEngine, MoodState,
-    RelationshipContext,
+    generate_startup_greeting, EmotionEngine, MoodState, RelationshipContext,
 };
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::MemoryStore;
@@ -318,6 +317,7 @@ async fn tone_instruction_is_injected_into_system_prompt() {
         None,
     )]));
     let mut engine = Engine::new(provider.clone(), channel.clone())
+        .with_assistant_profile("Forja".to_string(), "User".to_string())
         .with_system_prompt("base system prompt".to_string())
         .with_memory(memory_store)
         .with_emotion(EmotionEngine::new(MoodState::neutral()));
@@ -365,6 +365,7 @@ async fn emotion_failures_do_not_block_main_response() {
         None,
     )]));
     let mut engine = Engine::new(provider, channel.clone())
+        .with_assistant_profile("Forja".to_string(), "User".to_string())
         .with_system_prompt("base system prompt".to_string())
         .with_memory(memory_store)
         .with_emotion(EmotionEngine::new(MoodState::neutral()));
@@ -408,6 +409,7 @@ async fn mood_changes_are_saved_as_system_memory_tags() {
         None,
     )]));
     let mut engine = Engine::new(provider, channel.clone())
+        .with_assistant_profile("Forja".to_string(), "User".to_string())
         .with_system_prompt("base system prompt".to_string())
         .with_memory(memory_store.clone())
         .with_emotion(EmotionEngine::new(MoodState::neutral()));
@@ -460,26 +462,24 @@ async fn startup_greeting_uses_memory_context_when_available() {
 #[tokio::test]
 async fn startup_greeting_falls_back_to_default_when_memory_is_empty() {
     let provider = ScriptedProvider::new(vec![]);
-    let default_greeting = default_startup_greeting("주인님");
 
     let greeting = generate_startup_greeting(&provider, "황비서", "주인님", "", false)
         .await
         .unwrap();
 
-    assert_eq!(greeting, Some(default_greeting));
+    assert_eq!(greeting, None);
 }
 
 #[tokio::test]
 async fn startup_greeting_falls_back_to_default_on_provider_failure() {
     let provider = ScriptedProvider::new(vec![ProviderStep::Error("greeting failed".to_string())]);
-    let default_greeting = default_startup_greeting("주인님");
     let memory = build_memory_line(Local::now().date_naive(), "09:00", "user", "최근 기록");
 
     let greeting = generate_startup_greeting(&provider, "황비서", "주인님", &memory, false)
         .await
         .unwrap();
 
-    assert_eq!(greeting, Some(default_greeting));
+    assert_eq!(greeting, None);
 }
 
 #[tokio::test]

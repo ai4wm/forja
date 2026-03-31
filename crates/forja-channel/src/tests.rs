@@ -52,3 +52,12 @@ async fn test_multichannel_shutdown() {
     assert!(!channel.has_shutdown_token_for_test());
     assert!(abort_handle.is_finished());
 }
+
+#[tokio::test]
+async fn test_multichannel_new_without_telegram_starts_in_cli_mode() {
+    let channel = MultiChannel::new(None, Vec::new()).await;
+
+    assert!(channel.is_cli_source());
+
+    channel.shutdown();
+}
