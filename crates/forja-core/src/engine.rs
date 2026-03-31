@@ -21,6 +21,7 @@ use std::sync::Arc;
 mod audit;
 mod budget;
 mod creation;
+mod dashboard;
 mod emotion;
 mod context;
 mod heartbeat;
@@ -40,6 +41,7 @@ pub enum SlashCommandResult {
     Reply(String),
     ReplyAndSave { user_text: String, reply: String },
     Debate { topic: String },
+    Dashboard,
     UpdateSystemPrompt {
         reply: String,
         system_prompt: Option<String>,
@@ -49,6 +51,7 @@ pub enum SlashCommandResult {
 
 /// Slash command callback type for /models and /model.
 pub type SlashHandler = Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>, &mut ModeState) -> Option<SlashCommandResult> + Send + Sync>;
+pub type DashboardHandler = Arc<dyn Fn() -> Result<String> + Send + Sync>;
 
 /// Core Forja engine. Coordinates channels, LLM providers, and tools,
 /// and drives the main event loop plus recursive tool evaluation.
@@ -78,6 +81,7 @@ pub struct Engine {
     assistant_name: String,
     user_title: String,
     slash_handler: Option<SlashHandler>,
+    dashboard_handler: Option<DashboardHandler>,
     mode_state: ModeState,
     emotion: Option<EmotionEngine>,
     turn_tone_context: Option<String>,
@@ -123,6 +127,7 @@ impl Engine {
             assistant_name: "Forja".to_string(),
             user_title: "User".to_string(),
             slash_handler: None,
+            dashboard_handler: None,
             mode_state: ModeState::default(),
             emotion: None,
             turn_tone_context: None,
@@ -438,6 +443,17 @@ impl Engine {
                                 self.push_message(reply_msg.clone());
                                 #[cfg(feature = "memory")]
                                 self.save_turn_memory_entries(&user_msg, Some(&final_reply)).await;
+                            }
+                            SlashCommandResult::Dashboard => {
+                                let reply = match &self.dashboard_handler {
+                                    Some(handler) => match handler() {
+                                        Ok(url) => format!("[Dashboard] {url} opened"),
+                                        Err(error) => format!("❌ Dashboard failed: {error}"),
+                                    },
+                                    None => "❌ Dashboard handler is not configured.".to_string(),
+                                };
+                                let reply_msg = Message::text(Role::Assistant, &reply, None);
+                                let _ = self.channel.send(reply_msg).await;
                             }
                             SlashCommandResult::UpdateSystemPrompt { reply, system_prompt, reset_history } => {
                                 self.apply_system_prompt_update(system_prompt, reset_history);

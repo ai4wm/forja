@@ -19,6 +19,8 @@ pub struct ForjaConfig {
     #[serde(default)]
     pub creation: CreationSection,
     #[serde(default)]
+    pub dashboard: DashboardSection,
+    #[serde(default)]
     pub channel: ChannelSection,
     #[serde(default)]
     pub tools: ToolsSection,
@@ -106,6 +108,17 @@ pub struct CreationAgentSection {
     pub role: Option<String>,
     pub framework: Option<String>,
     pub budget: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DashboardSection {
+    pub port: u16,
+}
+
+impl Default for DashboardSection {
+    fn default() -> Self {
+        Self { port: 3000 }
+    }
 }
 
 impl Default for CreationSection {

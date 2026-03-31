@@ -1,10 +1,12 @@
 mod config;
+mod dashboard;
 mod provider_registry;
 mod oauth;
 mod bootstrap;
 
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use dashboard::DashboardServer;
 use forja_core::audit::logger::AuditLogger;
 use forja_core::budget::{manager::BudgetManager, BudgetMode};
 use forja_core::creation::{agents::default_debate_agents, DebateAgent, DebateConfig, DebateEngine};
@@ -606,6 +608,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         max_agents: forja_cfg.creation.max_agents.unwrap_or(5),
     };
     engine = engine.with_creation_engine(DebateEngine::new(debate_agents, debate_config));
+    let dashboard_server = Arc::new(std::sync::Mutex::new(DashboardServer::new(
+        forja_cfg.dashboard.port,
+        audit_db_path.clone(),
+    )));
+    let dashboard_server_for_handler = dashboard_server.clone();
+    engine = engine.with_dashboard_handler(Arc::new(move || {
+        let mut server = dashboard_server_for_handler
+            .lock()
+            .map_err(|error| ForjaError::Internal(error.to_string()))?;
+        server.start()
+    }));
     let context_summary_provider = provider.clone();
     engine = engine.with_context_summary_callback(Box::new(move |messages: Vec<Message>| {
         let summary_provider = context_summary_provider.clone();
@@ -974,6 +987,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             return Some(forja_core::engine::SlashCommandResult::Debate {
                 topic: topic.to_string(),
             });
+        }
+
+        if text == "/dashboard" {
+            return Some(forja_core::engine::SlashCommandResult::Dashboard);
         }
 
         if text == "/models" {
