@@ -7,3 +7,6 @@ pub mod telegram;
 
 #[cfg(feature = "discord")]
 pub mod discord;
+
+#[cfg(test)]
+mod tests;

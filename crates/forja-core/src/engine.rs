@@ -233,6 +233,22 @@ impl Engine {
         }
     }
 
+    pub fn shutdown(&mut self) {
+        self.stop_heartbeat_runtime();
+        self.autonomy = None;
+        self.clear_conversation_history();
+        self.clear_turn_knowledge_context();
+        self.clear_turn_emotion_context();
+        #[cfg(feature = "memory")]
+        self.clear_turn_memory_context();
+        self.turn_count = 0;
+        self.last_serendipity_triggered_at = None;
+
+        let (heartbeat_sender, heartbeat_receiver) = tokio::sync::mpsc::channel(32);
+        self.heartbeat_sender = heartbeat_sender;
+        self.heartbeat_receiver = Some(heartbeat_receiver);
+    }
+
     /// Evaluates a single turn. Tool calls are executed and then re-interpreted recursively.
     #[async_recursion::async_recursion]
     pub async fn handle_step(&mut self, depth: usize) -> Result<Message> {
@@ -391,7 +407,7 @@ impl Engine {
             }
         }
 
-        self.stop_heartbeat_runtime();
+        self.shutdown();
         Ok(())
     }
 
@@ -564,7 +580,7 @@ impl Engine {
             }
         }
 
-        self.stop_heartbeat_runtime();
+        self.shutdown();
         Ok(())
     }
 

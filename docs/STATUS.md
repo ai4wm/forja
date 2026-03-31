@@ -1,17 +1,18 @@
 # Forja Status
 
-Last updated: 2026-03-31
+Last updated: 2026-04-01
 
 ## Task Record
 
-- Changed files: `Cargo.lock`, `crates/forja-channel/Cargo.toml`, `crates/forja-channel/src/telegram.rs`, `crates/forja-channel/src/multi.rs`, `src/main.rs`, `tests/phase13e_bootstrap.rs`, `docs/STATUS.md`
-- Dependencies for next task: decide whether Telegram startup should surface a visible health state in the dashboard or `/status` output, and whether connection/backoff policy should become configurable beyond the fixed 30s connect and 60s request timeouts
-- Verification: `cargo build --workspace` passed; `cargo clippy --workspace -- -D warnings` passed; `cargo test -p forja-core` passed; `cargo test` passed
+- Changed files: `crates/forja-channel/src/lib.rs`, `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/telegram.rs`, `crates/forja-channel/src/tests.rs`, `crates/forja-core/src/engine.rs`, `crates/forja-core/src/traits.rs`, `src/main.rs`, `docs/STATUS.md`
+- Dependencies for next task: run a repeated start/stop soak test against real Telegram and dashboard traffic to confirm that dispatcher shutdown reduces lingering sockets, and decide whether environment-dependent `forja-llm` streaming tests should stay in the required verification path or move behind a dedicated opt-in profile
+- Verification: `cargo build --workspace` passed; `cargo clippy --workspace -- -D warnings` passed; `cargo test -p forja-channel --features telegram` passed; `cargo test` passed; `cargo test -p forja-llm` failed because the local Ollama endpoint at `http://localhost:11434` was unavailable for `test_chat_fallback` and `test_ollama_streaming`; `cargo test -p forja-llm -- --ignored` failed because `test_gemini_streaming` returned `Http 404 Not Found`
 
 ## Feature Status
 
 | Feature | Status | File(s) | Notes |
 | --- | --- | --- | --- |
+| Graceful shutdown socket cleanup | Done | `crates/forja-channel/src/lib.rs`, `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/telegram.rs`, `crates/forja-channel/src/tests.rs`, `crates/forja-core/src/engine.rs`, `crates/forja-core/src/traits.rs`, `src/main.rs` | Channels now expose a shared `shutdown()` hook, Telegram and MultiChannel retain teloxide shutdown tokens instead of relying on internal Ctrl+C handlers, the engine resets heartbeat and transient state through `Engine::shutdown()`, and `main` performs ordered shutdown with dashboard stop, channel shutdown, and a one-second drain delay before exit. |
 | Telegram timeout hardening | Done | `Cargo.lock`, `crates/forja-channel/Cargo.toml`, `crates/forja-channel/src/telegram.rs`, `crates/forja-channel/src/multi.rs`, `src/main.rs`, `tests/phase13e_bootstrap.rs` | Telegram channels now build bots with a custom reqwest client using a 30-second connect timeout and 60-second total timeout, validate startup with `getMe`, and fall back to CLI-only mode when multi-channel Telegram initialization fails. |
 | Autonomy layer foundation | Done | `crates/forja-core/src/autonomy/mod.rs`, `crates/forja-core/src/autonomy/skills.rs`, `crates/forja-core/src/autonomy/unresolved.rs`, `crates/forja-core/src/autonomy/loop_runner.rs`, `crates/forja-core/src/autonomy/tests.rs`, `crates/forja-core/src/engine.rs`, `crates/forja-core/src/engine/audit.rs`, `crates/forja-core/src/engine/autonomy.rs`, `crates/forja-core/src/engine/heartbeat.rs`, `crates/forja-core/src/lib.rs`, `src/config.rs`, `src/dashboard/routes.rs`, `src/dashboard/static/index.html`, `src/main.rs` | Skills, unresolved tasks, and queued tasks now persist in `audit.db`; heartbeat events trigger autonomy ticks; `/task`, `/skills`, and `/unresolved` are wired; and the dashboard now exposes tasks, skills, unresolved items, and approval actions. |
 | Local web dashboard | Done | `Cargo.toml`, `crates/forja-core/src/engine.rs`, `crates/forja-core/src/engine/dashboard.rs`, `src/config.rs`, `src/dashboard/mod.rs`, `src/dashboard/routes.rs`, `src/dashboard/static/index.html`, `src/dashboard/tests.rs`, `src/main.rs` | `/dashboard` now starts a local Axum server, reuses a shared `Arc<Mutex<DashboardServer>>` to avoid duplicate launches, opens the browser automatically, and serves Korean dashboard tabs for audit, debate transcripts, and budget usage backed by read-only `audit.db` queries. |

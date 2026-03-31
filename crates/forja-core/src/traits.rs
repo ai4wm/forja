@@ -36,7 +36,9 @@ pub trait MemoryStore: Send + Sync {
 pub trait Channel: Send + Sync {
     async fn receive(&self) -> Result<Message>;
     async fn send(&self, message: Message) -> Result<()>;
-    
+
+    fn shutdown(&self) {}
+
     /// Whether the current input source is CLI.
     fn is_cli_source(&self) -> bool { false }
 

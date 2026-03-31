@@ -5,10 +5,13 @@ use forja_core::{Channel, Content, Role, Message as CoreMessage};
 use reqwest::Client;
 use crate::cli::process_line;
 use std::io::Write;
+use std::sync::Mutex as StdMutex;
 #[cfg(feature = "telegram")]
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 
+#[cfg(feature = "telegram")]
+use teloxide::dispatching::{Dispatcher, ShutdownToken, UpdateFilterExt};
 #[cfg(feature = "telegram")]
 use teloxide::prelude::*;
 
@@ -25,7 +28,9 @@ pub struct MultiChannel {
     #[cfg(feature = "telegram")]
     telegram_bot: Option<Bot>,
     #[cfg(feature = "telegram")]
-    typing_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    typing_handle: StdMutex<Option<tokio::task::JoinHandle<()>>>,
+    #[cfg(feature = "telegram")]
+    shutdown_token: StdMutex<Option<ShutdownToken>>,
 }
 
 impl MultiChannel {
@@ -66,7 +71,9 @@ impl MultiChannel {
             #[cfg(feature = "telegram")]
             telegram_bot: None,
             #[cfg(feature = "telegram")]
-            typing_handle: Mutex::new(None),
+            typing_handle: StdMutex::new(None),
+            #[cfg(feature = "telegram")]
+            shutdown_token: StdMutex::new(None),
         }
     }
 
@@ -125,13 +132,12 @@ impl MultiChannel {
         );
 
         let bot_dispatcher = bot.clone();
+        let mut dispatcher = Dispatcher::builder(bot_dispatcher, handler)
+            .dependencies(teloxide::dptree::deps![tx_tg])
+            .build();
+        let shutdown_token = dispatcher.shutdown_token();
         tokio::spawn(async move {
-            teloxide::dispatching::Dispatcher::builder(bot_dispatcher, handler)
-                .dependencies(teloxide::dptree::deps![tx_tg])
-                .enable_ctrlc_handler()
-                .build()
-                .dispatch()
-                .await;
+            dispatcher.dispatch().await;
         });
 
         // CLI stdin spawn
@@ -173,8 +179,58 @@ impl MultiChannel {
             receiver: Mutex::new(rx),
             last_source: Mutex::new(None),
             telegram_bot: Some(bot),
-            typing_handle: Mutex::new(None),
+            typing_handle: StdMutex::new(None),
+            shutdown_token: StdMutex::new(Some(shutdown_token)),
         })
+    }
+
+    fn shutdown_inner(&self) {
+        #[cfg(feature = "telegram")]
+        {
+            if let Some(handle) = self
+                .typing_handle
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take()
+            {
+                handle.abort();
+            }
+
+            if let Some(token) = self
+                .shutdown_token
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take()
+            {
+                let _ = token.shutdown();
+            }
+        }
+    }
+
+    #[cfg(feature = "telegram")]
+    #[allow(dead_code)]
+    pub(crate) fn for_shutdown_test(
+        shutdown_token: ShutdownToken,
+        typing_handle: tokio::task::JoinHandle<()>,
+    ) -> Self {
+        let (_sender, receiver) = mpsc::channel(1);
+
+        Self {
+            receiver: Mutex::new(receiver),
+            last_source: Mutex::new(None),
+            telegram_bot: Some(Bot::new("test-token")),
+            typing_handle: StdMutex::new(Some(typing_handle)),
+            shutdown_token: StdMutex::new(Some(shutdown_token)),
+        }
+    }
+
+    #[cfg(feature = "telegram")]
+    #[allow(dead_code)]
+    pub(crate) fn has_shutdown_token_for_test(&self) -> bool {
+        self.shutdown_token
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_some()
     }
 }
 
@@ -202,7 +258,10 @@ impl Channel for MultiChannel {
                             tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
                         }
                     });
-                    *self.typing_handle.lock().await = Some(handle);
+                    *self
+                        .typing_handle
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(handle);
                 }
 
                 if let Content::Text { ref text, .. } = msg.content {
@@ -302,9 +361,24 @@ impl Channel for MultiChannel {
     async fn cancel_typing(&self) {
         #[cfg(feature = "telegram")]
         {
-            if let Some(handle) = self.typing_handle.lock().await.take() {
+            if let Some(handle) = self
+                .typing_handle
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .take()
+            {
                 handle.abort();
             }
         }
+    }
+
+    fn shutdown(&self) {
+        self.shutdown_inner();
+    }
+}
+
+impl Drop for MultiChannel {
+    fn drop(&mut self) {
+        self.shutdown_inner();
     }
 }

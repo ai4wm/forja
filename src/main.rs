@@ -359,11 +359,6 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let _auth_data = oauth::AuthData::load();
 
-    ctrlc::set_handler(move || {
-        println!("\n[System] Exiting...");
-        std::process::exit(0);
-    }).expect("Error setting Ctrl+C handler");
-
     // Parse subcommands
     // let args: Vec<String> = std::env::args().collect(); // Already collected above
 
@@ -1147,9 +1142,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         std::io::stdout().flush().ok();
     }
 
-    engine.run_streaming(async {
+    let run_result = engine.run_streaming(async {
         let _ = tokio::signal::ctrl_c().await;
-    }).await?;
+    }).await;
+
+    println!("\n[System] Shutting down...");
+    engine.shutdown();
+
+    match dashboard_server.lock() {
+        Ok(mut server) => server.stop(),
+        Err(error) => eprintln!("[Dashboard] stop skipped: {error}"),
+    }
+
+    channel.shutdown();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    run_result?;
 
     Ok(())
 }
