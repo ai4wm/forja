@@ -1,17 +1,18 @@
 # Forja Status
 
-Last updated: 2026-03-29
+Last updated: 2026-03-31
 
 ## Task Record
 
-- Changed files: `crates/forja-channel/src/multi.rs`, `crates/forja-channel/src/telegram.rs`, `src/main.rs`, `docs/STATUS.md`
-- Dependencies for next task: keep terminal output formatting aligned across CLI-only and MultiChannel modes after removing duplicate prompt printing; consider whether `MultiChannel` should reuse the same explicit input-prompt policy as `CliChannel` if a shared prompt renderer is introduced later; keep Web UI deferred while TUI and background recovery behavior stabilize
-- Verification: `cargo test --workspace --exclude forja-llm`; `cargo build --workspace`; `cargo clippy --workspace -- -D warnings`
+- Changed files: `.gitignore`, `docs/ARCHITECTURE-v010.md`, `docs/ARCHITECTURE.md`, `docs/STATUS.md`
+- Dependencies for next task: turn the v0.2.0 architecture into an implementation roadmap with concrete schemas, storage boundaries, loop contracts, and milestone breakdown for Layers 1 and 2 first
+- Verification: `cargo build --workspace` passed; `cargo clippy --workspace -- -D warnings` passed; `cargo test -p forja-llm` failed in existing environment-dependent streaming tests (`test_ollama_streaming`, `test_chat_fallback`) because `http://localhost:11434` was unavailable; `cargo test -p forja-llm -- --ignored` failed in `test_gemini_streaming` with HTTP 404 from the external Gemini endpoint
 
 ## Feature Status
 
 | Feature | Status | File(s) | Notes |
 | --- | --- | --- | --- |
+| v0.2.0 architecture planning document | Done | `.gitignore`, `docs/ARCHITECTURE.md`, `docs/ARCHITECTURE-v010.md` | The old implementation snapshot was backed up to `ARCHITECTURE-v010.md`, `ARCHITECTURE.md` now defines the target v0.2.0 product architecture in English, and `.gitignore` now allows the backup file to be tracked. |
 | Engine loop | Done | `crates/forja-core/src/engine.rs`, `src/main.rs` | Main runtime loop, tool recursion, slash interception, and channel dispatch are wired. |
 | Streaming | Done | `crates/forja-core/src/engine.rs`, `crates/forja-llm/src/client.rs` | Streaming-first path exists with fallback to non-streaming tool handling, and CLI streaming now uses the same `● ` prefix that non-streaming terminal replies use. |
 | Prompt loader | Done | `crates/forja-core/src/prompt/loader.rs`, `crates/forja-core/src/prompt/mod.rs`, `src/main.rs` | File-based prompts are loaded from `~/.forja/prompts/` by default and bootstrapped with defaults. |

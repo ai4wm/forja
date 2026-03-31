@@ -31,6 +31,7 @@ crates/forja-llm/tests/
 # Documentation
 **/*.md
 !**/README.md
+!docs/ARCHITECTURE-v010.md
 
 clippy_result.txt
 err.txt

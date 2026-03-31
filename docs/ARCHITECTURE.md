@@ -1,126 +1,174 @@
-# Forja Architecture
+# FORJA v0.2.0 Architecture Document
 
-This document summarizes the current repository layout and runtime behavior from the codebase as of `src/main.rs`.
+This document defines the target architecture for Forja v0.2.0.
+It is a product and system design document for the next milestone, not a snapshot of the current implementation.
+The previous implementation-focused document is preserved in `docs/ARCHITECTURE-v010.md`.
 
-## Workspace Structure
+## Vision
+
+An AI agent engine that multiplies a solo developer's effective thinking capacity by 5x.
+
+## Core Principles
+
+- Single binary: everything should run from one `cargo run`.
+- No separate server: use SQLite locally and defer UI expansion to Tauri later.
+- Three primitive structures: message, agent, and loop.
+- Creative reasoning and execution should stay inside one runtime loop.
+
+## Four-Layer Architecture
+
+### Layer 1. Context Engineering
+
+Goal: give the system durable working memory without losing runtime simplicity.
+
+- Token counting with an 80% warning threshold and 90% automatic compression.
+- Memory system built around `MEMORY.md` and `USER.md`.
+- Preserve the most recent N turns and compress older conversation into summaries.
+- Long-term memory backed by SQLite FTS5 for full-text retrieval.
+
+### Layer 2. Harness
+
+Goal: control execution, cost, safety, and observability with a unified runtime envelope.
+
+- Gateway with a common message format:
 
 ```text
-forja/
-├─ src/main.rs                    Binary entry point and runtime wiring
-├─ src/config.rs                  Config loading, onboarding, env overrides
-├─ src/bootstrap.rs               identity.md / user.md bootstrap and prompt prefix
-├─ src/provider_registry.rs       Runtime model registry for /models and /model
-├─ crates/forja-core/             Engine loop, traits, message types, mode system
-├─ crates/forja-llm/              Multi-provider LLM client implementations
-├─ crates/forja-memory/           Markdown-backed memory storage and summarization
-├─ crates/forja-tools/            Shell, browser, vision, input, search, file, web tools
-└─ crates/forja-channel/          CLI and Telegram channel implementations
+{ sender, text, channel, timestamp, type }
 ```
 
-## Layer Diagram
+- RALF loop with automatic retry on failure:
+  - Retry up to 5 times.
+  - Stop early if the same error appears 3 times in a row.
+- Heartbeat scheduler for each agent:
+  - Agents run on schedule.
+  - Idle agents should cost zero.
+- Budget management per agent:
+  - Monthly token limit.
+  - 80% warning.
+  - 100% automatic stop.
+- Append-only audit log in SQLite for all tool calls and decision records.
+- Governance prompts for risky actions such as deployment or deletion.
+- Mention filtering to remove noise in group-chat environments.
+
+### Layer 3. Creation Engine
+
+Goal: produce better decisions by forcing structured divergence, conflict, and synthesis.
+
+- Debate mode with three stages:
+  - Divergence: expand ideas with a "Yes, and..." pattern.
+  - Conflict: challenge proposals through explicit cognitive frameworks.
+  - Convergence: compress the discussion into a decision.
+- Combination engine that forces cross-domain fusion using patterns such as TRIZ and SCAMPER.
+- Mutation engine for inversion, amplification, reduction, elimination, and turning failure into advantage.
+- Agent composition is defined by:
+  - `role`
+  - `framework`
+  - `budget`
+- Default team size is 5 agents, with automatic adjustment to 3-5 agents based on task complexity.
+- Standard round structure:
+  - Divergence: 2 rounds
+  - Conflict: 3 rounds
+  - Convergence: 1 round
+  - Total: 6 rounds
+- Debate output should be transformed automatically into executable task lists.
+- The same agent may switch behavior between stages instead of remaining locked to one mode.
+
+### Layer 4. Autonomy
+
+Goal: let the system take initiative without introducing a separate orchestration service.
+
+- Heartbeat-based autonomous execution.
+- Automatic skill registration after 5 or more successful tool-call runs.
+- Unresolved problem storage with periodic re-approach.
+- Multi-company and per-project data isolation.
+
+## Agent Definition Example
+
+```toml
+[agents.architect]
+role = "Architecture"
+framework = "Break every proposal into no more than three components. Reject it if it stays complex."
+budget = 50000
+
+[agents.critic]
+framework = "Find falsifiable flaws in every claim and estimate the probability of failure."
+
+[agents.builder]
+framework = "If it cannot be implemented within 48 hours, propose an alternative."
+
+[agents.researcher]
+framework = "Ignore claims without sources. Judge only from data."
+
+[agents.synthesizer]
+framework = "Summarize the discussion in three sentences and convert it into an execution task list."
+```
+
+## Creation To Execution Flow
 
 ```text
-User / External Input
-        |
-        v
-Channel Layer
-  CLI / Telegram
-  (`forja-channel`)
-        |
-        v
-Engine Layer
-  `forja-core::Engine`
-        |
-        +-------------------+
-        |                   |
-        v                   v
-LLM / Tools / Memory Layer
-  `forja-llm`   `forja-tools`   `forja-memory`
-        |
-        v
-APIs, shell, browser, filesystem, screenshots, local memory files
+User: "Should we try something like this?"
+
+[Creation]
+5-agent debate
++ combination
++ mutation
+= conclusion
+
+[Execution]
+Conclusion
++ task list
++ agent assignment
+= work
+
+[Record]
+Audit log
++ skill registration
 ```
 
-## Key Traits And Backend Interfaces
+## Technology Stack
 
-- `LlmProvider` in `crates/forja-core/src/traits.rs`
-  - Defines `chat()` and `stream()` for single-shot and token-stream responses.
-  - Implemented by `forja-llm::LlmClient` and the local `MockLlmProvider` in `src/main.rs`.
-- `Channel` in `crates/forja-core/src/traits.rs`
-  - Defines `receive()`, `send()`, `confirm()`, and source-specific helpers.
-  - Implemented by CLI and Telegram-facing channel adapters in `crates/forja-channel/`.
-- `InputBackend` in `crates/forja-tools/src/input.rs`
-  - Separates OS input execution from the tool wrapper.
-  - Implemented by `EnigoBackend` and `MockBackend`.
-- Tool backend pattern
-  - There is no single repo-wide `ToolBackend` trait today.
-  - The engine-facing abstraction is `forja_core::traits::Tool`.
-  - Tool-specific backend interfaces are split by capability, such as `BrowserBackend`, `ScreenCaptureBackend`, and `VisionAnalyzer`.
+- Language: Rust
+- Database: SQLite with FTS5
+- UI: CLI first, Tauri later
+- Channels: CLI and Telegram first, Discord later
+- LLM access: OpenAI OAuth by default, with model replacement kept possible
 
-## Prompt Loading
+## Implementation Priority
 
-- Prompt files are loaded from `~/.forja/prompts/` by default.
-- `src/main.rs` resolves the prompt directory from `agent.prompts_dir`, or falls back to `bootstrap_paths.forja_dir.join("prompts")`.
-- `PromptLoader` in `crates/forja-core/src/prompt/loader.rs` creates missing defaults for:
-  - `base.md`
-  - `memory-rules.md`
-  - `roles/coder.md`, `roles/writer.md`, `roles/assistant.md`, `roles/analyst.md`
-  - `think/min.md`, `think/max.md`
-- The final system prompt also includes bootstrap content from `~/.forja/identity.md` and `~/.forja/user.md`, plus the first project prompt found in `AGENTS.md -> FORJA.md -> CLAUDE.md`.
+1. Context engineering
+2. Gateway refactor, RALF loop, and audit log
+3. Heartbeat scheduling and budget management
+4. Debate engine
+5. Combination and mutation rounds
+6. Automatic skill registration and autonomous execution
+7. Tauri UI
 
-## Runtime Assembly
+## Imported Ideas
 
-`src/main.rs` builds the runtime in this order:
+### From Paperclip
 
-1. Parse CLI arguments and login/setup subcommands.
-2. Load config or run onboarding.
-3. Initialize the prompt loader.
-4. Build the system prompt from bootstrap files and project prompt files.
-5. Create the provider registry and active `LlmProvider`.
-6. Resolve `ExecMode`, think level, and role state.
-7. Create the active channel (`CliChannel` or `MultiChannel` with Telegram).
-8. Construct `Engine`, then attach tool prompt, assistant profile, knowledge, serendipity, emotion, memory, and slash handlers.
-9. Register tools and optional external CLI bridge tools.
-10. Start `Engine::run_streaming()`.
+- Heartbeat scheduling
+- Budget management
+- Audit logging
+- Adapter pattern
+- Ticket system
+- Governance
 
-## Data Flow
+Constraint: implement these inside a single-binary runtime with no server split.
 
-Normal user requests follow this path:
+### From Hermes
 
-1. A channel receives user input and converts it into `Message`.
-2. `Engine` refreshes role, emotion, knowledge, and memory context for the turn.
-3. `assemble_system_prompt()` builds the current system prompt from prompt files, mode state, tool prompt, bootstrap content, and contextual sections.
-4. The engine sends request messages to the active `LlmProvider`.
-5. If the model returns text, the engine streams or sends the response to the channel.
-6. If the model returns a tool call, the engine executes the matching `Tool`, appends the tool result, and asks the model again.
-7. The final assistant response is sent to the active channel and optionally written to memory.
+- Learning system with `MEMORY.md` and `USER.md`
+- Automatic skill registration
+- Automatic context compression
 
-## ExecMode Enforcement
+### From Chorus
 
-Forja currently enforces execution policy in two layers:
+- Replace persona-first design with cognitive frameworks
+- Use framework conflict to generate emergent outcomes
 
-- Shell flow
-  - `Engine::handle_step()` inspects shell tool arguments before execution.
-  - `safe` confirms every shell command.
-  - `auto` confirms only commands classified as dangerous by `forja_core::safety`.
-  - `trust` skips shell confirmation.
-- Input and browser flow
-  - `src/main.rs` shares the active mode through `exec_mode_handle`.
-  - `StdinConfirmation::from_shared()` is passed into `InputTool` and `BrowserTool`.
-  - Those tools confirm based on the live mode and their own danger checks.
+## Differentiators
 
-## Streaming, Tools, And Memory
-
-- Streaming-first execution lives in `Engine::run_streaming()`.
-- If provider streaming fails or looks like a tool-call payload, the engine falls back to `handle_step()`.
-- Tool recursion is bounded by `MAX_TOOL_DEPTH = 10`.
-- Memory uses `MarkdownMemoryStore` in `crates/forja-memory/`.
-  - `memory.md` is the primary rolling log.
-  - older daily blocks can be summarized and archived.
-
-## Current Boundaries
-
-- CLI and Telegram are implemented; Discord is feature-gated but not implemented in this workspace.
-- The prompt system is file-based and override-friendly.
-- Tool backends are capability-specific, not unified under one `ToolBackend` trait.
-- Memory is wired into the runtime, but retrieval remains file-centric rather than a full database-backed memory system.
+- One loop that combines creation and execution instead of separating them.
+- Paperclip-class operational ideas inside a single binary.
+- Optimized for a solo developer workflow that should finish with one `cargo run`.
