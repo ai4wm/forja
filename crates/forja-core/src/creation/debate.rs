@@ -9,9 +9,17 @@ use serde_json::json;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
+use tokio::time::{sleep, timeout, Duration};
 
 type DebateMessageCallback =
     dyn FnMut(&DebateMessage) -> Pin<Box<dyn Future<Output = Result<()>> + Send>>;
+
+#[derive(Debug, Clone, Copy)]
+struct DebateCallContext {
+    phase: DebatePhase,
+    round: usize,
+    should_delay: bool,
+}
 
 impl DebateEngine {
     pub async fn run_debate(
@@ -40,16 +48,22 @@ impl DebateEngine {
 
         let mut transcript = Vec::new();
         let mut total_tokens = 0;
+        let mut call_index = 0;
 
         for round in 1..=self.config.diverge_rounds {
             for agent in &active_agents {
                 let prompt = build_diverge_prompt(agent, topic, &transcript);
+                let context = DebateCallContext {
+                    phase: DebatePhase::Diverge,
+                    round,
+                    should_delay: call_index > 0,
+                };
+                call_index += 1;
                 let message = call_agent(
                     provider,
                     audit_logger,
                     agent,
-                    DebatePhase::Diverge,
-                    round,
+                    context,
                     prompt,
                     &mut on_message,
                 )
@@ -63,12 +77,17 @@ impl DebateEngine {
         for round in 1..=self.config.conflict_rounds {
             for agent in &active_agents {
                 let prompt = build_conflict_prompt(agent, &diverge_output, &transcript, round);
+                let context = DebateCallContext {
+                    phase: DebatePhase::Conflict,
+                    round,
+                    should_delay: call_index > 0,
+                };
+                call_index += 1;
                 let message = call_agent(
                     provider,
                     audit_logger,
                     agent,
-                    DebatePhase::Conflict,
-                    round,
+                    context,
                     prompt,
                     &mut on_message,
                 )
@@ -81,12 +100,17 @@ impl DebateEngine {
         let synthesizer = select_synthesizer(&active_agents)?;
         for round in 1..=self.config.converge_rounds {
             let prompt = build_converge_prompt(synthesizer, &transcript);
+            let context = DebateCallContext {
+                phase: DebatePhase::Converge,
+                round,
+                should_delay: call_index > 0,
+            };
+            call_index += 1;
             let message = call_agent(
                 provider,
                 audit_logger,
                 synthesizer,
-                DebatePhase::Converge,
-                round,
+                context,
                 prompt,
                 &mut on_message,
             )
@@ -117,39 +141,49 @@ async fn call_agent(
     provider: &Arc<dyn LlmProvider>,
     audit_logger: Option<&AuditLogger>,
     agent: &DebateAgent,
-    phase: DebatePhase,
-    round: usize,
+    context: DebateCallContext,
     prompt: String,
     on_message: &mut Option<&mut DebateMessageCallback>,
 ) -> Result<DebateMessage> {
-    let response = provider
-        .chat(
-            &[
-                Message::text(
-                    Role::System,
-                    format!("You are {}. Your framework: {}", agent.role, agent.framework),
-                    None,
-                ),
-                Message::text(Role::User, prompt, None),
-            ],
-            None,
-        )
-        .await?;
+    if context.should_delay {
+        sleep(Duration::from_secs(2)).await;
+    }
 
-    let content = match response.content {
-        Content::Text { text, .. } => text,
-        _ => {
-            return Err(ForjaError::LlmError(
-                "debate response was not text".to_string(),
-            ))
+    let request_messages = [
+        Message::text(
+            Role::System,
+            format!("You are {}. Your framework: {}", agent.role, agent.framework),
+            None,
+        ),
+        Message::text(Role::User, prompt, None),
+    ];
+
+    let content = match timeout(
+        Duration::from_secs(60),
+        provider.chat(&request_messages, None),
+    )
+    .await
+    {
+        Ok(Ok(response)) => match response.content {
+            Content::Text { text, .. } => text,
+            _ => {
+                return Err(ForjaError::LlmError(
+                    "debate response was not text".to_string(),
+                ))
+            }
+        },
+        Ok(Err(error)) => return Err(error),
+        Err(_) => {
+            log_debate_timeout(audit_logger, agent, context);
+            "[timeout] No response within 60s".to_string()
         }
     };
 
     let message = DebateMessage {
         agent_id: agent.id.clone(),
         role: agent.role.clone(),
-        phase,
-        round,
+        phase: context.phase,
+        round: context.round,
         tokens: count_tokens(&content, "cl100k_base"),
         content,
     };
@@ -297,5 +331,26 @@ fn log_debate_message(audit_logger: Option<&AuditLogger>, message: &DebateMessag
     )
     .with_agent_id(message.agent_id.clone())
     .with_token_count(message.tokens);
+    let _ = audit_logger.log_event(event);
+}
+
+fn log_debate_timeout(
+    audit_logger: Option<&AuditLogger>,
+    agent: &DebateAgent,
+    context: DebateCallContext,
+) {
+    let Some(audit_logger) = audit_logger else {
+        return;
+    };
+
+    let event = AuditEvent::new(
+        "debate_timeout",
+        json!({
+            "agent_id": agent.id.clone(),
+            "phase": context.phase.label(),
+            "round": context.round,
+        }),
+    )
+    .with_agent_id(agent.id.clone());
     let _ = audit_logger.log_event(event);
 }

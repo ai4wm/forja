@@ -91,7 +91,7 @@ pub struct AgentSection {
     pub budget_mode: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Default, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CreationSection {
     pub diverge_rounds: Option<usize>,
     pub conflict_rounds: Option<usize>,
@@ -106,6 +106,18 @@ pub struct CreationAgentSection {
     pub role: Option<String>,
     pub framework: Option<String>,
     pub budget: Option<usize>,
+}
+
+impl Default for CreationSection {
+    fn default() -> Self {
+        Self {
+            diverge_rounds: Some(2),
+            conflict_rounds: Some(3),
+            converge_rounds: Some(1),
+            max_agents: Some(5),
+            agents: BTreeMap::new(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
