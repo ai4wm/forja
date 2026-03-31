@@ -6,7 +6,8 @@ mod bootstrap;
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use forja_core::audit::logger::AuditLogger;
-use forja_core::budget::manager::BudgetManager;
+use forja_core::budget::{manager::BudgetManager, BudgetMode};
+use forja_core::creation::{agents::default_debate_agents, DebateAgent, DebateConfig, DebateEngine};
 use forja_core::emotion::{
     EmotionEngine, MoodState, generate_startup_greeting,
     generate_startup_greeting_with_context,
@@ -565,9 +566,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let budget_manager = Arc::new(BudgetManager::new(&audit_db_path)?);
     let agent_id = "default".to_string();
     let monthly_token_limit = forja_cfg.agent.monthly_token_limit.unwrap_or(50_000);
+    let budget_mode = match forja_cfg.agent.budget_mode.as_deref() {
+        Some(mode) if mode.eq_ignore_ascii_case("enforce") => BudgetMode::Enforce,
+        _ => BudgetMode::Monitor,
+    };
     budget_manager.register_agent(&agent_id, monthly_token_limit)?;
     engine = engine
         .with_agent_id(agent_id.clone())
+        .with_budget_mode(budget_mode)
         .with_budget_manager(budget_manager);
     let mut heartbeat_scheduler = HeartbeatScheduler::new();
     if let Some(interval_secs) = forja_cfg.agent.heartbeat_interval_secs {
@@ -578,6 +584,28 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         });
     }
     engine = engine.with_heartbeat_scheduler(heartbeat_scheduler);
+    let debate_agents = if forja_cfg.creation.agents.is_empty() {
+        default_debate_agents()
+    } else {
+        forja_cfg
+            .creation
+            .agents
+            .iter()
+            .map(|(id, agent)| DebateAgent {
+                id: id.to_string(),
+                role: agent.role.clone().unwrap_or_else(|| id.to_string()),
+                framework: agent.framework.clone().unwrap_or_default(),
+                budget: agent.budget.unwrap_or(5_000),
+            })
+            .collect()
+    };
+    let debate_config = DebateConfig {
+        diverge_rounds: forja_cfg.creation.diverge_rounds.unwrap_or(2),
+        conflict_rounds: forja_cfg.creation.conflict_rounds.unwrap_or(3),
+        converge_rounds: forja_cfg.creation.converge_rounds.unwrap_or(1),
+        max_agents: forja_cfg.creation.max_agents.unwrap_or(5),
+    };
+    engine = engine.with_creation_engine(DebateEngine::new(debate_agents, debate_config));
     let context_summary_provider = provider.clone();
     engine = engine.with_context_summary_callback(Box::new(move |messages: Vec<Message>| {
         let summary_provider = context_summary_provider.clone();
@@ -927,6 +955,25 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                     )));
                 }
             }
+        }
+
+        if text == "/debate" {
+            return Some(forja_core::engine::SlashCommandResult::Reply(
+                "Usage: /debate <topic>".to_string(),
+            ));
+        }
+
+        if let Some(topic) = text.strip_prefix("/debate ") {
+            let topic = topic.trim();
+            if topic.is_empty() {
+                return Some(forja_core::engine::SlashCommandResult::Reply(
+                    "Usage: /debate <topic>".to_string(),
+                ));
+            }
+
+            return Some(forja_core::engine::SlashCommandResult::Debate {
+                topic: topic.to_string(),
+            });
         }
 
         if text == "/models" {

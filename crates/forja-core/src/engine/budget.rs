@@ -1,10 +1,15 @@
 use super::Engine;
 use crate::budget::manager::BudgetManager;
-use crate::budget::BudgetStatus;
+use crate::budget::{BudgetMode, BudgetStatus};
 use crate::error::{ForjaError, Result};
 use std::sync::Arc;
 
 impl Engine {
+    pub fn with_budget_mode(mut self, budget_mode: BudgetMode) -> Self {
+        self.budget_mode = budget_mode;
+        self
+    }
+
     pub fn with_budget_manager(mut self, budget_manager: Arc<BudgetManager>) -> Self {
         self.budget_manager = Some(budget_manager);
         self
@@ -15,7 +20,7 @@ impl Engine {
         self
     }
 
-    pub(super) fn check_current_agent_budget(&self) -> Result<()> {
+    pub(crate) fn check_current_agent_budget(&self) -> Result<()> {
         let Some(budget_manager) = &self.budget_manager else {
             return Ok(());
         };
@@ -30,10 +35,13 @@ impl Engine {
             }
             BudgetStatus::Exceeded { used, limit } => {
                 self.log_budget_event("budget_exceeded", used, limit);
-                Err(ForjaError::LlmError(format!(
-                    "Agent budget exceeded for {}",
-                    self.current_agent_id
-                )))
+                match self.budget_mode {
+                    BudgetMode::Monitor => Ok(()),
+                    BudgetMode::Enforce => Err(ForjaError::LlmError(format!(
+                        "Agent budget exceeded for {}",
+                        self.current_agent_id
+                    ))),
+                }
             }
         }
     }

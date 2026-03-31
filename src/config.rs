@@ -1,6 +1,7 @@
 use forja_llm::{presets, LlmConfig};
 use crate::provider_registry::MODEL_TABLE;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 // Structures
@@ -15,6 +16,8 @@ pub struct ForjaConfig {
     pub user_title: Option<String>,
     #[serde(default)]
     pub agent: AgentSection,
+    #[serde(default)]
+    pub creation: CreationSection,
     #[serde(default)]
     pub channel: ChannelSection,
     #[serde(default)]
@@ -85,6 +88,24 @@ pub struct AgentSection {
     pub max_context_tokens: Option<usize>,
     pub monthly_token_limit: Option<usize>,
     pub heartbeat_interval_secs: Option<u64>,
+    pub budget_mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
+pub struct CreationSection {
+    pub diverge_rounds: Option<usize>,
+    pub conflict_rounds: Option<usize>,
+    pub converge_rounds: Option<usize>,
+    pub max_agents: Option<usize>,
+    #[serde(default)]
+    pub agents: BTreeMap<String, CreationAgentSection>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
+pub struct CreationAgentSection {
+    pub role: Option<String>,
+    pub framework: Option<String>,
+    pub budget: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
@@ -128,6 +149,9 @@ pub fn load_config() -> ForjaConfig {
         && let Ok(parsed) = v.parse::<u64>() {
             config.agent.heartbeat_interval_secs = Some(parsed);
         }
+    if let Ok(v) = std::env::var("FORJA_BUDGET_MODE") {
+        config.agent.budget_mode = Some(v);
+    }
 
     // API key environment override for the current provider
     if let Ok(key) = std::env::var("FORJA_API_KEY")

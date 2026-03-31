@@ -1,5 +1,6 @@
 use crate::audit::logger::AuditLogger;
-use crate::budget::manager::BudgetManager;
+use crate::budget::{manager::BudgetManager, BudgetMode};
+use crate::creation::DebateEngine;
 use crate::context::token_counter::{count_message_tokens, count_messages_tokens};
 use crate::context::SummaryCallback;
 use crate::error::{ForjaError, Result};
@@ -19,6 +20,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 mod audit;
 mod budget;
+mod creation;
 mod emotion;
 mod context;
 mod heartbeat;
@@ -37,6 +39,7 @@ const MAX_TOOL_DEPTH: usize = 10;
 pub enum SlashCommandResult {
     Reply(String),
     ReplyAndSave { user_text: String, reply: String },
+    Debate { topic: String },
     UpdateSystemPrompt {
         reply: String,
         system_prompt: Option<String>,
@@ -61,7 +64,9 @@ pub struct Engine {
     context_warning_emitted: bool,
     context_summary_callback: Option<SummaryCallback>,
     budget_manager: Option<Arc<BudgetManager>>,
+    budget_mode: BudgetMode,
     current_agent_id: String,
+    creation_engine: Option<DebateEngine>,
     audit_logger: Option<Arc<AuditLogger>>,
     heartbeat_scheduler: Option<HeartbeatScheduler>,
     heartbeat_sender: tokio::sync::mpsc::Sender<Envelope>,
@@ -104,7 +109,9 @@ impl Engine {
             context_warning_emitted: false,
             context_summary_callback: None,
             budget_manager: None,
+            budget_mode: BudgetMode::Monitor,
             current_agent_id: "default".to_string(),
+            creation_engine: None,
             audit_logger: None,
             heartbeat_scheduler: None,
             heartbeat_sender,
@@ -407,6 +414,30 @@ impl Engine {
                                 self.push_message(reply_msg);
                                 #[cfg(feature = "memory")]
                                 self.save_turn_memory_entries(&user_msg_save, Some(&reply)).await;
+                            }
+                            SlashCommandResult::Debate { topic } => {
+                                let result = self.run_debate_command(&topic).await?;
+                                let final_reply = format!(
+                                    "[Debate Result]\nSummary: {}\nTasks:\n{}",
+                                    result.summary,
+                                    result.task_list
+                                        .iter()
+                                        .map(|task| format!(
+                                            "- {} | {} | {}h | P{}",
+                                            task.name,
+                                            task.assigned_role,
+                                            task.estimated_hours,
+                                            task.priority
+                                        ))
+                                        .collect::<Vec<_>>()
+                                        .join("\n")
+                                );
+                                let reply_msg = Message::text(Role::Assistant, &final_reply, None);
+                                let _ = self.channel.send(reply_msg.clone()).await;
+                                self.push_message(user_msg.clone());
+                                self.push_message(reply_msg.clone());
+                                #[cfg(feature = "memory")]
+                                self.save_turn_memory_entries(&user_msg, Some(&final_reply)).await;
                             }
                             SlashCommandResult::UpdateSystemPrompt { reply, system_prompt, reset_history } => {
                                 self.apply_system_prompt_update(system_prompt, reset_history);

@@ -16,6 +16,13 @@ pub enum BudgetStatus {
     Exceeded { used: usize, limit: usize },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BudgetMode {
+    #[default]
+    Monitor,
+    Enforce,
+}
+
 impl BudgetStatus {
     pub fn usage_tuple(&self) -> (usize, usize) {
         match *self {
