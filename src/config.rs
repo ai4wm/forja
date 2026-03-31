@@ -83,6 +83,8 @@ impl KeysSection {
 pub struct AgentSection {
     pub system_prompt: Option<String>,
     pub max_context_tokens: Option<usize>,
+    pub monthly_token_limit: Option<usize>,
+    pub heartbeat_interval_secs: Option<u64>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Default, Clone)]
@@ -117,6 +119,14 @@ pub fn load_config() -> ForjaConfig {
     if let Ok(v) = std::env::var("FORJA_MAX_CONTEXT_TOKENS")
         && let Ok(parsed) = v.parse::<usize>() {
             config.agent.max_context_tokens = Some(parsed);
+        }
+    if let Ok(v) = std::env::var("FORJA_MONTHLY_TOKEN_LIMIT")
+        && let Ok(parsed) = v.parse::<usize>() {
+            config.agent.monthly_token_limit = Some(parsed);
+        }
+    if let Ok(v) = std::env::var("FORJA_HEARTBEAT_INTERVAL_SECS")
+        && let Ok(parsed) = v.parse::<u64>() {
+            config.agent.heartbeat_interval_secs = Some(parsed);
         }
 
     // API key environment override for the current provider

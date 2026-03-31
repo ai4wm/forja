@@ -1,4 +1,5 @@
 pub mod audit;
+pub mod budget;
 pub mod context;
 pub mod engine;
 pub mod emotion;
@@ -6,6 +7,7 @@ pub mod emotion;
 pub mod scheduler;
 pub mod error;
 pub mod gateway;
+pub mod heartbeat;
 pub mod knowledge;
 pub mod mode;
 pub mod prompt;

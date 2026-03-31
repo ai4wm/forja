@@ -18,6 +18,7 @@ pub enum ChannelKind {
     Cli,
     Telegram,
     Discord,
+    Internal,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

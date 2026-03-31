@@ -9,7 +9,7 @@ repository = "https://github.com/ai4wm/forja"
 [features]
 default = []
 memory = []
-runtime = ["dep:tokio"]
+runtime = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -24,6 +24,5 @@ chrono = "0.4"
 tiktoken-rs = "0.6"
 rusqlite = { version = "0.32", features = ["bundled"] }
 
-# Enable tokio runtime macros only when feature="runtime" is active
-tokio = { version = "1.0", features = ["macros", "rt"], optional = true }
+tokio = { version = "1.0", features = ["macros", "rt", "sync", "time", "test-util"] }
 

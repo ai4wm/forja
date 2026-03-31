@@ -6,11 +6,13 @@ mod bootstrap;
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use forja_core::audit::logger::AuditLogger;
+use forja_core::budget::manager::BudgetManager;
 use forja_core::emotion::{
     EmotionEngine, MoodState, generate_startup_greeting,
     generate_startup_greeting_with_context,
 };
 use forja_core::error::{ForjaError, Result};
+use forja_core::heartbeat::{HeartbeatConfig, scheduler::HeartbeatScheduler};
 use forja_core::mode::{
     ExecMode, ModeState, Role as ModeRole, SlashCommand, ThinkLevel, detect_image_path,
     parse_image_command, parse_screenshot_command, parse_slash_command,
@@ -37,6 +39,7 @@ use forja_tools::{
 use forja_memory::MarkdownMemoryStore;
 use provider_registry::ProviderRegistry;
 use std::path::Path;
+use std::time::Duration;
 
 // Mock LLM used for local testing without a real API key.
 
@@ -559,6 +562,22 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let audit_db_path = bootstrap_paths.forja_dir.join("audit.db");
     let audit_logger = Arc::new(AuditLogger::new(&audit_db_path)?);
     engine = engine.with_audit_logger(audit_logger);
+    let budget_manager = Arc::new(BudgetManager::new(&audit_db_path)?);
+    let agent_id = "default".to_string();
+    let monthly_token_limit = forja_cfg.agent.monthly_token_limit.unwrap_or(50_000);
+    budget_manager.register_agent(&agent_id, monthly_token_limit)?;
+    engine = engine
+        .with_agent_id(agent_id.clone())
+        .with_budget_manager(budget_manager);
+    let mut heartbeat_scheduler = HeartbeatScheduler::new();
+    if let Some(interval_secs) = forja_cfg.agent.heartbeat_interval_secs {
+        heartbeat_scheduler.register(HeartbeatConfig {
+            agent_id,
+            interval: Duration::from_secs(interval_secs),
+            enabled: true,
+        });
+    }
+    engine = engine.with_heartbeat_scheduler(heartbeat_scheduler);
     let context_summary_provider = provider.clone();
     engine = engine.with_context_summary_callback(Box::new(move |messages: Vec<Message>| {
         let summary_provider = context_summary_provider.clone();

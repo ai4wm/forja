@@ -1,8 +1,11 @@
 use crate::audit::logger::AuditLogger;
+use crate::budget::manager::BudgetManager;
 use crate::context::token_counter::{count_message_tokens, count_messages_tokens};
 use crate::context::SummaryCallback;
 use crate::error::{ForjaError, Result};
 use crate::emotion::EmotionEngine;
+use crate::gateway::Envelope;
+use crate::heartbeat::scheduler::HeartbeatScheduler;
 use crate::knowledge::KnowledgeManager;
 use crate::mode::ModeState;
 use crate::prompt::assemble_system_prompt;
@@ -15,8 +18,10 @@ use chrono::{DateTime, Local};
 use std::collections::HashMap;
 use std::sync::Arc;
 mod audit;
+mod budget;
 mod emotion;
 mod context;
+mod heartbeat;
 mod knowledge;
 mod mode;
 mod serendipity;
@@ -55,7 +60,13 @@ pub struct Engine {
     context_model: String,
     context_warning_emitted: bool,
     context_summary_callback: Option<SummaryCallback>,
+    budget_manager: Option<Arc<BudgetManager>>,
+    current_agent_id: String,
     audit_logger: Option<Arc<AuditLogger>>,
+    heartbeat_scheduler: Option<HeartbeatScheduler>,
+    heartbeat_sender: tokio::sync::mpsc::Sender<Envelope>,
+    heartbeat_receiver: Option<tokio::sync::mpsc::Receiver<Envelope>>,
+    heartbeat_sink_handle: Option<tokio::task::JoinHandle<()>>,
     ralf_config: RalfConfig,
     system_prompt: Option<String>,
     tool_prompt: Option<String>,
@@ -80,6 +91,7 @@ pub struct Engine {
 impl Engine {
     pub fn new(provider: Arc<dyn LlmProvider>, channel: Arc<dyn Channel>) -> Self {
         let context_defaults = EngineContextDefaults::default();
+        let (heartbeat_sender, heartbeat_receiver) = tokio::sync::mpsc::channel(32);
 
         Self {
             provider,
@@ -91,7 +103,13 @@ impl Engine {
             context_model: context_defaults.context_model,
             context_warning_emitted: false,
             context_summary_callback: None,
+            budget_manager: None,
+            current_agent_id: "default".to_string(),
             audit_logger: None,
+            heartbeat_scheduler: None,
+            heartbeat_sender,
+            heartbeat_receiver: Some(heartbeat_receiver),
+            heartbeat_sink_handle: None,
             ralf_config: RalfConfig::default(),
             system_prompt: None,
             tool_prompt: None,
@@ -210,6 +228,7 @@ impl Engine {
             .collect();
 
         self.compress_context().await?;
+        self.check_current_agent_budget()?;
         let request_messages = self.request_messages();
         let request_token_count = count_messages_tokens(&request_messages, &self.context_model);
         self.log_llm_call("chat", request_token_count);
@@ -237,6 +256,7 @@ impl Engine {
             },
         )
         .await?;
+        self.record_current_agent_usage(count_message_tokens(&response_msg, &self.context_model))?;
 
         match &response_msg.content {
             Content::ToolCall {
@@ -297,6 +317,7 @@ impl Engine {
         F: std::future::Future<Output = ()> + Send,
     {
         tokio::pin!(shutdown);
+        self.start_heartbeat_runtime()?;
 
         loop {
             tokio::select! {
@@ -342,6 +363,7 @@ impl Engine {
             }
         }
 
+        self.stop_heartbeat_runtime();
         Ok(())
     }
 
@@ -352,6 +374,7 @@ impl Engine {
         F: std::future::Future<Output = ()> + Send,
     {
         tokio::pin!(shutdown);
+        self.start_heartbeat_runtime()?;
 
         loop {
             tokio::select! {
@@ -452,12 +475,14 @@ impl Engine {
             }
         }
 
+        self.stop_heartbeat_runtime();
         Ok(())
     }
 
     #[cfg(feature = "runtime")]
     async fn execute_streaming_turn_once(&mut self) -> Result<Option<String>> {
         self.compress_context().await?;
+        self.check_current_agent_budget()?;
         let request_token_count = count_messages_tokens(&self.request_messages(), &self.context_model);
         self.log_llm_call("stream", request_token_count);
 
@@ -483,6 +508,7 @@ impl Engine {
                     &text,
                     None,
                 );
+                self.record_current_agent_usage(count_message_tokens(&response_msg, &self.context_model))?;
                 self.push_message(response_msg.clone());
 
                 if self.channel.is_cli_source() {

@@ -64,12 +64,28 @@ impl Engine {
         );
     }
 
+    pub(super) fn log_budget_event(&self, event_type: &str, used: usize, limit: usize) {
+        let percent = if limit == 0 { 0 } else { used * 100 / limit };
+        self.log_audit_event(
+            event_type,
+            serde_json::json!({
+                "agent_id": self.current_agent_id.clone(),
+                "used": used,
+                "limit": limit,
+                "percent": percent,
+            }),
+            used,
+        );
+    }
+
     fn log_audit_event(&self, event_type: &str, payload: Value, token_count: usize) {
         let Some(audit_logger) = &self.audit_logger else {
             return;
         };
 
-        let mut event = AuditEvent::new(event_type, payload).with_token_count(token_count);
+        let mut event = AuditEvent::new(event_type, payload)
+            .with_agent_id(self.current_agent_id.clone())
+            .with_token_count(token_count);
         if let Some(channel) = self.active_channel_name() {
             event = event.with_channel(channel);
         }
