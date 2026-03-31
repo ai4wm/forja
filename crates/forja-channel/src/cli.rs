@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use forja_core::error::{ForjaError, Result};
+use forja_core::gateway::adapter::{ChannelAdapter, CliAdapter};
 use forja_core::traits::Channel;
 use forja_core::types::{Content, Message, Role};
 use std::io::Write;
@@ -68,11 +69,15 @@ impl Channel for CliChannel {
         }
         
         // Empty input is returned as-is; engine can retry.
-        Ok(Message::text(Role::User, buffer, None))
+        let adapter = CliAdapter;
+        let raw = Message::text(Role::User, buffer, None);
+        Ok(adapter.from_envelope(adapter.to_envelope(raw)))
     }
 
     /// Displays engine-generated messages (Assistant or System) to the terminal.
     async fn send(&self, msg: Message) -> Result<()> {
+        let adapter = CliAdapter;
+        let msg = adapter.from_envelope(adapter.to_envelope(msg));
         match msg.role {
             Role::Assistant => {
                 // Print Assistant text only (ToolCalls are handled internally)

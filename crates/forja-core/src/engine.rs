@@ -1,16 +1,20 @@
-use crate::context::token_counter::count_message_tokens;
+use crate::audit::logger::AuditLogger;
+use crate::context::token_counter::{count_message_tokens, count_messages_tokens};
 use crate::context::SummaryCallback;
 use crate::error::{ForjaError, Result};
 use crate::emotion::EmotionEngine;
 use crate::knowledge::KnowledgeManager;
 use crate::mode::ModeState;
 use crate::prompt::assemble_system_prompt;
+use crate::ralf::executor::ralf_execute;
+use crate::ralf::{RalfConfig, RalfState};
 use crate::serendipity::SerendipityEngine;
 use crate::traits::{Channel, LlmProvider, Tool};
 use crate::types::{Content, Message, Role, ToolDefinition};
 use chrono::{DateTime, Local};
 use std::collections::HashMap;
 use std::sync::Arc;
+mod audit;
 mod emotion;
 mod context;
 mod knowledge;
@@ -51,6 +55,8 @@ pub struct Engine {
     context_model: String,
     context_warning_emitted: bool,
     context_summary_callback: Option<SummaryCallback>,
+    audit_logger: Option<Arc<AuditLogger>>,
+    ralf_config: RalfConfig,
     system_prompt: Option<String>,
     tool_prompt: Option<String>,
     assistant_name: String,
@@ -85,6 +91,8 @@ impl Engine {
             context_model: context_defaults.context_model,
             context_warning_emitted: false,
             context_summary_callback: None,
+            audit_logger: None,
+            ralf_config: RalfConfig::default(),
             system_prompt: None,
             tool_prompt: None,
             assistant_name: "Forja".to_string(),
@@ -197,15 +205,38 @@ impl Engine {
             return Err(ForjaError::MaxDepthExceeded(MAX_TOOL_DEPTH));
         }
 
-        // Collect tool definitions from all registered tools.
         let tool_defs: Vec<ToolDefinition> = self.tools.values()
             .map(|t| t.definition())
             .collect();
-        let tools = if tool_defs.is_empty() { None } else { Some(tool_defs.as_slice()) };
 
         self.compress_context().await?;
         let request_messages = self.request_messages();
-        let response_msg = self.provider.chat(&request_messages, tools).await?;
+        let request_token_count = count_messages_tokens(&request_messages, &self.context_model);
+        self.log_llm_call("chat", request_token_count);
+
+        let provider = self.provider.clone();
+        let tool_defs_for_retry = tool_defs.clone();
+        let mut ralf_state = RalfState::default();
+        let response_msg = ralf_execute(
+            "llm_call",
+            &self.ralf_config,
+            &mut ralf_state,
+            self.audit_logger.as_deref(),
+            move || {
+                let provider = provider.clone();
+                let request_messages = request_messages.clone();
+                let tool_defs = tool_defs_for_retry.clone();
+                async move {
+                    let tools = if tool_defs.is_empty() {
+                        None
+                    } else {
+                        Some(tool_defs.as_slice())
+                    };
+                    provider.chat(&request_messages, tools).await
+                }
+            },
+        )
+        .await?;
 
         match &response_msg.content {
             Content::ToolCall {
@@ -218,12 +249,31 @@ impl Engine {
                 // Store the tool call request in history first.
                 self.push_message(response_msg.clone());
 
-                let result = if let Some(tool) = self.tools.get(tool_name) {
-                    tool.execute(arguments.clone()).await?
+                let result = if let Some(tool) = self.tools.get(tool_name).cloned() {
+                    self.log_tool_call(tool_name, arguments);
+                    let arguments = arguments.clone();
+                    let mut ralf_state = RalfState::default();
+                    let result = ralf_execute(
+                        "tool_call",
+                        &self.ralf_config,
+                        &mut ralf_state,
+                        self.audit_logger.as_deref(),
+                        move || {
+                            let tool = tool.clone();
+                            let arguments = arguments.clone();
+                            async move { tool.execute(arguments).await }
+                        },
+                    )
+                    .await?;
+                    self.log_tool_result(call_id, &result);
+                    result
                 } else {
-                    serde_json::json!({
+                    let result = serde_json::json!({
                         "error": format!("Unknown tool requested: {}", tool_name)
-                    })
+                    });
+                    self.log_tool_call(tool_name, arguments);
+                    self.log_tool_result(call_id, &result);
+                    result
                 };
 
                 let result_msg = Message::tool_result(call_id, result);
@@ -381,6 +431,7 @@ impl Engine {
                         Err(e) => {
                             let err_text = format!("⚠️ Error: {}", e);
                             eprintln!("[Engine Error] {}", err_text);
+                            self.log_engine_error("run_streaming", &e.to_string());
 
                             // Send the error text back through the active channel.
                             let _ = self.channel.send(crate::types::Message::text(crate::types::Role::Assistant, err_text, None)).await;
@@ -407,9 +458,19 @@ impl Engine {
     #[cfg(feature = "runtime")]
     async fn execute_streaming_turn_once(&mut self) -> Result<Option<String>> {
         self.compress_context().await?;
+        let request_token_count = count_messages_tokens(&self.request_messages(), &self.context_model);
+        self.log_llm_call("stream", request_token_count);
 
-        // Try a streaming LLM call first.
-        let streaming_result = self.stream_step_with_tools().await.unwrap_or(None);
+        let mut ralf_state = RalfState::default();
+        let streaming_result = ralf_execute(
+            "llm_stream",
+            &self.ralf_config,
+            &mut ralf_state,
+            self.audit_logger.as_deref(),
+            || self.stream_step_with_tools(),
+        )
+        .await
+        .unwrap_or(None);
 
         match streaming_result {
             Some(text) => {

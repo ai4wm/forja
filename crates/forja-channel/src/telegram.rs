@@ -1,6 +1,8 @@
 #[cfg(feature = "telegram")]
 use async_trait::async_trait;
 #[cfg(feature = "telegram")]
+use forja_core::gateway::adapter::{ChannelAdapter, TelegramAdapter};
+#[cfg(feature = "telegram")]
 use forja_core::{Channel, Content, Message as CoreMessage, Role};
 #[cfg(feature = "telegram")]
 use teloxide::{prelude::*, RequestError};
@@ -51,7 +53,9 @@ impl TelegramChannel {
                     }
 
                     if let Some(text) = msg.text() {
-                        let core_msg = CoreMessage::text(Role::User, text.to_string(), None);
+                        let adapter = TelegramAdapter;
+                        let raw = CoreMessage::text(Role::User, text.to_string(), None);
+                        let core_msg = adapter.from_envelope(adapter.to_envelope(raw));
                         
                         // Send failure catch (ignored for now)
                         let _ = tx.send((chat_id, core_msg)).await;
@@ -122,6 +126,8 @@ impl Channel for TelegramChannel {
     }
 
     async fn send(&self, message: CoreMessage) -> forja_core::error::Result<()> {
+        let adapter = TelegramAdapter;
+        let message = adapter.from_envelope(adapter.to_envelope(message));
         // Stop typing action when starting to send
         if let Some(handle) = self.typing_handle.lock().await.take() {
             handle.abort();

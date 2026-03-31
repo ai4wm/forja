@@ -47,8 +47,15 @@ impl Engine {
         .await?;
 
         self.recalculate_total_tokens();
+        let after_tokens = self.request_total_tokens();
 
-        if self.request_total_tokens() < warning_threshold {
+        if outcome.hard_compressed {
+            self.log_compression_event("hard", total_request_tokens, after_tokens);
+        } else if outcome.summarized {
+            self.log_compression_event("summary", total_request_tokens, after_tokens);
+        }
+
+        if after_tokens < warning_threshold {
             self.context_warning_emitted = false;
         }
 
@@ -56,6 +63,7 @@ impl Engine {
     }
 
     pub(super) async fn emergency_compress_context(&mut self) -> Result<()> {
+        let before_tokens = self.request_total_tokens();
         eprintln!("[Context] Emergency compression triggered");
         emergency_compress_history(
             &mut self.conversation_history,
@@ -64,6 +72,7 @@ impl Engine {
         )
         .await?;
         self.recalculate_total_tokens();
+        self.log_compression_event("emergency", before_tokens, self.request_total_tokens());
         self.context_warning_emitted = false;
         Ok(())
     }

@@ -5,6 +5,7 @@ mod bootstrap;
 
 use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use forja_core::audit::logger::AuditLogger;
 use forja_core::emotion::{
     EmotionEngine, MoodState, generate_startup_greeting,
     generate_startup_greeting_with_context,
@@ -555,6 +556,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .with_tool_prompt(tool_prompt)
         .with_context_settings(max_context_tokens, context_model);
     engine = engine.with_assistant_profile(assistant_name.clone(), user_title.clone());
+    let audit_db_path = bootstrap_paths.forja_dir.join("audit.db");
+    let audit_logger = Arc::new(AuditLogger::new(&audit_db_path)?);
+    engine = engine.with_audit_logger(audit_logger);
     let context_summary_provider = provider.clone();
     engine = engine.with_context_summary_callback(Box::new(move |messages: Vec<Message>| {
         let summary_provider = context_summary_provider.clone();

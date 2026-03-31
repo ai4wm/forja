@@ -1,12 +1,15 @@
+pub mod audit;
 pub mod context;
 pub mod engine;
 pub mod emotion;
 #[cfg(feature = "runtime")]
 pub mod scheduler;
 pub mod error;
+pub mod gateway;
 pub mod knowledge;
 pub mod mode;
 pub mod prompt;
+pub mod ralf;
 pub mod serendipity;
 pub mod traits;
 pub mod types;

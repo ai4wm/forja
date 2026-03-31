@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use forja_core::gateway::adapter::{ChannelAdapter, CliAdapter, TelegramAdapter};
 use forja_core::{Channel, Content, Role, Message as CoreMessage};
 use crate::cli::process_line;
 use std::io::Write;
@@ -180,6 +181,18 @@ impl Channel for MultiChannel {
                 }
             }
 
+            let msg = match source {
+                ChannelSource::Cli => {
+                    let adapter = CliAdapter;
+                    adapter.from_envelope(adapter.to_envelope(msg))
+                }
+                #[cfg(feature = "telegram")]
+                ChannelSource::Telegram { .. } => {
+                    let adapter = TelegramAdapter;
+                    adapter.from_envelope(adapter.to_envelope(msg))
+                }
+            };
+
             Ok(msg)
         } else {
             Err(forja_core::error::ForjaError::ChannelError(
@@ -194,6 +207,18 @@ impl Channel for MultiChannel {
         let last_src = self.last_source.lock().await.clone();
 
         if let Some(source) = last_src {
+            let message = match source {
+                ChannelSource::Cli => {
+                    let adapter = CliAdapter;
+                    adapter.from_envelope(adapter.to_envelope(message))
+                }
+                #[cfg(feature = "telegram")]
+                ChannelSource::Telegram { .. } => {
+                    let adapter = TelegramAdapter;
+                    adapter.from_envelope(adapter.to_envelope(message))
+                }
+            };
+
             if let Content::Text { text, .. } = &message.content {
                 match source {
                     ChannelSource::Cli => {
