@@ -1,5 +1,6 @@
 use super::Engine;
 use crate::audit::logger::{AuditEvent, AuditLogger};
+use crate::autonomy::AutonomyAction;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -75,6 +76,26 @@ impl Engine {
                 "percent": percent,
             }),
             used,
+        );
+    }
+
+    pub(super) fn log_autonomy_action(&self, action: &AutonomyAction) {
+        self.log_audit_event(
+            "autonomy_action",
+            serde_json::json!({
+                "action": format!("{action:?}"),
+            }),
+            0,
+        );
+    }
+
+    pub(super) fn log_autonomy_note(&self, event_type: &str, tool_name: &str) {
+        self.log_audit_event(
+            event_type,
+            serde_json::json!({
+                "tool_name": tool_name,
+            }),
+            0,
         );
     }
 

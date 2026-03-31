@@ -184,6 +184,7 @@
       <button class="tab-button active" data-tab="audit">Audit Log</button>
       <button class="tab-button" data-tab="debates">Debates</button>
       <button class="tab-button" data-tab="budget">Budget</button>
+      <button class="tab-button" data-tab="tasks">Tasks</button>
     </div>
   </header>
 
@@ -231,6 +232,25 @@
     <section id="tab-budget" class="panel hidden">
       <div id="budget-grid" class="budget-grid"></div>
     </section>
+
+    <section id="tab-tasks" class="panel hidden">
+      <div class="grid">
+        <div>
+          <div class="muted" style="margin-bottom:10px;">태스크 큐</div>
+          <div id="task-list" class="debate-list"></div>
+        </div>
+        <div style="display:grid; gap:16px;">
+          <div>
+            <div class="muted" style="margin-bottom:10px;">스킬 목록</div>
+            <div id="skills-list" class="debate-list"></div>
+          </div>
+          <div>
+            <div class="muted" style="margin-bottom:10px;">미해결 문제</div>
+            <div id="unresolved-list" class="debate-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -238,7 +258,8 @@
     const sections = {
       audit: document.getElementById("tab-audit"),
       debates: document.getElementById("tab-debates"),
-      budget: document.getElementById("tab-budget")
+      budget: document.getElementById("tab-budget"),
+      tasks: document.getElementById("tab-tasks")
     };
 
     tabs.forEach((button) => {
@@ -338,9 +359,57 @@
       `).join("");
     }
 
+    async function approveTask(id) {
+      await fetch(`/api/approve/${id}`, { method: "POST" });
+      await loadTasks();
+    }
+
+    async function loadTasks() {
+      const [tasks, skills, unresolved] = await Promise.all([
+        fetchJson("/api/tasks"),
+        fetchJson("/api/skills"),
+        fetchJson("/api/unresolved")
+      ]);
+      const statusColor = (status) => {
+        if (status === "running") return "#4da3ff";
+        if (status === "completed") return "#3ddc97";
+        if (status === "failed") return "#ff6b6b";
+        return "#f7c948";
+      };
+
+      const taskList = document.getElementById("task-list");
+      taskList.innerHTML = tasks.map((task) => `
+        <div class="debate-item">
+          <div><strong>#${task.id}</strong> ${task.description}</div>
+          <div class="muted">source=${task.source} · <span style="color:${statusColor(task.status)}">status=${task.status}</span></div>
+          <div class="muted">created=${task.created_at}</div>
+          ${task.requires_approval ? `<button class="tab-button" onclick="approveTask(${task.id})">승인</button>` : ""}
+        </div>
+      `).join("");
+
+      const skillsList = document.getElementById("skills-list");
+      skillsList.innerHTML = skills.map((skill) => `
+        <div class="debate-item">
+          <div><strong>${skill.tool_name}</strong></div>
+          <div class="muted">success=${skill.success_count}</div>
+          <div class="muted">auto_approved=${skill.auto_approved}</div>
+          <div class="muted">last_used=${skill.last_used || "-"}</div>
+        </div>
+      `).join("");
+
+      const unresolvedList = document.getElementById("unresolved-list");
+      unresolvedList.innerHTML = unresolved.map((item) => `
+        <div class="debate-item">
+          <div><strong>#${item.id}</strong> ${item.task}</div>
+          <div class="muted">retry=${item.retry_count}/${item.max_retries} · status=${item.status}</div>
+          <div>${item.error || ""}</div>
+        </div>
+      `).join("");
+    }
+
     async function refreshAll() {
       try {
-        await Promise.all([loadAudit(), loadDebates(), loadBudget()]);
+        await Promise.all([loadAudit(), loadDebates(), loadBudget(), loadTasks()]);
       } catch (error) {
         console.error(error);
       }

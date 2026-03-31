@@ -1,0 +1,149 @@
+use super::loop_runner::AutonomousLoop;
+use super::skills::SkillRegistry;
+use super::unresolved::UnresolvedStore;
+use super::AutonomyConfig;
+use crate::creation::{DebateMessage, DebatePhase, DebateResult, TaskItem};
+use std::path::PathBuf;
+
+#[test]
+fn test_skill_promotion() {
+    let db_path = temp_db_path("skill-promotion");
+    let registry = SkillRegistry::new(&db_path).expect("registry should initialize");
+
+    for _ in 0..5 {
+        registry
+            .record_success("shell")
+            .expect("success should record");
+    }
+
+    let promoted = registry
+        .check_and_promote("shell", 5)
+        .expect("promotion should check");
+    assert!(promoted);
+    assert!(registry.is_auto_approved("shell").unwrap());
+
+    cleanup(&db_path);
+}
+
+#[test]
+fn test_skill_not_promoted() {
+    let db_path = temp_db_path("skill-not-promoted");
+    let registry = SkillRegistry::new(&db_path).expect("registry should initialize");
+
+    for _ in 0..4 {
+        registry
+            .record_success("shell")
+            .expect("success should record");
+    }
+
+    let promoted = registry
+        .check_and_promote("shell", 5)
+        .expect("promotion should check");
+    assert!(!promoted);
+    assert!(!registry.is_auto_approved("shell").unwrap());
+
+    cleanup(&db_path);
+}
+
+#[test]
+fn test_unresolved_retry() {
+    let db_path = temp_db_path("unresolved-retry");
+    let store = UnresolvedStore::new(&db_path).expect("store should initialize");
+    store
+        .add("shell {\"command\":\"Get-Date\"}", "error", 3)
+        .expect("task should insert");
+
+    let pending = store.get_pending().expect("pending should load");
+    store.increment_retry(pending[0].id).expect("retry should increment");
+    let all = store.list_all().expect("all should load");
+    assert_eq!(all[0].retry_count, 1);
+
+    cleanup(&db_path);
+}
+
+#[test]
+fn test_unresolved_max_retries() {
+    let db_path = temp_db_path("unresolved-fail");
+    let store = UnresolvedStore::new(&db_path).expect("store should initialize");
+    store
+        .add("shell {\"command\":\"Get-Date\"}", "error", 3)
+        .expect("task should insert");
+
+    let task = store.get_pending().unwrap().remove(0);
+    store.increment_retry(task.id).unwrap();
+    store.increment_retry(task.id).unwrap();
+    store.mark_failed(task.id).unwrap();
+    let all = store.list_all().unwrap();
+    assert_eq!(all[0].status, "failed");
+
+    cleanup(&db_path);
+}
+
+#[test]
+fn test_task_enqueue_and_list() {
+    let db_path = temp_db_path("task-enqueue");
+    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
+        .expect("loop should initialize");
+    loop_runner
+        .enqueue_task("shell {\"command\":\"Get-Date\"}", "user")
+        .expect("task should enqueue");
+
+    let tasks = loop_runner.get_pending_tasks().expect("tasks should load");
+    assert_eq!(tasks.len(), 1);
+    assert_eq!(tasks[0].source, "user");
+
+    cleanup(&db_path);
+}
+
+#[test]
+fn test_enqueue_from_debate() {
+    let db_path = temp_db_path("task-from-debate");
+    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
+        .expect("loop should initialize");
+    let debate_result = DebateResult {
+        summary: "summary".to_string(),
+        task_list: vec![
+            TaskItem {
+                name: "Add gateway adapter".to_string(),
+                assigned_role: "Architecture".to_string(),
+                estimated_hours: 2.0,
+                priority: 1,
+            },
+            TaskItem {
+                name: "Implement auth flow".to_string(),
+                assigned_role: "Build".to_string(),
+                estimated_hours: 4.0,
+                priority: 2,
+            },
+        ],
+        transcript: vec![DebateMessage {
+            agent_id: "architect".to_string(),
+            role: "Architect".to_string(),
+            phase: DebatePhase::Diverge,
+            round: 1,
+            content: "Yes, and...".to_string(),
+            tokens: 3,
+        }],
+        total_tokens: 3,
+        total_rounds: 1,
+    };
+
+    let ids = loop_runner
+        .enqueue_from_debate(&debate_result)
+        .expect("debate tasks should enqueue");
+    assert_eq!(ids.len(), 2);
+    assert_eq!(loop_runner.get_pending_tasks().unwrap().len(), 2);
+
+    cleanup(&db_path);
+}
+
+fn temp_db_path(label: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "forja-autonomy-{label}-{}.db",
+        uuid::Uuid::new_v4()
+    ))
+}
+
+fn cleanup(path: &PathBuf) {
+    let _ = std::fs::remove_file(path);
+}

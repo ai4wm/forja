@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use dashboard::DashboardServer;
 use forja_core::audit::logger::AuditLogger;
+use forja_core::autonomy::{loop_runner::AutonomousLoop, AutonomyConfig};
 use forja_core::budget::{manager::BudgetManager, BudgetMode};
 use forja_core::creation::{agents::default_debate_agents, DebateAgent, DebateConfig, DebateEngine};
 use forja_core::emotion::{
@@ -619,6 +620,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .map_err(|error| ForjaError::Internal(error.to_string()))?;
         server.start()
     }));
+    let autonomy = AutonomousLoop::new(
+        AutonomyConfig {
+            enabled: forja_cfg.autonomy.enabled,
+            task_check_interval_secs: forja_cfg.autonomy.task_check_interval_secs,
+            skill_threshold: forja_cfg.autonomy.skill_threshold,
+            max_retries: forja_cfg.autonomy.max_retries,
+            require_approval: forja_cfg.autonomy.require_approval,
+        },
+        &audit_db_path,
+    )?;
+    engine = engine.with_autonomy(autonomy);
     let context_summary_provider = provider.clone();
     engine = engine.with_context_summary_callback(Box::new(move |messages: Vec<Message>| {
         let summary_provider = context_summary_provider.clone();
@@ -991,6 +1003,27 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
         if text == "/dashboard" {
             return Some(forja_core::engine::SlashCommandResult::Dashboard);
+        }
+
+        if text == "/skills" {
+            return Some(forja_core::engine::SlashCommandResult::Skills);
+        }
+
+        if text == "/unresolved" {
+            return Some(forja_core::engine::SlashCommandResult::Unresolved);
+        }
+
+        if let Some(description) = text.strip_prefix("/task ") {
+            let description = description.trim();
+            if description.is_empty() {
+                return Some(forja_core::engine::SlashCommandResult::Reply(
+                    "Usage: /task <description>".to_string(),
+                ));
+            }
+
+            return Some(forja_core::engine::SlashCommandResult::Task {
+                description: description.to_string(),
+            });
         }
 
         if text == "/models" {

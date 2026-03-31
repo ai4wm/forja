@@ -19,6 +19,8 @@ pub struct ForjaConfig {
     #[serde(default)]
     pub creation: CreationSection,
     #[serde(default)]
+    pub autonomy: AutonomySection,
+    #[serde(default)]
     pub dashboard: DashboardSection,
     #[serde(default)]
     pub channel: ChannelSection,
@@ -118,6 +120,27 @@ pub struct DashboardSection {
 impl Default for DashboardSection {
     fn default() -> Self {
         Self { port: 3000 }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AutonomySection {
+    pub enabled: bool,
+    pub task_check_interval_secs: u64,
+    pub skill_threshold: u32,
+    pub max_retries: u32,
+    pub require_approval: bool,
+}
+
+impl Default for AutonomySection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            task_check_interval_secs: 300,
+            skill_threshold: 5,
+            max_retries: 3,
+            require_approval: true,
+        }
     }
 }
 

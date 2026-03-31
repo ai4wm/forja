@@ -1,4 +1,5 @@
 use crate::audit::logger::AuditLogger;
+use crate::autonomy::loop_runner::AutonomousLoop;
 use crate::budget::{manager::BudgetManager, BudgetMode};
 use crate::creation::DebateEngine;
 use crate::context::token_counter::{count_message_tokens, count_messages_tokens};
@@ -19,6 +20,7 @@ use chrono::{DateTime, Local};
 use std::collections::HashMap;
 use std::sync::Arc;
 mod audit;
+mod autonomy;
 mod budget;
 mod creation;
 mod dashboard;
@@ -42,6 +44,9 @@ pub enum SlashCommandResult {
     ReplyAndSave { user_text: String, reply: String },
     Debate { topic: String },
     Dashboard,
+    Task { description: String },
+    Skills,
+    Unresolved,
     UpdateSystemPrompt {
         reply: String,
         system_prompt: Option<String>,
@@ -70,11 +75,11 @@ pub struct Engine {
     budget_mode: BudgetMode,
     current_agent_id: String,
     creation_engine: Option<DebateEngine>,
+    autonomy: Option<AutonomousLoop>,
     audit_logger: Option<Arc<AuditLogger>>,
     heartbeat_scheduler: Option<HeartbeatScheduler>,
     heartbeat_sender: tokio::sync::mpsc::Sender<Envelope>,
     heartbeat_receiver: Option<tokio::sync::mpsc::Receiver<Envelope>>,
-    heartbeat_sink_handle: Option<tokio::task::JoinHandle<()>>,
     ralf_config: RalfConfig,
     system_prompt: Option<String>,
     tool_prompt: Option<String>,
@@ -116,11 +121,11 @@ impl Engine {
             budget_mode: BudgetMode::Monitor,
             current_agent_id: "default".to_string(),
             creation_engine: None,
+            autonomy: None,
             audit_logger: None,
             heartbeat_scheduler: None,
             heartbeat_sender,
             heartbeat_receiver: Some(heartbeat_receiver),
-            heartbeat_sink_handle: None,
             ralf_config: RalfConfig::default(),
             system_prompt: None,
             tool_prompt: None,
@@ -332,13 +337,24 @@ impl Engine {
         self.start_heartbeat_runtime()?;
 
         loop {
+            let channel = self.channel.clone();
             tokio::select! {
                 // Exit on shutdown signal.
                 _ = &mut shutdown => {
                     break;
                 }
+                heartbeat = async {
+                    match self.heartbeat_receiver.as_mut() {
+                        Some(receiver) => receiver.recv().await,
+                        None => None,
+                    }
+                } => {
+                    if heartbeat.is_some() {
+                        self.handle_autonomy_tick().await?;
+                    }
+                }
                 // Wait for incoming messages from the channel.
-                result = self.channel.receive() => {
+                result = channel.receive() => {
                     let user_msg = result?;
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
@@ -389,9 +405,20 @@ impl Engine {
         self.start_heartbeat_runtime()?;
 
         loop {
+            let channel = self.channel.clone();
             tokio::select! {
                 _ = &mut shutdown => { break; }
-                result = self.channel.receive() => {
+                heartbeat = async {
+                    match self.heartbeat_receiver.as_mut() {
+                        Some(receiver) => receiver.recv().await,
+                        None => None,
+                    }
+                } => {
+                    if heartbeat.is_some() {
+                        self.handle_autonomy_tick().await?;
+                    }
+                }
+                result = channel.receive() => {
                     let user_msg = result?;
 
                     // Intercept slash commands.
@@ -452,6 +479,21 @@ impl Engine {
                                     },
                                     None => "❌ Dashboard handler is not configured.".to_string(),
                                 };
+                                let reply_msg = Message::text(Role::Assistant, &reply, None);
+                                let _ = self.channel.send(reply_msg).await;
+                            }
+                            SlashCommandResult::Task { description } => {
+                                let reply = self.handle_task_command(&description)?;
+                                let reply_msg = Message::text(Role::Assistant, &reply, None);
+                                let _ = self.channel.send(reply_msg).await;
+                            }
+                            SlashCommandResult::Skills => {
+                                let reply = self.handle_skills_command()?;
+                                let reply_msg = Message::text(Role::Assistant, &reply, None);
+                                let _ = self.channel.send(reply_msg).await;
+                            }
+                            SlashCommandResult::Unresolved => {
+                                let reply = self.handle_unresolved_command()?;
                                 let reply_msg = Message::text(Role::Assistant, &reply, None);
                                 let _ = self.channel.send(reply_msg).await;
                             }
