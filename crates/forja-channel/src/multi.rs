@@ -363,6 +363,18 @@ impl Channel for MultiChannel {
         }
     }
 
+    async fn log_line(&self, text: &str) {
+        if self.is_cli_source() {
+            let line = text.to_string();
+            let _ = tokio::task::spawn_blocking(move || {
+                print!("\r\x1b[K");
+                println!("{line}");
+                std::io::stdout().flush().ok();
+            })
+            .await;
+        }
+    }
+
     fn shutdown(&self) {
         self.shutdown_inner();
     }

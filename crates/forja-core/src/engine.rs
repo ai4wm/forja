@@ -38,6 +38,12 @@ use crate::traits::MemoryStore;
 use self::context::EngineContextDefaults;
 
 const MAX_TOOL_DEPTH: usize = 10;
+const ANSI_RESET: &str = "\x1b[0m";
+const ANSI_CYAN: &str = "\x1b[36m";
+const ANSI_YELLOW: &str = "\x1b[33m";
+const ANSI_MAGENTA: &str = "\x1b[35m";
+const ANSI_GREEN: &str = "\x1b[32m";
+const ANSI_BLUE: &str = "\x1b[34m";
 
 pub enum SlashCommandResult {
     Reply(String),
@@ -217,6 +223,14 @@ impl Engine {
         messages
     }
 
+    async fn log_cli_stage(&self, color: &str, text: &str) {
+        if self.channel.is_cli_source() {
+            self.channel
+                .log_line(&format!("{color}\u{2022} {text}{ANSI_RESET}"))
+                .await;
+        }
+    }
+
     #[cfg(feature = "runtime")]
     fn apply_system_prompt_update(
         &mut self,
@@ -265,6 +279,7 @@ impl Engine {
         let request_messages = self.request_messages();
         let request_token_count = count_messages_tokens(&request_messages, &self.context_model);
         self.log_llm_call("chat", request_token_count);
+        self.log_cli_stage(ANSI_GREEN, "Calling LLM...").await;
 
         let provider = self.provider.clone();
         let tool_defs_for_retry = tool_defs.clone();
@@ -375,13 +390,15 @@ impl Engine {
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
                     self.refresh_turn_role(&user_msg);
-                    let pre_spinner = start_pre_spinner();
+                    self.log_cli_stage(ANSI_CYAN, "Loading emotion context...").await;
                     self.refresh_turn_emotion_context().await;
+                    self.log_cli_stage(ANSI_YELLOW, "Loading knowledge...").await;
                     self.refresh_turn_knowledge_context(&user_msg).await;
 
                     #[cfg(feature = "memory")]
+                    self.log_cli_stage(ANSI_MAGENTA, "Loading memory...").await;
+                    #[cfg(feature = "memory")]
                     self.refresh_turn_memory_context(&user_msg).await;
-                    pre_spinner.finish_and_clear();
 
                     // Run one evaluation step. Tool definitions are collected inside handle_step.
                     let response = self.handle_step(0).await?;
@@ -527,13 +544,15 @@ impl Engine {
                     self.push_message(user_msg.clone());
                     self.begin_user_turn();
                     self.refresh_turn_role(&user_msg);
-                    let pre_spinner = start_pre_spinner();
+                    self.log_cli_stage(ANSI_CYAN, "Loading emotion context...").await;
                     self.refresh_turn_emotion_context().await;
+                    self.log_cli_stage(ANSI_YELLOW, "Loading knowledge...").await;
                     self.refresh_turn_knowledge_context(&user_msg).await;
 
                     #[cfg(feature = "memory")]
+                    self.log_cli_stage(ANSI_MAGENTA, "Loading memory...").await;
+                    #[cfg(feature = "memory")]
                     self.refresh_turn_memory_context(&user_msg).await;
-                    pre_spinner.finish_and_clear();
 
                     let mut response_result = self.execute_streaming_turn_once().await;
                     let should_retry_with_emergency = response_result
@@ -549,6 +568,7 @@ impl Engine {
                         .unwrap_or(false);
 
                     if should_retry_with_emergency {
+                        self.log_cli_stage(ANSI_BLUE, "Compressing context...").await;
                         response_result = if let Err(error) = self.emergency_compress_context().await {
                             Err(error)
                         } else {
@@ -638,22 +658,8 @@ impl Engine {
                 Ok(Some(text))
             }
             None => {
-                use indicatif::{ProgressBar, ProgressStyle};
-                use std::time::Duration;
-
-                let spinner = ProgressBar::new_spinner();
-                spinner.set_style(
-                    ProgressStyle::default_spinner()
-                        .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"])
-                        .template("{spinner:.cyan} {msg}")
-                        .unwrap()
-                );
-                spinner.set_message("Thinking...");
-                spinner.enable_steady_tick(Duration::from_millis(80));
-
                 let final_msg = self.handle_step(0).await?;
                 let final_msg = self.maybe_append_serendipity_to_message(final_msg).await;
-                spinner.finish_and_clear();
                 self.channel.send(final_msg.clone()).await?;
 
                 Ok(if let Content::Text { text, .. } = &final_msg.content {
@@ -669,33 +675,18 @@ impl Engine {
     #[cfg(feature = "runtime")]
     async fn stream_step_with_tools(&self) -> Result<Option<String>> {
         use tokio_stream::StreamExt;
-        use indicatif::{ProgressBar, ProgressStyle};
-        use std::time::Duration;
 
         let tool_defs: Vec<ToolDefinition> = self.tools.values()
             .map(|t| t.definition())
             .collect();
         let tools = if tool_defs.is_empty() { None } else { Some(tool_defs.as_slice()) };
 
-        // Start spinner.
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::default_spinner()
-                .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"])
-                .template("{spinner:.cyan} {msg}")
-                .unwrap()
-        );
-        spinner.set_message("Thinking...");
-        spinner.enable_steady_tick(Duration::from_millis(80));
-
         // Attempt streaming with tool definitions included.
         let request_messages = self.request_messages();
+        self.log_cli_stage(ANSI_GREEN, "Calling LLM...").await;
         let mut stream = match self.provider.stream(&request_messages, tools).await {
             Ok(s) => s,
-            Err(_) => {
-                spinner.finish_and_clear();
-                return Ok(None); // Fallback when streaming is unsupported.
-            }
+            Err(_) => return Ok(None), // Fallback when streaming is unsupported.
         };
 
         let mut full_text = String::new();
@@ -709,14 +700,10 @@ impl Engine {
 
                     // Stop streaming and fall back if the first chunk looks like a tool call payload.
                     if first_token && (token.trim_start().starts_with("{\"") || token.contains("tool_call")) {
-                        spinner.finish_and_clear();
                         return Ok(None);
                     }
                     
                     if first_token {
-                        if self.channel.is_cli_source() {
-                            spinner.finish_and_clear(); // CLI starts printing immediately, so remove spinner.
-                        }
                         self.channel.cancel_typing().await; // Stop typing indicators on channels like Telegram.
                         first_token = false;
                     }
@@ -733,32 +720,13 @@ impl Engine {
         }
 
         if full_text.is_empty() {
-            spinner.finish_and_clear();
             Ok(None)
         } else {
-            spinner.finish_and_clear(); // Final cleanup in case the spinner is still visible.
             if self.channel.is_cli_source() {
                 println!(); // Newline after streaming completes.
             }
             Ok(Some(full_text))
         }
     }
-}
-
-#[cfg(feature = "runtime")]
-fn start_pre_spinner() -> indicatif::ProgressBar {
-    use indicatif::{ProgressBar, ProgressStyle};
-    use std::time::Duration;
-
-    let spinner = ProgressBar::new_spinner();
-    spinner.set_style(
-        ProgressStyle::default_spinner()
-            .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏","✓"])
-            .template("{spinner:.cyan} {msg}")
-            .unwrap()
-    );
-    spinner.set_message("Thinking...");
-    spinner.enable_steady_tick(Duration::from_millis(80));
-    spinner
 }
 

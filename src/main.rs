@@ -408,7 +408,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Apply command-line overrides
     let mut updated = false;
     if let Some(p) = new_provider {
-        println!("[System] Switching provider to: {}", p);
+        println!("Switching provider to: {}", p);
         forja_cfg.active.provider = Some(p.clone());
         
         // Ask for the API key immediately if it is missing.
@@ -425,7 +425,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         updated = true;
     }
     if let Some(m) = new_model {
-        println!("[System] Setting model to: {}", m);
+        println!("Setting model to: {}", m);
         forja_cfg.active.model = Some(m);
         updated = true;
     }
@@ -462,7 +462,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         vision_enabled,
     );
     if let Some(file_name) = loaded_project_file {
-        println!("[System] Loaded {file_name}");
+        println!("Loaded {file_name}");
     }
     let assistant_name = forja_cfg.assistant_name.clone()
         .or_else(|| std::env::var("FORJA_ASSISTANT_NAME").ok())
@@ -490,7 +490,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         )
     };
     let provider: Arc<dyn LlmProvider> = if use_mock {
-        println!("[System] MockLlmProvider mode (no live LLM calls)");
+        println!("MockLlmProvider mode (no live LLM calls)");
         Arc::new(MockLlmProvider)
     } else {
         Arc::new(LlmClient::new(
@@ -521,7 +521,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             println!("[WARN] Telegram allowed_chat_ids is empty.");
         } else {
             println!(
-                "[System] MultiChannel starting with CLI + Telegram (IDs: {:?})",
+                "MultiChannel starting with CLI + Telegram (IDs: {:?})",
                 allowed_chat_ids
             );
         }
@@ -529,10 +529,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let multi_channel = forja_channel::multi::MultiChannel::new(bot_token, allowed_chat_ids).await;
     let telegram_connected = multi_channel.has_telegram();
     if telegram_requested && !telegram_connected {
-        println!("[System] MultiChannel continuing in CLI-only mode.");
+        println!("MultiChannel continuing in CLI-only mode.");
     }
     if !telegram_requested {
-        println!("[System] MultiChannel starting with CLI only.");
+        println!("MultiChannel starting with CLI only.");
     }
     let interactive_identity_supported = !telegram_connected;
     let print_initial_prompt = true;
@@ -792,17 +792,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         ))));
         engine.register_tool(shell_tool);
     } else {
-        println!("[System] Shell tool disabled by FORJA_SHELL=false.");
+        println!("Shell tool disabled by FORJA_SHELL=false.");
     }
     if input_enabled {
         match InputTool::new(Arc::new(StdinConfirmation::from_shared(
             exec_mode_handle.clone(),
         ))) {
             Ok(input_tool) => engine.register_tool(Arc::new(input_tool)),
-            Err(error) => eprintln!("[System] Input tool initialization failed: {error}"),
+            Err(error) => eprintln!("Input tool initialization failed: {error}"),
         }
     } else {
-        println!("[System] Input tool disabled by FORJA_INPUT=false.");
+        println!("Input tool disabled by FORJA_INPUT=false.");
     }
     if browser_enabled {
         let confirmation = Arc::new(StdinConfirmation::from_shared(exec_mode_handle.clone()));
@@ -818,7 +818,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             engine.register_tool(Arc::new(browser_tool));
         }
     } else {
-        println!("[System] Browser tool disabled by FORJA_BROWSER=false.");
+        println!("Browser tool disabled by FORJA_BROWSER=false.");
     }
     if vision_enabled {
         let vision_tool = VisionTool::with_backends(
@@ -828,20 +828,20 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         );
         engine.register_tool(Arc::new(vision_tool));
     } else {
-        println!("[System] Vision tool disabled by FORJA_VISION=false.");
+        println!("Vision tool disabled by FORJA_VISION=false.");
     }
 
     if ClaudeCodeTool::is_installed().await {
         engine.register_tool(Arc::new(ClaudeCodeTool::new()));
-        println!("[System] Claude Code tool registered.");
+        println!("Claude Code tool registered.");
     }
     if CodexTool::is_installed().await {
         engine.register_tool(Arc::new(CodexTool::new()));
-        println!("[System] Codex tool registered.");
+        println!("Codex tool registered.");
     }
     if GeminiCliTool::is_installed().await {
         engine.register_tool(Arc::new(GeminiCliTool::new()));
-        println!("[System] Gemini CLI tool registered.");
+        println!("Gemini CLI tool registered.");
     }
 
     // Slash handler with ProviderRegistry captured in a closure
@@ -949,21 +949,21 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
                         *shared_mode = mode;
                     }
                     return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "[System] Mode updated: {}",
+                        "Mode updated: {}",
                         exec_mode_label(mode)
                     )));
                 }
                 SlashCommand::Think(level) => {
                     mode_state.update_think_level(level);
                     return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "[System] Think updated: {}",
+                        "Think updated: {}",
                         think_level_label(level)
                     )));
                 }
                 SlashCommand::Role(role) => {
                     mode_state.update_role(role);
                     return Some(forja_core::engine::SlashCommandResult::Reply(format!(
-                        "[System] Role updated: {}",
+                        "Role updated: {}",
                         role_label(role)
                     )));
                 }
@@ -1108,13 +1108,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut engine = engine.with_memory(memory_store).with_slash_handler(slash_handler);
 
     println!(
-        "[System] Mode: {} | Think: {} | Role: {}",
+        "Mode: {} | Think: {} | Role: {}",
         exec_mode_label(exec_mode),
         think_level_label(think_level),
         role_label(ModeRole::Auto)
     );
-    println!("[System] Assistant: {assistant_name}");
-    println!("[System] Engine is ready. Type /models to list models, /model <name> to switch.");
+    println!("Assistant: {assistant_name}");
+    println!("Engine is ready. Type /models to list models, /model <name> to switch.");
     if let Some(greeting) = displayed_greeting {
         println!();
         println!("{identity_name}: {greeting}");
@@ -1128,7 +1128,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let _ = tokio::signal::ctrl_c().await;
     }).await;
 
-    println!("\n[System] Shutting down...");
+    println!("\nShutting down...");
     engine.shutdown();
 
     match dashboard_server.lock() {

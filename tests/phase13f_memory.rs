@@ -95,6 +95,7 @@ impl LlmProvider for RecordingProvider {
 struct QueueChannel {
     messages: Mutex<Vec<Message>>,
     sent_messages: Mutex<Vec<Message>>,
+    log_lines: Mutex<Vec<String>>,
 }
 
 impl QueueChannel {
@@ -102,11 +103,16 @@ impl QueueChannel {
         Self {
             messages: Mutex::new(messages.into_iter().rev().collect()),
             sent_messages: Mutex::new(Vec::new()),
+            log_lines: Mutex::new(Vec::new()),
         }
     }
 
     async fn sent_count(&self) -> usize {
         self.sent_messages.lock().await.len()
+    }
+
+    async fn logged_lines(&self) -> Vec<String> {
+        self.log_lines.lock().await.clone()
     }
 }
 
@@ -123,6 +129,14 @@ impl Channel for QueueChannel {
     async fn send(&self, message: Message) -> Result<()> {
         self.sent_messages.lock().await.push(message);
         Ok(())
+    }
+
+    async fn log_line(&self, text: &str) {
+        self.log_lines.lock().await.push(text.to_string());
+    }
+
+    fn is_cli_source(&self) -> bool {
+        true
     }
 }
 
@@ -187,6 +201,102 @@ async fn restart_loads_memory_md_into_engine_prompt() {
     assert!(requests[0].contains("| user | I prefer oolong tea."));
     assert!(requests[0].contains("| assistant | You previously said you like oolong tea."));
     assert!(requests[0].contains("User:What tea do I like?"));
+
+    let _ = tokio::fs::remove_dir_all(&base_dir).await;
+}
+
+#[tokio::test]
+async fn run_logs_korean_stage_messages_in_order() {
+    let base_dir = unique_temp_dir("phase13f_stage_logs");
+    let memory_path = base_dir.join("memory.md");
+    let memory_store = Arc::new(MarkdownMemoryStore::new(&memory_path).await.unwrap());
+    let provider = Arc::new(RecordingProvider::new());
+    let channel = Arc::new(QueueChannel::new(vec![Message::text(
+        Role::User,
+        "Recall my memory",
+        None,
+    )]));
+    let mut engine = Engine::new(provider, channel.clone())
+        .with_assistant_profile("Forja".to_string(), "User".to_string())
+        .with_system_prompt("base system prompt".to_string())
+        .with_memory(memory_store);
+    let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
+
+    let run_handle = tokio::spawn(async move {
+        engine
+            .run(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+
+    for _ in 0..50 {
+        if channel.sent_count().await >= 1 {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+    }
+
+    shutdown_tx.send(()).unwrap();
+    run_handle.await.unwrap();
+
+    let logged_lines = channel.logged_lines().await;
+
+    assert_eq!(
+        logged_lines,
+        vec![
+            "\u{1b}[36m• Loading emotion context...\u{1b}[0m".to_string(),
+            "\u{1b}[33m• Loading knowledge...\u{1b}[0m".to_string(),
+            "\u{1b}[35m• Loading memory...\u{1b}[0m".to_string(),
+            "\u{1b}[32m• Calling LLM...\u{1b}[0m".to_string(),
+        ]
+    );
+
+    let _ = tokio::fs::remove_dir_all(&base_dir).await;
+}
+
+#[tokio::test]
+async fn run_streaming_logs_korean_stage_messages_in_order() {
+    let base_dir = unique_temp_dir("phase13f_stream_stage_logs");
+    let memory_path = base_dir.join("memory.md");
+    let memory_store = Arc::new(MarkdownMemoryStore::new(&memory_path).await.unwrap());
+    let provider = Arc::new(RecordingProvider::new());
+    let channel = Arc::new(QueueChannel::new(vec![Message::text(
+        Role::User,
+        "Recall my memory",
+        None,
+    )]));
+    let mut engine = Engine::new(provider, channel.clone())
+        .with_assistant_profile("Forja".to_string(), "User".to_string())
+        .with_system_prompt("base system prompt".to_string())
+        .with_memory(memory_store);
+    let channel_for_shutdown = channel.clone();
+
+    engine
+        .run_streaming(async move {
+            for _ in 0..50 {
+                if channel_for_shutdown.sent_count().await >= 1 {
+                    break;
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .unwrap();
+
+    let logged_lines = channel.logged_lines().await;
+
+    assert_eq!(
+        logged_lines,
+        vec![
+            "\u{1b}[36m• Loading emotion context...\u{1b}[0m".to_string(),
+            "\u{1b}[33m• Loading knowledge...\u{1b}[0m".to_string(),
+            "\u{1b}[35m• Loading memory...\u{1b}[0m".to_string(),
+            "\u{1b}[32m• Calling LLM...\u{1b}[0m".to_string(),
+            "\u{1b}[32m• Calling LLM...\u{1b}[0m".to_string(),
+        ]
+    );
 
     let _ = tokio::fs::remove_dir_all(&base_dir).await;
 }
