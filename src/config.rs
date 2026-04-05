@@ -119,7 +119,7 @@ pub struct DashboardSection {
 
 impl Default for DashboardSection {
     fn default() -> Self {
-        Self { port: 3000 }
+        Self { port: 3700 }
     }
 }
 
@@ -499,6 +499,17 @@ pub fn provider_info(cfg: &ForjaConfig) -> String {
     let provider = cfg.active.provider.as_deref().unwrap_or("?");
     let model    = cfg.active.model.as_deref().unwrap_or("preset default");
     format!("[Provider: {} | Model: {}]", provider, model)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DashboardSection;
+
+    #[test]
+    fn dashboard_default_port_is_3700() {
+        let dashboard = DashboardSection::default();
+        assert_eq!(dashboard.port, 3700);
+    }
 }
 
 
