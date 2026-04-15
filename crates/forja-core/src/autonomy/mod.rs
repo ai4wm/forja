@@ -1,6 +1,9 @@
 pub mod loop_runner;
 pub mod skills;
+pub mod task_store;
 pub mod unresolved;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutonomyConfig {
@@ -43,7 +46,7 @@ pub struct UnresolvedTask {
     pub status: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QueuedTask {
     pub id: i64,
     pub description: String,
@@ -54,32 +57,35 @@ pub struct QueuedTask {
     pub completed_at: Option<String>,
     pub result: Option<String>,
     pub requires_approval: bool,
+    pub retry_count: u32,
+    pub next_attempt_at: Option<String>,
+    pub task_ref: Option<String>,
+    pub cancel_requested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskQueueFile {
+    pub tasks: Vec<QueuedTask>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CurrentTaskFile {
+    pub task: QueuedTask,
+    pub checkpointed_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutonomyStatusSummary {
+    pub active: bool,
+    pub stop_requested: bool,
+    pub queue_len: usize,
+    pub current_task: Option<QueuedTask>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AutonomyAction {
-    AwaitingApproval {
-        task_id: i64,
-        description: String,
-        source: String,
-    },
-    ExecuteTask {
-        task_id: i64,
-        description: String,
-        source: String,
-        tool_name: String,
-        args: serde_json::Value,
-    },
-    RetryUnresolved {
-        id: i64,
-        task: String,
-        retry_count: u32,
-        max_retries: u32,
-    },
-    FailedUnresolved {
-        id: i64,
-        task: String,
-    },
+    ExecuteTask { task: Box<QueuedTask> },
+    QueueEmpty,
 }
 
 #[cfg(test)]

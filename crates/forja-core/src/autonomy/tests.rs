@@ -3,6 +3,7 @@ use super::skills::SkillRegistry;
 use super::unresolved::UnresolvedStore;
 use super::AutonomyConfig;
 use crate::creation::{DebateMessage, DebatePhase, DebateResult, TaskItem};
+use serde_json::Value;
 use std::path::PathBuf;
 
 #[test]
@@ -137,6 +138,121 @@ fn test_enqueue_from_debate() {
     cleanup(&db_path);
 }
 
+#[test]
+fn test_task_queue_is_persisted_to_queue_json_in_fifo_order() {
+    let db_path = temp_db_path("queue-json");
+    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
+        .expect("loop should initialize");
+
+    loop_runner
+        .enqueue_task("SPEC-RUNTIME-001", "user")
+        .expect("first task should enqueue");
+    loop_runner
+        .enqueue_task("Refactor telemetry output", "telegram")
+        .expect("second task should enqueue");
+
+    let queue_path = db_path
+        .parent()
+        .unwrap()
+        .join(db_path.file_stem().unwrap())
+        .join("tasks")
+        .join("queue.json");
+    let raw = std::fs::read_to_string(&queue_path).expect("queue.json should exist");
+    let queue: Value = serde_json::from_str(&raw).expect("queue.json should be valid json");
+    let tasks = queue["tasks"].as_array().expect("tasks should be an array");
+
+    assert_eq!(tasks.len(), 2);
+    assert_eq!(tasks[0]["description"], "SPEC-RUNTIME-001");
+    assert_eq!(tasks[1]["description"], "Refactor telemetry output");
+    assert_eq!(tasks[0]["status"], "pending");
+
+    cleanup(&db_path);
+}
+
+#[test]
+fn test_mark_task_started_writes_current_checkpoint_file() {
+    let db_path = temp_db_path("current-json");
+    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
+        .expect("loop should initialize");
+    let task_id = loop_runner
+        .enqueue_task("SPEC-CHANNEL-001", "user")
+        .expect("task should enqueue");
+
+    loop_runner
+        .mark_task_started(task_id)
+        .expect("task should mark started");
+
+    let current_path = db_path
+        .parent()
+        .unwrap()
+        .join(db_path.file_stem().unwrap())
+        .join("tasks")
+        .join("current.json");
+    let raw = std::fs::read_to_string(&current_path).expect("current.json should exist");
+    let current: Value = serde_json::from_str(&raw).expect("current.json should be valid json");
+
+    assert_eq!(current["task"]["id"], task_id);
+    assert_eq!(current["task"]["status"], "running");
+
+    cleanup(&db_path);
+}
+
+#[test]
+fn test_autonomy_mode_start_stop_and_status_are_tracked() {
+    let db_path = temp_db_path("mode-state");
+    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
+        .expect("loop should initialize");
+
+    assert!(!loop_runner.is_active());
+    loop_runner.start().expect("autonomy should start");
+    assert!(loop_runner.is_active());
+    assert!(loop_runner.status_summary().contains("running=false"));
+    loop_runner.request_stop().expect("stop should be requested");
+    assert!(loop_runner.stop_requested());
+
+    cleanup(&db_path);
+}
+
+#[test]
+fn test_queue_empty_notification_is_emitted_once_per_empty_state() {
+    let db_path = temp_db_path("queue-empty-once");
+    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
+        .expect("loop should initialize");
+    loop_runner.start().expect("autonomy should start");
+
+    let first = loop_runner.tick().expect("first tick should succeed");
+    let second = loop_runner.tick().expect("second tick should succeed");
+
+    assert_eq!(first, vec![super::AutonomyAction::QueueEmpty]);
+    assert!(second.is_empty());
+
+    cleanup(&db_path);
+}
+
+#[test]
+fn test_restart_repairs_current_json_into_pending_queue_and_reactivates_mode() {
+    let db_path = temp_db_path("restart-repair");
+    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
+        .expect("loop should initialize");
+    let task_id = loop_runner
+        .enqueue_task("SPEC-RUNTIME-001", "user")
+        .expect("task should enqueue");
+    loop_runner
+        .mark_task_started(task_id)
+        .expect("task should mark started");
+
+    let restarted = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
+        .expect("loop should initialize again");
+    let pending = restarted.get_pending_tasks().expect("pending should load");
+
+    assert!(restarted.is_active());
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].id, task_id);
+    assert_eq!(pending[0].status, "pending");
+
+    cleanup(&db_path);
+}
+
 fn temp_db_path(label: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "forja-autonomy-{label}-{}.db",
@@ -146,4 +262,9 @@ fn temp_db_path(label: &str) -> PathBuf {
 
 fn cleanup(path: &PathBuf) {
     let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir_all(
+        path.parent()
+            .unwrap_or_else(|| std::path::Path::new("."))
+            .join(path.file_stem().unwrap_or_default()),
+    );
 }

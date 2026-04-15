@@ -1,13 +1,16 @@
 use super::skills::SkillRegistry;
+use super::task_store::TaskStore;
 use super::unresolved::UnresolvedStore;
-use super::{AutonomyAction, AutonomyConfig, QueuedTask};
+use super::{AutonomyAction, AutonomyConfig, AutonomyStatusSummary, QueuedTask};
 use crate::creation::DebateResult;
 use crate::error::{ForjaError, Result};
-use chrono::Utc;
+use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection};
-use serde_json::Value;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
 #[derive(Clone)]
 pub struct AutonomousLoop {
@@ -16,6 +19,10 @@ pub struct AutonomousLoop {
     pub unresolved_store: UnresolvedStore,
     pub db_path: PathBuf,
     db: Arc<Mutex<Connection>>,
+    task_store: TaskStore,
+    active: Arc<AtomicBool>,
+    stop_requested: Arc<AtomicBool>,
+    empty_notified: Arc<AtomicBool>,
 }
 
 impl AutonomousLoop {
@@ -34,11 +41,14 @@ impl AutonomousLoop {
                     started_at TEXT,
                     completed_at TEXT,
                     result TEXT,
-                    requires_approval INTEGER DEFAULT 1
+                    requires_approval INTEGER DEFAULT 0
                 )",
                 [],
             )
             .map_err(|error| ForjaError::Storage(error.to_string()))?;
+
+        let task_store = TaskStore::new(&db_path)?;
+        let resume_required = task_store.repair_state()?;
 
         Ok(Self {
             skill_registry: SkillRegistry::new(&db_path)?,
@@ -46,83 +56,117 @@ impl AutonomousLoop {
             config,
             db_path,
             db: Arc::new(Mutex::new(connection)),
+            task_store,
+            active: Arc::new(AtomicBool::new(resume_required)),
+            stop_requested: Arc::new(AtomicBool::new(false)),
+            empty_notified: Arc::new(AtomicBool::new(false)),
+        })
+    }
+
+    pub fn start(&self) -> Result<()> {
+        self.active.store(true, Ordering::SeqCst);
+        self.stop_requested.store(false, Ordering::SeqCst);
+        self.empty_notified.store(false, Ordering::SeqCst);
+        Ok(())
+    }
+
+    pub fn request_stop(&self) -> Result<()> {
+        self.stop_requested.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::SeqCst)
+    }
+
+    pub fn stop_requested(&self) -> bool {
+        self.stop_requested.load(Ordering::SeqCst)
+    }
+
+    pub fn status_summary(&self) -> String {
+        let summary = self.status_snapshot().unwrap_or(AutonomyStatusSummary {
+            active: self.is_active(),
+            stop_requested: self.stop_requested(),
+            queue_len: 0,
+            current_task: None,
+        });
+        format!(
+            "active={} stop_requested={} running={} queue_len={}",
+            summary.active,
+            summary.stop_requested,
+            summary.current_task.is_some(),
+            summary.queue_len
+        )
+    }
+
+    pub fn status_snapshot(&self) -> Result<AutonomyStatusSummary> {
+        let queue = self.task_store.load_queue()?;
+        let current_task = self.task_store.load_current()?.map(|current| current.task);
+        Ok(AutonomyStatusSummary {
+            active: self.is_active(),
+            stop_requested: self.stop_requested(),
+            queue_len: queue.tasks.len(),
+            current_task,
         })
     }
 
     pub fn tick(&self) -> Result<Vec<AutonomyAction>> {
-        if !self.config.enabled {
+        if !self.config.enabled || !self.is_active() {
             return Ok(Vec::new());
         }
 
-        let mut actions = Vec::new();
-        for task in self.get_pending_tasks()? {
-            let parsed = parse_task_description(&task.description);
-            let requires_approval = self.config.require_approval && task.requires_approval;
-
-            if requires_approval && !parsed.auto_approved {
-                actions.push(AutonomyAction::AwaitingApproval {
-                    task_id: task.id,
-                    description: task.description,
-                    source: task.source,
-                });
-                continue;
-            }
-
-            if let Some(tool_name) = parsed.tool_name {
-                actions.push(AutonomyAction::ExecuteTask {
-                    task_id: task.id,
-                    description: task.description,
-                    source: task.source,
-                    tool_name,
-                    args: parsed.args,
-                });
-            } else {
-                actions.push(AutonomyAction::AwaitingApproval {
-                    task_id: task.id,
-                    description: task.description,
-                    source: task.source,
-                });
-            }
+        if self.stop_requested() && self.current_task()?.is_none() {
+            self.active.store(false, Ordering::SeqCst);
+            return Ok(vec![AutonomyAction::QueueEmpty]);
         }
 
-        for task in self.unresolved_store.get_pending()? {
-            let next_retry = task.retry_count.saturating_add(1);
-            if next_retry >= task.max_retries {
-                self.unresolved_store.mark_failed(task.id)?;
-                actions.push(AutonomyAction::FailedUnresolved {
-                    id: task.id,
-                    task: task.task,
-                });
-            } else {
-                self.unresolved_store.increment_retry(task.id)?;
-                actions.push(AutonomyAction::RetryUnresolved {
-                    id: task.id,
-                    task: task.task,
-                    retry_count: next_retry,
-                    max_retries: task.max_retries,
-                });
-            }
+        if self.current_task()?.is_some() {
+            return Ok(Vec::new());
         }
 
-        Ok(actions)
+        let mut pending = self.get_pending_tasks()?;
+        if pending.is_empty() {
+            if self.empty_notified.swap(true, Ordering::SeqCst) {
+                return Ok(Vec::new());
+            }
+            return Ok(vec![AutonomyAction::QueueEmpty]);
+        }
+        self.empty_notified.store(false, Ordering::SeqCst);
+
+        Ok(vec![AutonomyAction::ExecuteTask {
+            task: Box::new(pending.remove(0)),
+        }])
     }
 
     pub fn enqueue_task(&self, description: &str, source: &str) -> Result<i64> {
-        let connection = self.lock_connection()?;
-        connection
-            .execute(
-                "INSERT INTO task_queue (
-                    description, source, status, created_at, requires_approval
-                ) VALUES (?1, ?2, 'pending', ?3, ?4)",
-                params![
-                    description,
-                    source,
-                    Utc::now().to_rfc3339(),
-                    i64::from(self.config.require_approval),
-                ],
-            )
-            .map_err(|error| ForjaError::Storage(error.to_string()))?;
-        Ok(connection.last_insert_rowid())
+        let mut queue = self.task_store.load_queue()?;
+        let next_id = queue
+            .tasks
+            .iter()
+            .map(|task| task.id)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let task = QueuedTask {
+            id: next_id,
+            description: description.to_string(),
+            source: source.to_string(),
+            status: "pending".to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            started_at: None,
+            completed_at: None,
+            result: None,
+            requires_approval: false,
+            retry_count: 0,
+            next_attempt_at: None,
+            task_ref: extract_task_reference(description),
+            cancel_requested: false,
+        };
+        queue.tasks.push(task.clone());
+        self.task_store.save_queue(&queue)?;
+        self.upsert_task_row(&task)?;
+        self.empty_notified.store(false, Ordering::SeqCst);
+        Ok(next_id)
     }
 
     pub fn enqueue_from_debate(&self, debate_result: &DebateResult) -> Result<Vec<i64>> {
@@ -133,103 +177,161 @@ impl AutonomousLoop {
         Ok(ids)
     }
 
-    pub fn get_pending_tasks(&self) -> Result<Vec<QueuedTask>> {
-        let connection = self.lock_connection()?;
-        let mut statement = connection
-            .prepare(
-                "SELECT id, description, source, status, created_at, started_at, completed_at, result, requires_approval
-                 FROM task_queue
-                 WHERE status = 'pending'
-                 ORDER BY id ASC",
-            )
-            .map_err(|error| ForjaError::Storage(error.to_string()))?;
-        let rows = statement
-            .query_map([], map_task_row)
-            .map_err(|error| ForjaError::Storage(error.to_string()))?;
-        let mut tasks = Vec::new();
-        for row in rows {
-            tasks.push(row.map_err(|error| ForjaError::Storage(error.to_string()))?);
-        }
-        Ok(tasks)
+    pub fn list_tasks(&self) -> Result<Vec<QueuedTask>> {
+        Ok(self.task_store.load_queue()?.tasks)
     }
 
-    pub fn approve_task(&self, task_id: i64) -> Result<()> {
-        let connection = self.lock_connection()?;
-        connection
-            .execute(
-                "UPDATE task_queue SET requires_approval = 0 WHERE id = ?1",
-                [task_id],
-            )
-            .map_err(|error| ForjaError::Storage(error.to_string()))?;
+    pub fn get_pending_tasks(&self) -> Result<Vec<QueuedTask>> {
+        let now = Utc::now();
+        Ok(self
+            .task_store
+            .load_queue()?
+            .tasks
+            .into_iter()
+            .filter(|task| task.status == "pending")
+            .filter(|task| !task.cancel_requested)
+            .filter(|task| {
+                task.next_attempt_at
+                    .as_deref()
+                    .and_then(parse_rfc3339)
+                    .is_none_or(|time| time <= now)
+            })
+            .collect())
+    }
+
+    pub fn cancel_task(&self, task_id: i64) -> Result<()> {
+        let mut queue = self.task_store.load_queue()?;
+        let now = Utc::now().to_rfc3339();
+        if let Some(task) = queue.tasks.iter_mut().find(|task| task.id == task_id) {
+            task.cancel_requested = true;
+            task.status = "failed".to_string();
+            task.completed_at = Some(now);
+            task.result = Some("cancelled".to_string());
+            self.upsert_task_row(task)?;
+        }
+        self.task_store.save_queue(&queue)?;
+
+        if self.current_task()?.is_some_and(|task| task.id == task_id) {
+            self.task_store.clear_current()?;
+        }
+
         Ok(())
     }
 
-    pub(crate) fn mark_task_started(&self, task_id: i64) -> Result<()> {
-        self.update_task_state(task_id, "running", Some(String::new()), None)
+    pub fn current_task(&self) -> Result<Option<QueuedTask>> {
+        Ok(self.task_store.load_current()?.map(|current| current.task))
     }
 
-    pub(crate) fn mark_task_completed(&self, task_id: i64, result: String) -> Result<()> {
-        self.update_task_state(task_id, "completed", None, Some(result))
+    pub fn notification_log_path(&self) -> &Path {
+        self.task_store.log_path()
     }
 
-    pub(crate) fn mark_task_failed(&self, task_id: i64, error: String) -> Result<()> {
-        self.update_task_state(task_id, "failed", None, Some(error))
+    pub fn append_notification_log(&self, line: &str) -> Result<()> {
+        self.task_store.append_log(line)
     }
 
-    pub(crate) fn record_tool_success(&self, tool_name: &str) -> Result<bool> {
-        self.skill_registry.record_success(tool_name)?;
-        self.skill_registry
-            .check_and_promote(tool_name, self.config.skill_threshold)
+    pub(crate) fn mark_task_started(&self, task_id: i64) -> Result<QueuedTask> {
+        let mut queue = self.task_store.load_queue()?;
+        let now = Utc::now().to_rfc3339();
+        let task = queue
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .ok_or_else(|| ForjaError::Storage(format!("Task #{task_id} not found")))?;
+        task.status = "running".to_string();
+        task.started_at = Some(now);
+        task.completed_at = None;
+        task.result = None;
+        task.next_attempt_at = None;
+        let snapshot = task.clone();
+        self.task_store.save_queue(&queue)?;
+        self.task_store.save_current(&snapshot)?;
+        self.upsert_task_row(&snapshot)?;
+        Ok(snapshot)
+    }
+
+    pub(crate) fn mark_task_completed(&self, task_id: i64, result: String) -> Result<QueuedTask> {
+        let mut queue = self.task_store.load_queue()?;
+        let now = Utc::now().to_rfc3339();
+        let task = queue
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .ok_or_else(|| ForjaError::Storage(format!("Task #{task_id} not found")))?;
+        task.status = "completed".to_string();
+        task.completed_at = Some(now);
+        task.result = Some(result);
+        let snapshot = task.clone();
+        self.task_store.save_queue(&queue)?;
+        self.task_store.clear_current()?;
+        self.upsert_task_row(&snapshot)?;
+        Ok(snapshot)
+    }
+
+    pub(crate) fn record_task_failure(
+        &self,
+        task_id: i64,
+        error: &str,
+    ) -> Result<QueuedTask> {
+        let mut queue = self.task_store.load_queue()?;
+        let now = Utc::now();
+        let task = queue
+            .tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .ok_or_else(|| ForjaError::Storage(format!("Task #{task_id} not found")))?;
+        task.retry_count = task.retry_count.saturating_add(1);
+        if task.retry_count >= self.config.max_retries {
+            task.status = "failed".to_string();
+            task.completed_at = Some(now.to_rfc3339());
+            task.result = Some(error.to_string());
+            task.next_attempt_at = None;
+        } else {
+            task.status = "pending".to_string();
+            task.completed_at = None;
+            task.result = Some(error.to_string());
+            task.next_attempt_at = Some((now + retry_backoff(task.retry_count)).to_rfc3339());
+        }
+        let snapshot = task.clone();
+        self.task_store.save_queue(&queue)?;
+        self.task_store.clear_current()?;
+        self.upsert_task_row(&snapshot)?;
+        Ok(snapshot)
     }
 
     pub(crate) fn add_unresolved(&self, task: &str, error: &str) -> Result<()> {
         self.unresolved_store.add(task, error, self.config.max_retries)
     }
 
-    fn update_task_state(
-        &self,
-        task_id: i64,
-        status: &str,
-        started_marker: Option<String>,
-        result: Option<String>,
-    ) -> Result<()> {
+    fn upsert_task_row(&self, task: &QueuedTask) -> Result<()> {
         let connection = self.lock_connection()?;
-        let now = Utc::now().to_rfc3339();
-
-        match status {
-            "running" => {
-                let _ = started_marker;
-                connection
-                    .execute(
-                        "UPDATE task_queue
-                         SET status = 'running', started_at = ?1
-                         WHERE id = ?2",
-                        params![now, task_id],
-                    )
-                    .map_err(|error| ForjaError::Storage(error.to_string()))?;
-            }
-            "completed" => {
-                connection
-                    .execute(
-                        "UPDATE task_queue
-                         SET status = 'completed', completed_at = ?1, result = ?2
-                         WHERE id = ?3",
-                        params![now, result, task_id],
-                    )
-                    .map_err(|error| ForjaError::Storage(error.to_string()))?;
-            }
-            _ => {
-                connection
-                    .execute(
-                        "UPDATE task_queue
-                         SET status = 'failed', completed_at = ?1, result = ?2
-                         WHERE id = ?3",
-                        params![now, result, task_id],
-                    )
-                    .map_err(|error| ForjaError::Storage(error.to_string()))?;
-            }
-        }
-
+        connection
+            .execute(
+                "INSERT INTO task_queue (
+                    id, description, source, status, created_at, started_at, completed_at, result, requires_approval
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                 ON CONFLICT(id) DO UPDATE SET
+                    description=excluded.description,
+                    source=excluded.source,
+                    status=excluded.status,
+                    created_at=excluded.created_at,
+                    started_at=excluded.started_at,
+                    completed_at=excluded.completed_at,
+                    result=excluded.result,
+                    requires_approval=excluded.requires_approval",
+                params![
+                    task.id,
+                    task.description,
+                    task.source,
+                    task.status,
+                    task.created_at,
+                    task.started_at,
+                    task.completed_at,
+                    task.result,
+                    i64::from(task.requires_approval),
+                ],
+            )
+            .map_err(|error| ForjaError::Storage(error.to_string()))?;
         Ok(())
     }
 
@@ -240,44 +342,31 @@ impl AutonomousLoop {
     }
 }
 
-struct ParsedTask {
-    tool_name: Option<String>,
-    args: Value,
-    auto_approved: bool,
-}
-
-fn parse_task_description(description: &str) -> ParsedTask {
-    let trimmed = description.trim();
-    let Some((tool_name, args_text)) = trimmed.split_once(' ') else {
-        return ParsedTask {
-            tool_name: None,
-            args: Value::Null,
-            auto_approved: false,
-        };
+fn retry_backoff(retry_count: u32) -> Duration {
+    let secs = match retry_count {
+        1 => 1,
+        2 => 2,
+        _ => 4,
     };
-
-    let args = serde_json::from_str(args_text).unwrap_or(Value::Null);
-    ParsedTask {
-        tool_name: if args.is_null() {
-            None
-        } else {
-            Some(tool_name.to_string())
-        },
-        args,
-        auto_approved: false,
-    }
+    Duration::seconds(secs)
 }
 
-fn map_task_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueuedTask> {
-    Ok(QueuedTask {
-        id: row.get(0)?,
-        description: row.get(1)?,
-        source: row.get(2)?,
-        status: row.get(3)?,
-        created_at: row.get(4)?,
-        started_at: row.get(5)?,
-        completed_at: row.get(6)?,
-        result: row.get(7)?,
-        requires_approval: row.get::<_, i64>(8)? != 0,
-    })
+fn parse_rfc3339(value: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|value| value.with_timezone(&Utc))
+}
+
+fn extract_task_reference(description: &str) -> Option<String> {
+    let trimmed = description.trim();
+    if trimmed.starts_with("SPEC-") {
+        return Some(trimmed.to_string());
+    }
+
+    let path = Path::new(trimmed);
+    if path.extension().and_then(|ext| ext.to_str()) == Some("md") && path.exists() {
+        return Some(trimmed.to_string());
+    }
+
+    None
 }

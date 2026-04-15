@@ -199,6 +199,19 @@ pub(crate) fn build_slash_handler(deps: SlashHandlerDeps) -> SlashHandler {
                 });
             }
 
+            if let Some(command) = text.strip_prefix("/autonomy ") {
+                let command = command.trim();
+                if command.is_empty() {
+                    return Some(SlashCommandResult::Reply(
+                        "Usage: /autonomy <start|stop|status>".to_string(),
+                    ));
+                }
+
+                return Some(SlashCommandResult::AutonomyCommand {
+                    command: command.to_string(),
+                });
+            }
+
             if text == "/models" {
                 let registry = registry.lock().unwrap();
                 return Some(SlashCommandResult::Reply(
