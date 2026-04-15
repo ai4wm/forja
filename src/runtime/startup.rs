@@ -7,6 +7,7 @@ use crate::runtime::prompt::{
 };
 use crate::runtime::slash::{build_slash_handler, SlashHandlerDeps};
 use crate::runtime::tools::{register_tools, ToolRegistrationContext};
+use forja_channel::multi::MultiChannel;
 use forja_core::audit::logger::AuditLogger;
 use forja_core::autonomy::{loop_runner::AutonomousLoop, AutonomyConfig};
 use forja_core::budget::{manager::BudgetManager, BudgetMode};
@@ -17,7 +18,7 @@ use forja_core::emotion::{
 use forja_core::error::{ForjaError, Result};
 use forja_core::heartbeat::{scheduler::HeartbeatScheduler, HeartbeatConfig};
 use forja_core::mode::{ExecMode, ModeState, Role as ModeRole, ThinkLevel};
-use forja_core::traits::{Channel, LlmProvider, MemoryStore};
+use forja_core::traits::{Channel, LlmProvider, MemoryStore, TelegramConnectionStatus};
 use forja_core::{Content, Engine, KnowledgeManager, Message, Role, SerendipityEngine};
 use forja_llm::LlmClient;
 use forja_memory::MarkdownMemoryStore;
@@ -150,18 +151,36 @@ pub(crate) async fn build_runtime(options: RuntimeOptions) -> Result<AppRuntime>
         }
     }
 
-    let multi_channel = forja_channel::multi::MultiChannel::new(bot_token, allowed_chat_ids).await;
-    let telegram_connected = multi_channel.has_telegram();
-    if telegram_requested && !telegram_connected {
-        println!("MultiChannel continuing in CLI-only mode.");
-    }
-    if !telegram_requested {
-        println!("MultiChannel starting with CLI only.");
+    let multi_channel = Arc::new(MultiChannel::new(bot_token, allowed_chat_ids).await);
+    let telegram_status = multi_channel
+        .telegram_status()
+        .unwrap_or(TelegramConnectionStatus::Disconnected);
+    match (telegram_requested, telegram_status) {
+        (false, _) => {
+            println!("MultiChannel starting with CLI only.");
+        }
+        (true, TelegramConnectionStatus::Connected) => {
+            println!("MultiChannel starting with CLI + Telegram connected.");
+        }
+        (true, TelegramConnectionStatus::Reconnecting) => {
+            println!("MultiChannel starting with CLI + Telegram supervisor (reconnecting).");
+        }
+        (true, TelegramConnectionStatus::Disconnected) => {
+            println!("MultiChannel continuing in CLI-only mode.");
+        }
     }
 
-    let interactive_identity_supported = !telegram_connected;
+    let interactive_identity_supported = !matches!(telegram_status, TelegramConnectionStatus::Connected);
     let print_initial_prompt = true;
-    let channel: Arc<dyn Channel> = Arc::new(multi_channel);
+    let channel: Arc<dyn Channel> = multi_channel.clone();
+    #[cfg(feature = "telegram")]
+    let telegram_status_provider = {
+        let telegram_status_handle = multi_channel.telegram_status_handle();
+        std::sync::Arc::new(move || telegram_status_handle.snapshot())
+    };
+    #[cfg(not(feature = "telegram"))]
+    let telegram_status_provider =
+        crate::dashboard::routes::default_telegram_status_provider();
 
     let max_context_tokens = forja_cfg.agent.max_context_tokens.unwrap_or(128_000);
     let context_model = forja_cfg
@@ -226,10 +245,10 @@ pub(crate) async fn build_runtime(options: RuntimeOptions) -> Result<AppRuntime>
     };
     engine = engine.with_creation_engine(DebateEngine::new(debate_agents, debate_config));
 
-    let dashboard_server = Arc::new(Mutex::new(DashboardServer::new(
-        forja_cfg.dashboard.port,
-        audit_db_path.clone(),
-    )));
+    let dashboard_server = Arc::new(Mutex::new(
+        DashboardServer::new(forja_cfg.dashboard.port, audit_db_path.clone())
+            .with_telegram_status(telegram_status_provider),
+    ));
     let dashboard_server_for_handler = dashboard_server.clone();
     engine = engine.with_dashboard_handler(Arc::new(move || {
         let mut server = dashboard_server_for_handler

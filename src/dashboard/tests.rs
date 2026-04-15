@@ -1,9 +1,11 @@
-use super::routes::build_router;
+use super::routes::{build_router_with_status, default_telegram_status_provider};
 use super::DashboardServer;
 use axum::body::{to_bytes, Body};
 use axum::http::Request;
+use forja_core::traits::TelegramConnectionStatus;
 use rusqlite::Connection;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tower::util::ServiceExt;
 
 #[tokio::test]
@@ -26,7 +28,7 @@ async fn test_audit_api_returns_json() {
         .expect("audit row should insert");
     drop(connection);
 
-    let response = build_router(db_path.clone())
+    let response = build_router_with_status(db_path.clone(), default_telegram_status_provider())
         .oneshot(Request::builder().uri("/api/audit?limit=10").body(Body::empty()).unwrap())
         .await
         .expect("request should succeed");
@@ -65,7 +67,7 @@ async fn test_debate_list_api() {
         .expect("second debate row should insert");
     drop(connection);
 
-    let response = build_router(db_path.clone())
+    let response = build_router_with_status(db_path.clone(), default_telegram_status_provider())
         .oneshot(Request::builder().uri("/api/debates").body(Body::empty()).unwrap())
         .await
         .expect("request should succeed");
@@ -91,7 +93,7 @@ async fn test_budget_api() {
         .expect("budget row should insert");
     drop(connection);
 
-    let response = build_router(db_path.clone())
+    let response = build_router_with_status(db_path.clone(), default_telegram_status_provider())
         .oneshot(Request::builder().uri("/api/budget").body(Body::empty()).unwrap())
         .await
         .expect("request should succeed");
@@ -101,6 +103,32 @@ async fn test_budget_api() {
     assert!(json.is_array());
     assert_eq!(json[0]["agent_id"], "default");
     assert_eq!(json[0]["percent"], 50);
+
+    cleanup(&db_path);
+}
+
+#[tokio::test]
+async fn test_channel_status_api() {
+    let db_path = temp_db_path("channel-status");
+    let connection = create_test_db(&db_path);
+    drop(connection);
+
+    let response = build_router_with_status(
+        db_path.clone(),
+        Arc::new(|| TelegramConnectionStatus::Reconnecting),
+    )
+    .oneshot(
+        Request::builder()
+            .uri("/api/channel-status")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .expect("request should succeed");
+
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["telegram"], "Reconnecting");
 
     cleanup(&db_path);
 }

@@ -179,7 +179,10 @@
 <body>
   <header>
     <h1>Forja 로컬 대시보드</h1>
-    <div class="subtitle">audit.db 기반 실시간 모니터링 · 5초 자동 새로고침</div>
+    <div class="subtitle">
+      audit.db 기반 실시간 모니터링 · 5초 자동 새로고침 ·
+      <span id="telegram-status">Telegram: Disconnected</span>
+    </div>
     <div class="tabs">
       <button class="tab-button active" data-tab="audit">Audit Log</button>
       <button class="tab-button" data-tab="debates">Debates</button>
@@ -407,9 +410,14 @@
       `).join("");
     }
 
+    async function loadChannelStatus() {
+      const status = await fetchJson("/api/channel-status");
+      document.getElementById("telegram-status").textContent = `Telegram: ${status.telegram}`;
+    }
+
     async function refreshAll() {
       try {
-        await Promise.all([loadAudit(), loadDebates(), loadBudget(), loadTasks()]);
+        await Promise.all([loadAudit(), loadDebates(), loadBudget(), loadTasks(), loadChannelStatus()]);
       } catch (error) {
         console.error(error);
       }

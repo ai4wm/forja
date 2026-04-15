@@ -424,6 +424,8 @@ impl Engine {
             }
         }
 
+        #[cfg(feature = "memory")]
+        self.flush_memory_store().await;
         self.shutdown();
         Ok(())
     }
@@ -602,6 +604,8 @@ impl Engine {
             }
         }
 
+        #[cfg(feature = "memory")]
+        self.flush_memory_store().await;
         self.shutdown();
         Ok(())
     }

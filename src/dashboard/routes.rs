@@ -3,20 +3,29 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use forja_core::traits::TelegramConnectionStatus;
 use rusqlite::{params, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
 
 const INDEX_HTML: &str = include_str!("static/index.html");
 
+pub(crate) type TelegramStatusProvider =
+    Arc<dyn Fn() -> TelegramConnectionStatus + Send + Sync>;
+
 #[derive(Clone)]
 pub(crate) struct DashboardState {
     db_path: PathBuf,
+    telegram_status: TelegramStatusProvider,
 }
 
-pub(crate) fn build_router(db_path: PathBuf) -> Router {
+pub(crate) fn build_router_with_status(
+    db_path: PathBuf,
+    telegram_status: TelegramStatusProvider,
+) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/api/audit", get(get_audit))
@@ -26,9 +35,17 @@ pub(crate) fn build_router(db_path: PathBuf) -> Router {
         .route("/api/skills", get(get_skills))
         .route("/api/unresolved", get(get_unresolved))
         .route("/api/tasks", get(get_tasks))
+        .route("/api/channel-status", get(get_channel_status))
         .route("/api/approve/:id", post(approve_task))
-        .with_state(DashboardState { db_path })
+        .with_state(DashboardState {
+            db_path,
+            telegram_status,
+        })
         .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any))
+}
+
+pub(crate) fn default_telegram_status_provider() -> TelegramStatusProvider {
+    Arc::new(|| TelegramConnectionStatus::Disconnected)
 }
 
 async fn index() -> Html<&'static str> {
@@ -321,6 +338,23 @@ async fn approve_task(
         [id],
     )?;
     Ok(Json(json!({ "ok": true, "id": id })))
+}
+
+#[derive(Debug, Serialize)]
+struct ChannelStatusRow {
+    telegram: &'static str,
+}
+
+async fn get_channel_status(
+    State(state): State<DashboardState>,
+) -> Result<Json<ChannelStatusRow>, DashboardError> {
+    let telegram = match (state.telegram_status)() {
+        TelegramConnectionStatus::Connected => "Connected",
+        TelegramConnectionStatus::Disconnected => "Disconnected",
+        TelegramConnectionStatus::Reconnecting => "Reconnecting",
+    };
+
+    Ok(Json(ChannelStatusRow { telegram }))
 }
 
 fn load_debate_groups(db_path: &PathBuf) -> Result<Vec<DebateGroup>, DashboardError> {

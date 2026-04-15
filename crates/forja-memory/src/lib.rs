@@ -19,6 +19,14 @@ impl MarkdownMemoryStore {
         Ok(Self { storage })
     }
 
+    pub async fn load_startup_context(&self) -> Result<String> {
+        self.storage.read_startup_context().await
+    }
+
+    pub async fn load_relevant(&self, query: &str) -> Result<String> {
+        self.storage.read_relevant(query).await
+    }
+
     pub async fn flush_and_summarize<F, O>(&self, summarizer: F) -> Result<()>
     where
         F: Fn(String) -> O,
@@ -59,7 +67,15 @@ impl MemoryStore for MarkdownMemoryStore {
         self.storage.read_all().await
     }
 
+    async fn load_startup_context(&self) -> Result<String> {
+        self.storage.read_startup_context().await
+    }
+
+    async fn load_relevant(&self, query: &str) -> Result<String> {
+        self.storage.read_relevant(query).await
+    }
+
     async fn flush(&self) -> Result<()> {
-        Ok(())
+        self.storage.reconcile().await
     }
 }

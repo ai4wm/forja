@@ -1,22 +1,18 @@
 use async_trait::async_trait;
+#[cfg(feature = "telegram")]
+use crate::telegram_supervisor::{
+    start_telegram_supervisor, TelegramRuntimeHandle, TelegramStatusHandle, TelegramWorkerCommand,
+};
 use forja_core::gateway::adapter::{ChannelAdapter, CliAdapter};
+use forja_core::traits::TelegramConnectionStatus;
 use forja_core::{Channel, Content, Role, Message as CoreMessage};
 #[cfg(feature = "telegram")]
 use forja_core::gateway::adapter::TelegramAdapter;
-#[cfg(feature = "telegram")]
-use reqwest::Client;
 use crate::cli::process_line;
 use std::io::Write;
 #[cfg(feature = "telegram")]
-use std::sync::{Arc, Mutex as StdMutex};
-#[cfg(feature = "telegram")]
-use std::time::Duration;
+use std::sync::Mutex as StdMutex;
 use tokio::sync::{mpsc, Mutex};
-
-#[cfg(feature = "telegram")]
-use teloxide::dispatching::{Dispatcher, UpdateFilterExt};
-#[cfg(feature = "telegram")]
-use teloxide::prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum ChannelSource {
@@ -25,25 +21,13 @@ pub enum ChannelSource {
     Telegram { chat_id: i64 },
 }
 
-#[cfg(feature = "telegram")]
-pub(crate) enum TelegramWorkerCommand {
-    SendMessage { chat_id: i64, text: String },
-    StartTyping { chat_id: i64 },
-    StopTyping,
-    Shutdown,
-}
-
-#[cfg(feature = "telegram")]
-struct TelegramRuntimeHandle {
-    command_tx: tokio::sync::mpsc::UnboundedSender<TelegramWorkerCommand>,
-    thread_handle: std::thread::JoinHandle<()>,
-}
-
 pub struct MultiChannel {
     receiver: Mutex<mpsc::Receiver<(ChannelSource, CoreMessage)>>,
     last_source: Mutex<Option<ChannelSource>>,
     #[cfg(feature = "telegram")]
     telegram_runtime: StdMutex<Option<TelegramRuntimeHandle>>,
+    #[cfg(feature = "telegram")]
+    telegram_status: TelegramStatusHandle,
 }
 
 impl MultiChannel {
@@ -78,16 +62,15 @@ impl MultiChannel {
         });
 
         #[cfg(feature = "telegram")]
-        let telegram_runtime = if let Some(bot_token) = bot_token {
-            match Self::start_telegram_runtime(bot_token, allowed_chat_ids, tx.clone()) {
-                Ok(runtime_handle) => Some(runtime_handle),
-                Err(error) => {
-                    eprintln!("[WARN] Telegram initialization failed: {error}");
-                    None
-                }
-            }
+        let (telegram_runtime, telegram_status) = if let Some(bot_token) = bot_token {
+            let runtime_handle = start_telegram_supervisor(bot_token, allowed_chat_ids, tx.clone());
+            let status = runtime_handle.status.clone();
+            (Some(runtime_handle), status)
         } else {
-            None
+            (
+                None,
+                TelegramStatusHandle::new(TelegramConnectionStatus::Disconnected),
+            )
         };
 
         #[cfg(not(feature = "telegram"))]
@@ -98,6 +81,8 @@ impl MultiChannel {
             last_source: Mutex::new(Some(ChannelSource::Cli)),
             #[cfg(feature = "telegram")]
             telegram_runtime: StdMutex::new(telegram_runtime),
+            #[cfg(feature = "telegram")]
+            telegram_status,
         }
     }
 
@@ -114,227 +99,15 @@ impl MultiChannel {
     pub fn has_telegram(&self) -> bool {
         #[cfg(feature = "telegram")]
         {
-            self.telegram_runtime
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .is_some()
+            matches!(
+                self.telegram_status(),
+                Some(TelegramConnectionStatus::Connected | TelegramConnectionStatus::Reconnecting)
+            )
         }
 
         #[cfg(not(feature = "telegram"))]
         {
             false
-        }
-    }
-
-    #[cfg(feature = "telegram")]
-    fn start_telegram_runtime(
-        bot_token: String,
-        allowed_chat_ids: Vec<i64>,
-        tx: mpsc::Sender<(ChannelSource, CoreMessage)>,
-    ) -> forja_core::error::Result<TelegramRuntimeHandle> {
-        let (command_tx, command_rx) = tokio::sync::mpsc::unbounded_channel();
-        let (init_tx, init_rx) = std::sync::mpsc::channel();
-        let init_tx = Arc::new(StdMutex::new(Some(init_tx)));
-        let init_tx_for_thread = init_tx.clone();
-        let thread_handle = std::thread::spawn(move || {
-            let runtime = match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(runtime) => runtime,
-                Err(error) => {
-                    if let Some(init_tx) = init_tx_for_thread
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .take()
-                    {
-                        let _ = init_tx.send(Err(format!(
-                            "Failed to build telegram runtime: {error}"
-                        )));
-                    }
-                    return;
-                }
-            };
-
-            let init_tx_for_panic = init_tx_for_thread.clone();
-            let thread_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                runtime.block_on(async move {
-                    let client = match Client::builder()
-                        .connect_timeout(Duration::from_secs(30))
-                        .timeout(Duration::from_secs(60))
-                        .build()
-                    {
-                        Ok(client) => client,
-                        Err(error) => {
-                            if let Some(init_tx) = init_tx_for_thread
-                                .lock()
-                                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                                .take()
-                            {
-                                let _ = init_tx.send(Err(format!(
-                                    "Failed to build reqwest client: {error}"
-                                )));
-                            }
-                            return;
-                        }
-                    };
-                    let bot = Bot::with_client(bot_token, client);
-                    match tokio::time::timeout(Duration::from_secs(60), bot.get_me()).await {
-                        Ok(Ok(_)) => {}
-                        Ok(Err(error)) => {
-                            if let Some(init_tx) = init_tx_for_thread
-                                .lock()
-                                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                                .take()
-                            {
-                                let _ = init_tx.send(Err(format!(
-                                    "Telegram getMe failed: {error}"
-                                )));
-                            }
-                            return;
-                        }
-                        Err(_) => {
-                            if let Some(init_tx) = init_tx_for_thread
-                                .lock()
-                                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                                .take()
-                            {
-                                let _ = init_tx.send(Err(
-                                    "Telegram getMe timed out after 60 seconds".to_string(),
-                                ));
-                            }
-                            return;
-                        }
-                    }
-
-                    let tx_tg = tx.clone();
-                    let allowed = allowed_chat_ids.clone();
-                    let handler = teloxide::types::Update::filter_message().endpoint(
-                        move |msg: teloxide::types::Message, bot: Bot, tx_tg: mpsc::Sender<(ChannelSource, CoreMessage)>| {
-                            let allowed = allowed.clone();
-                            async move {
-                                let chat_id = msg.chat.id.0;
-                                if !allowed.contains(&chat_id) {
-                                    let _ = bot.send_message(msg.chat.id, "[DENIED] Authorized users only.").await;
-                                    return Ok::<(), teloxide::RequestError>(());
-                                }
-                                if let Some(text) = msg.text() {
-                                    let core_msg = CoreMessage::text(Role::User, text.to_string(), None);
-                                    let _ = tx_tg.send((ChannelSource::Telegram { chat_id }, core_msg)).await;
-                                }
-                                Ok::<(), teloxide::RequestError>(())
-                            }
-                        }
-                    );
-
-                    let bot_dispatcher = bot.clone();
-                    let mut dispatcher = Dispatcher::builder(bot_dispatcher, handler)
-                        .dependencies(teloxide::dptree::deps![tx_tg])
-                        .build();
-                    let shutdown_token = dispatcher.shutdown_token();
-                    let dispatcher_task = tokio::spawn(async move {
-                        dispatcher.dispatch().await;
-                    });
-
-                    if let Some(init_tx) = init_tx_for_thread
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .take()
-                    {
-                        let _ = init_tx.send(Ok(()));
-                    }
-
-                    let mut command_rx = command_rx;
-                    let mut typing_handle: Option<tokio::task::JoinHandle<()>> = None;
-                    let mut dispatcher_task = dispatcher_task;
-
-                    loop {
-                        tokio::select! {
-                            command = command_rx.recv() => {
-                                match command {
-                                    Some(TelegramWorkerCommand::SendMessage { chat_id, text }) => {
-                                        if let Err(error) = bot
-                                            .send_message(teloxide::types::ChatId(chat_id), text)
-                                            .await
-                                        {
-                                            eprintln!("Failed to send Telegram message: {error}");
-                                        }
-                                    }
-                                    Some(TelegramWorkerCommand::StartTyping { chat_id }) => {
-                                        if let Some(handle) = typing_handle.take() {
-                                            handle.abort();
-                                        }
-                                        let bot_clone = bot.clone();
-                                        typing_handle = Some(tokio::spawn(async move {
-                                            loop {
-                                                let _ = bot_clone
-                                                    .send_chat_action(
-                                                        teloxide::types::ChatId(chat_id),
-                                                        teloxide::types::ChatAction::Typing,
-                                                    )
-                                                    .await;
-                                                tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
-                                            }
-                                        }));
-                                    }
-                                    Some(TelegramWorkerCommand::StopTyping) => {
-                                        if let Some(handle) = typing_handle.take() {
-                                            handle.abort();
-                                        }
-                                    }
-                                    Some(TelegramWorkerCommand::Shutdown) | None => {
-                                        if let Some(handle) = typing_handle.take() {
-                                            handle.abort();
-                                        }
-                                        let _ = shutdown_token.shutdown();
-                                        break;
-                                    }
-                                }
-                            }
-                            result = &mut dispatcher_task => {
-                                if let Err(error) = result {
-                                    eprintln!("Telegram dispatcher task failed: {error}");
-                                }
-                                if let Some(handle) = typing_handle.take() {
-                                    handle.abort();
-                                }
-                                break;
-                            }
-                        }
-                    }
-
-                    dispatcher_task.abort();
-                    let _ = dispatcher_task.await;
-                });
-            }));
-
-            if thread_result.is_err() {
-                if let Some(init_tx) = init_tx_for_panic
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .take()
-                {
-                    let _ = init_tx.send(Err("Telegram runtime panicked".to_string()));
-                }
-                eprintln!("[WARN] Telegram runtime panicked");
-            }
-        });
-
-        match init_rx.recv_timeout(Duration::from_secs(65)) {
-            Ok(Ok(())) => Ok(TelegramRuntimeHandle {
-                command_tx,
-                thread_handle,
-            }),
-            Ok(Err(error)) => {
-                let _ = thread_handle.join();
-                Err(forja_core::error::ForjaError::ChannelError(error))
-            }
-            Err(error) => {
-                let _ = thread_handle.join();
-                Err(forja_core::error::ForjaError::ChannelError(format!(
-                    "Telegram runtime init channel failed: {error}"
-                )))
-            }
         }
     }
 
@@ -347,6 +120,25 @@ impl MultiChannel {
             .map(|runtime| runtime.command_tx.clone())
     }
 
+    pub fn telegram_status(&self) -> Option<TelegramConnectionStatus> {
+        #[cfg(feature = "telegram")]
+        {
+            Some(self.telegram_status.snapshot())
+        }
+
+        #[cfg(not(feature = "telegram"))]
+        {
+            None
+        }
+    }
+
+    #[cfg(feature = "telegram")]
+    pub fn telegram_status_handle(
+        &self,
+    ) -> crate::telegram_supervisor::TelegramStatusHandle {
+        self.telegram_status.clone()
+    }
+
     fn shutdown_inner(&self) {
         #[cfg(feature = "telegram")]
         {
@@ -356,6 +148,8 @@ impl MultiChannel {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .take()
             {
+                self.telegram_status
+                    .set(TelegramConnectionStatus::Disconnected);
                 let _ = runtime.command_tx.send(TelegramWorkerCommand::Shutdown);
                 let _ = runtime.thread_handle.join();
             }
@@ -369,6 +163,7 @@ impl MultiChannel {
         thread_handle: std::thread::JoinHandle<()>,
     ) -> Self {
         let (_sender, receiver) = mpsc::channel(1);
+        let telegram_status = TelegramStatusHandle::new(TelegramConnectionStatus::Connected);
 
         Self {
             receiver: Mutex::new(receiver),
@@ -376,7 +171,9 @@ impl MultiChannel {
             telegram_runtime: StdMutex::new(Some(TelegramRuntimeHandle {
                 command_tx,
                 thread_handle,
+                status: telegram_status.clone(),
             })),
+            telegram_status,
         }
     }
 
@@ -387,6 +184,21 @@ impl MultiChannel {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .is_some()
+    }
+
+    #[cfg(all(feature = "telegram", test))]
+    pub(crate) fn for_status_test(
+        status: TelegramConnectionStatus,
+        last_source: Option<ChannelSource>,
+    ) -> Self {
+        let (_sender, receiver) = mpsc::channel(1);
+        let telegram_status = TelegramStatusHandle::new(status);
+        Self {
+            receiver: Mutex::new(receiver),
+            last_source: Mutex::new(last_source),
+            telegram_runtime: StdMutex::new(None),
+            telegram_status,
+        }
     }
 }
 
@@ -463,6 +275,19 @@ impl Channel for MultiChannel {
                     }
                     #[cfg(feature = "telegram")]
                     ChannelSource::Telegram { chat_id } => {
+                        if !matches!(
+                            self.telegram_status(),
+                            Some(TelegramConnectionStatus::Connected)
+                        ) {
+                            let warning = "[WARN] Telegram unavailable; dropped outgoing Telegram message.".to_string();
+                            let _ = tokio::task::spawn_blocking(move || {
+                                println!("{warning}");
+                                print!("> ");
+                                std::io::stdout().flush().ok();
+                            }).await;
+                            return Ok(());
+                        }
+
                         if let Some(command_tx) = self.telegram_command_tx() {
                             command_tx
                                 .send(TelegramWorkerCommand::SendMessage {
@@ -524,6 +349,18 @@ impl Channel for MultiChannel {
 
     fn shutdown(&self) {
         self.shutdown_inner();
+    }
+
+    fn telegram_status(&self) -> Option<TelegramConnectionStatus> {
+        #[cfg(feature = "telegram")]
+        {
+            Some(self.telegram_status.snapshot())
+        }
+
+        #[cfg(not(feature = "telegram"))]
+        {
+            None
+        }
     }
 }
 

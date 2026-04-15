@@ -1,4 +1,6 @@
-use crate::dashboard::routes::build_router;
+use crate::dashboard::routes::{
+    build_router_with_status, default_telegram_status_provider, TelegramStatusProvider,
+};
 use forja_core::error::{ForjaError, Result};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
@@ -13,6 +15,7 @@ mod tests;
 pub struct DashboardServer {
     pub port: u16,
     pub db_path: PathBuf,
+    pub telegram_status: TelegramStatusProvider,
     pub handle: Option<JoinHandle<()>>,
 }
 
@@ -21,8 +24,14 @@ impl DashboardServer {
         Self {
             port,
             db_path,
+            telegram_status: default_telegram_status_provider(),
             handle: None,
         }
+    }
+
+    pub fn with_telegram_status(mut self, telegram_status: TelegramStatusProvider) -> Self {
+        self.telegram_status = telegram_status;
+        self
     }
 
     pub fn start(&mut self) -> Result<String> {
@@ -44,7 +53,7 @@ impl DashboardServer {
             .map_err(|error| ForjaError::Internal(error.to_string()))?;
         let listener = TokioTcpListener::from_std(listener)
             .map_err(|error| ForjaError::Internal(error.to_string()))?;
-        let app = build_router(self.db_path.clone());
+        let app = build_router_with_status(self.db_path.clone(), self.telegram_status.clone());
 
         self.handle = Some(tokio::spawn(async move {
             if let Err(error) = axum::serve(listener, app).await {
