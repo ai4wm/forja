@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{Datelike, Local, TimeZone};
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::MemoryStore;
 use forja_core::{Channel, Content, Engine, LlmProvider, Message, Role, ToolDefinition};
@@ -144,6 +145,8 @@ impl Channel for QueueChannel {
 async fn restart_loads_memory_md_into_engine_prompt() {
     let base_dir = unique_temp_dir("phase13f_restart");
     let memory_path = base_dir.join("memory.md");
+    let today = chrono::Local::now().date_naive();
+    let old_day = today - chrono::Duration::days(4);
 
     let initial_store = MarkdownMemoryStore::new(&memory_path).await.unwrap();
     initial_store
@@ -156,6 +159,19 @@ async fn restart_loads_memory_md_into_engine_prompt() {
             "assistant",
             "You previously said you like oolong tea.",
             120,
+        ))
+        .await
+        .unwrap();
+    initial_store
+        .save(&memory_entry(
+            "entry-3",
+            "user",
+            "Project Atlas uses Rust for the dashboard.",
+            Local
+                .with_ymd_and_hms(old_day.year(), old_day.month(), old_day.day(), 9, 0, 0)
+                .single()
+                .unwrap()
+                .timestamp() as u64,
         ))
         .await
         .unwrap();
@@ -197,9 +213,10 @@ async fn restart_loads_memory_md_into_engine_prompt() {
     assert_eq!(requests.len(), 1);
     assert!(requests[0].contains("System:You are Forja, a personal AI assistant."));
     assert!(requests[0].contains("base system prompt"));
-    assert!(requests[0].contains("[memory.md - Persistent Memory]"));
-    assert!(requests[0].contains("| user | I prefer oolong tea."));
-    assert!(requests[0].contains("| assistant | You previously said you like oolong tea."));
+    assert!(requests[0].contains("[memory - Structured Persistent Memory]"));
+    assert!(requests[0].contains("[memory index - Topic Index]"));
+    assert!(requests[0].contains("oolong tea"));
+    assert!(requests[0].contains("[memory topics - Relevant Topic Memory]"));
     assert!(requests[0].contains("User:What tea do I like?"));
 
     let _ = tokio::fs::remove_dir_all(&base_dir).await;
@@ -310,7 +327,9 @@ async fn empty_memory_md_starts_without_errors() {
     let contents = store.load_all().await.unwrap();
 
     assert_eq!(contents, "");
-    assert!(memory_path.exists());
+    assert!(base_dir.join("index.md").exists());
+    assert!(base_dir.join("topics").exists());
+    assert!(base_dir.join("daily").exists());
 
     let _ = tokio::fs::remove_dir_all(&base_dir).await;
 }

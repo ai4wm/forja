@@ -5,8 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 impl Engine {
-    pub(super) async fn refresh_turn_memory_context(&mut self, _user_msg: &Message) {
-        self.turn_memory_context = self.build_turn_memory_context().await;
+    pub(super) async fn refresh_turn_memory_context(&mut self, user_msg: &Message) {
+        self.turn_memory_context = self.build_turn_memory_context(user_msg).await;
     }
 
     pub(super) fn clear_turn_memory_context(&mut self) {
@@ -63,14 +63,50 @@ impl Engine {
         Ok(())
     }
 
-    async fn build_turn_memory_context(&self) -> Option<String> {
-        let contents = self.load_memory_contents_or_empty().await;
-        let trimmed = contents.trim();
-        if trimmed.is_empty() {
+    pub(super) async fn flush_memory_store(&self) {
+        let Some(memory) = &self.memory else {
+            return;
+        };
+
+        if let Err(error) = memory.flush().await {
+            eprintln!("[Memory] flush failed: {error}");
+        }
+    }
+
+    async fn build_turn_memory_context(&self, user_msg: &Message) -> Option<String> {
+        let Some(memory) = &self.memory else {
+            return None;
+        };
+
+        let startup = match memory.load_startup_context().await {
+            Ok(contents) => contents,
+            Err(error) => {
+                eprintln!("[Memory] load_startup_context failed: {error}");
+                String::new()
+            }
+        };
+        let relevant = match &user_msg.content {
+            Content::Text { text, .. } => match memory.load_relevant(text).await {
+                Ok(contents) => contents,
+                Err(error) => {
+                    eprintln!("[Memory] load_relevant failed: {error}");
+                    String::new()
+                }
+            },
+            _ => String::new(),
+        };
+
+        let contents = [startup.trim(), relevant.trim()]
+            .into_iter()
+            .filter(|section| !section.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        if contents.is_empty() {
             return None;
         }
 
-        Some(format_memory_context(trimmed))
+        Some(format_memory_context(&contents))
     }
 
     pub(super) async fn load_memory_contents_or_empty(&self) -> String {
@@ -90,6 +126,6 @@ impl Engine {
 
 fn format_memory_context(contents: &str) -> String {
     format!(
-        "[memory.md - Persistent Memory]\n\n## Mandatory Rules (NEVER violate)\n1. You have a rolling memory system. The records below are real past conversations.\n2. When asked \"do you remember?\", if the information exists below, answer \"Yes, I remember.\"\n3. NEVER use phrases like \"current session\", \"provided in this conversation\", or \"I cannot browse past records.\"\n4. Only say \"I don't have that in my records\" if the information is truly absent below.\n5. Do NOT downplay your memory capabilities. The records below ARE your memory.\n\n## Past conversation records:\n{contents}"
+        "[memory - Structured Persistent Memory]\n\n## Mandatory Rules (NEVER violate)\n1. You have a rolling memory system. The records below are real past conversations and durable notes.\n2. When asked \"do you remember?\", if the information exists below, answer \"Yes, I remember.\"\n3. NEVER use phrases like \"current session\", \"provided in this conversation\", or \"I cannot browse past records.\"\n4. Only say \"I don't have that in my records\" if the information is truly absent below.\n5. Do NOT downplay your memory capabilities. The records below ARE your memory.\n\n## Memory context:\n{contents}"
     )
 }

@@ -23,6 +23,13 @@ pub trait LlmProvider: Send + Sync {
 pub trait MemoryStore: Send + Sync {
     async fn save(&self, entry: &MemoryEntry) -> Result<()>;
     async fn load_all(&self) -> Result<String>;
+    async fn load_startup_context(&self) -> Result<String> {
+        self.load_all().await
+    }
+    async fn load_relevant(&self, query: &str) -> Result<String> {
+        let _ = query;
+        self.load_all().await
+    }
     async fn flush(&self) -> Result<()>;
 }
 
