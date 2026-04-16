@@ -12,7 +12,7 @@ Forja is a personal AI assistant that lives in your terminal. It remembers past 
 Connect to OpenAI, Anthropic, Google Gemini, DeepSeek, Moonshot, xAI, GLM, or local Ollama models. Switch providers and models at runtime with `/model`.
 
 **Persistent Memory**
-Rolling memory system stored in markdown. Forja remembers past conversations across restarts no "session" boundaries.
+Three-layer markdown wiki memory with `index.md`, `topics/`, and `daily/`. Forja keeps durable context across restarts and migrates legacy `memory.md` into the structured layout.
 
 **Emotion & Relationship Awareness**
 Detects emotional signals (late night work, long absence, frustration) and adjusts tone naturally.
@@ -119,21 +119,41 @@ allowed_chat_ids = [123456789]
 | `/mode <safe\|auto\|trust>` | Set execution mode |
 | `/think <min\|mid\|max>` | Set reasoning depth |
 | `/role <coder\|writer\|assistant\|analyst\|auto>` | Set role |
+| `/dashboard` | Open the local dashboard |
+| `/task add <description>` | Queue a task for autonomy mode |
+| `/task list` | List queued tasks |
+| `/task cancel <id>` | Cancel a queued task |
+| `/autonomy <start\|stop\|status>` | Control or inspect autonomy mode |
 | `/ss [prompt]` | Capture screen + Vision analysis |
 | `/image <path> [prompt]` | Analyze image file |
-| `/help` | Show available commands |
+| `/skills` | List recorded skill usage |
+| `/unresolved` | List unresolved autonomy tasks |
+
+## Memory Layout
+
+- `index.md`: topic index used for startup memory context
+- `topics/`: sharded topic notes loaded for relevant queries
+- `daily/`: recent chronological memory logs
+- Legacy `memory.md`: migrated into the structured layout on startup
 
 ## Architecture
 
 ```text
 forja/
- src/main.rs              # Entry point, onboarding, tool registration
+ src/main.rs              # Thin CLI entry point and shutdown orchestration
+ src/runtime/
+    startup.rs           # Runtime assembly, channel/memory/dashboard wiring
+    tools.rs             # Tool registration
+    slash.rs             # Slash command routing
+    shutdown.rs          # Shutdown coordination
+    prompt.rs            # System/tool/memory prompt assembly
+    mock.rs              # Mock provider support
  crates/
-    forja-core/          # Engine loop, prompt assembly, mode system
+    forja-core/          # Engine loop, autonomy, audit, gateway, mode system
     forja-llm/           # Multi-provider LLM client
-    forja-memory/        # Markdown + BM25 memory store
+    forja-memory/        # Structured markdown wiki memory store
     forja-tools/         # Shell, input, browser, vision, search tools
-    forja-channel/       # CLI and Telegram channels
+    forja-channel/       # CLI channel and supervised Telegram sidecar
 ```
 
 ## Supported Providers
@@ -151,14 +171,14 @@ Use `/models` at runtime to see all available models.
 5. Emotion context
 6. Relationship context
 7. Knowledge context
-8. Memory context (from memory.md)
+8. Memory context (from `index.md`, recent `daily/`, and relevant `topics/` shards)
 9. User global prompt: `~/.forja/USER.md`
 10. Project prompt: `AGENTS.md` `FORJA.md` `CLAUDE.md`
 
 ## Channels
 
 - **CLI**: Always available, with streaming output
-- **Telegram**: Activate with bot token. Whitelist-based access control with typing indicators.
+- **Telegram**: Supervised sidecar with whitelist-based access control, typing indicators, bounded auto-reconnect, and dashboard-visible connection status.
 
 ## License
 
