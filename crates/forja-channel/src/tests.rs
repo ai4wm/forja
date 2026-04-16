@@ -1,9 +1,17 @@
 use crate::multi::MultiChannel;
 #[cfg(feature = "telegram")]
-use crate::multi::TelegramWorkerCommand;
+use forja_core::traits::TelegramConnectionStatus;
+#[cfg(feature = "telegram")]
+use crate::telegram_supervisor::TelegramWorkerCommand;
+#[cfg(feature = "telegram")]
+use crate::multi::ChannelSource;
 #[cfg(feature = "telegram")]
 use crate::telegram::TelegramChannel;
+#[cfg(feature = "telegram")]
+use crate::telegram_supervisor::reconnect_backoff_secs;
 use forja_core::Channel;
+#[cfg(feature = "telegram")]
+use forja_core::{Message, Role};
 #[cfg(feature = "telegram")]
 use teloxide::{dispatching::Dispatcher, dptree, Bot, RequestError};
 #[cfg(feature = "telegram")]
@@ -65,6 +73,7 @@ async fn test_multichannel_shutdown() {
 
     assert!(!channel.has_telegram_runtime_for_test());
     assert!(finished.load(Ordering::SeqCst));
+    assert_eq!(channel.telegram_status(), Some(TelegramConnectionStatus::Disconnected));
 }
 
 #[tokio::test]
@@ -72,6 +81,39 @@ async fn test_multichannel_new_without_telegram_starts_in_cli_mode() {
     let channel = MultiChannel::new(None, Vec::new()).await;
 
     assert!(channel.is_cli_source());
+    #[cfg(feature = "telegram")]
+    assert_eq!(
+        channel.telegram_status(),
+        Some(TelegramConnectionStatus::Disconnected)
+    );
+    #[cfg(not(feature = "telegram"))]
+    assert_eq!(channel.telegram_status(), None);
 
     channel.shutdown();
+}
+
+#[cfg(feature = "telegram")]
+#[test]
+fn test_reconnect_backoff_caps_at_thirty_seconds() {
+    assert_eq!(reconnect_backoff_secs(1), 1);
+    assert_eq!(reconnect_backoff_secs(2), 2);
+    assert_eq!(reconnect_backoff_secs(3), 4);
+    assert_eq!(reconnect_backoff_secs(4), 8);
+    assert_eq!(reconnect_backoff_secs(5), 16);
+    assert_eq!(reconnect_backoff_secs(6), 30);
+    assert_eq!(reconnect_backoff_secs(7), 30);
+}
+
+#[cfg(feature = "telegram")]
+#[tokio::test]
+async fn test_multichannel_send_drops_telegram_messages_when_disconnected() {
+    let channel = MultiChannel::for_status_test(
+        TelegramConnectionStatus::Disconnected,
+        Some(ChannelSource::Telegram { chat_id: 123 }),
+    );
+
+    channel
+        .send(Message::text(Role::Assistant, "reply", None))
+        .await
+        .unwrap();
 }

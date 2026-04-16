@@ -1,5 +1,7 @@
 pub mod cli;
 pub mod multi;
+#[cfg(feature = "telegram")]
+pub(crate) mod telegram_supervisor;
 
 // Optional Channels
 #[cfg(feature = "telegram")]

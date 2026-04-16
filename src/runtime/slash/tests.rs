@@ -92,3 +92,39 @@ fn slash_handler_updates_mode_state_and_shared_exec_mode() {
     assert_eq!(mode_state.exec_mode, ExecMode::Trust);
     assert_eq!(*exec_mode_handle.lock().unwrap(), ExecMode::Trust);
 }
+
+#[test]
+fn slash_handler_routes_task_add_as_task_command() {
+    let (handler, _, mut provider, mut mode_state) = test_handler();
+    let result = handler("/task add SPEC-RUNTIME-001", &mut provider, &mut mode_state);
+
+    assert!(matches!(
+        result,
+        Some(forja_core::engine::SlashCommandResult::Task { description })
+            if description == "add SPEC-RUNTIME-001"
+    ));
+}
+
+#[test]
+fn slash_handler_routes_task_list_to_reply_until_engine_supports_it() {
+    let (handler, _, mut provider, mut mode_state) = test_handler();
+    let result = handler("/task list", &mut provider, &mut mode_state);
+
+    assert!(matches!(
+        result,
+        Some(forja_core::engine::SlashCommandResult::Task { description })
+            if description == "list"
+    ));
+}
+
+#[test]
+fn slash_handler_routes_autonomy_status_to_reply_until_engine_supports_it() {
+    let (handler, _, mut provider, mut mode_state) = test_handler();
+    let result = handler("/autonomy status", &mut provider, &mut mode_state);
+
+    assert!(matches!(
+        result,
+        Some(forja_core::engine::SlashCommandResult::AutonomyCommand { command })
+            if command == "status"
+    ));
+}

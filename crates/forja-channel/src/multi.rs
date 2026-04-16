@@ -28,6 +28,8 @@ pub struct MultiChannel {
     telegram_runtime: StdMutex<Option<TelegramRuntimeHandle>>,
     #[cfg(feature = "telegram")]
     telegram_status: TelegramStatusHandle,
+    #[cfg(feature = "telegram")]
+    notification_chat_ids: Vec<i64>,
 }
 
 impl MultiChannel {
@@ -63,7 +65,8 @@ impl MultiChannel {
 
         #[cfg(feature = "telegram")]
         let (telegram_runtime, telegram_status) = if let Some(bot_token) = bot_token {
-            let runtime_handle = start_telegram_supervisor(bot_token, allowed_chat_ids, tx.clone());
+            let runtime_handle =
+                start_telegram_supervisor(bot_token, allowed_chat_ids.clone(), tx.clone());
             let status = runtime_handle.status.clone();
             (Some(runtime_handle), status)
         } else {
@@ -83,6 +86,8 @@ impl MultiChannel {
             telegram_runtime: StdMutex::new(telegram_runtime),
             #[cfg(feature = "telegram")]
             telegram_status,
+            #[cfg(feature = "telegram")]
+            notification_chat_ids: allowed_chat_ids,
         }
     }
 
@@ -174,6 +179,7 @@ impl MultiChannel {
                 status: telegram_status.clone(),
             })),
             telegram_status,
+            notification_chat_ids: Vec::new(),
         }
     }
 
@@ -198,6 +204,7 @@ impl MultiChannel {
             last_source: Mutex::new(last_source),
             telegram_runtime: StdMutex::new(None),
             telegram_status,
+            notification_chat_ids: Vec::new(),
         }
     }
 }
@@ -344,6 +351,45 @@ impl Channel for MultiChannel {
                 std::io::stdout().flush().ok();
             })
             .await;
+        }
+    }
+
+    async fn send_notification(&self, text: &str) -> forja_core::error::Result<bool> {
+        #[cfg(feature = "telegram")]
+        {
+            if !matches!(
+                self.telegram_status(),
+                Some(TelegramConnectionStatus::Connected)
+            ) {
+                return Ok(false);
+            }
+
+            let Some(command_tx) = self.telegram_command_tx() else {
+                return Ok(false);
+            };
+
+            let mut delivered = false;
+            for chat_id in &self.notification_chat_ids {
+                command_tx
+                    .send(TelegramWorkerCommand::SendMessage {
+                        chat_id: *chat_id,
+                        text: text.to_string(),
+                    })
+                    .map_err(|_| {
+                        forja_core::error::ForjaError::ChannelError(
+                            "Telegram worker command channel closed".to_string(),
+                        )
+                    })?;
+                delivered = true;
+            }
+
+            return Ok(delivered);
+        }
+
+        #[cfg(not(feature = "telegram"))]
+        {
+            let _ = text;
+            Ok(false)
         }
     }
 

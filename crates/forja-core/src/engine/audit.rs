@@ -89,16 +89,6 @@ impl Engine {
         );
     }
 
-    pub(super) fn log_autonomy_note(&self, event_type: &str, tool_name: &str) {
-        self.log_audit_event(
-            event_type,
-            serde_json::json!({
-                "tool_name": tool_name,
-            }),
-            0,
-        );
-    }
-
     fn log_audit_event(&self, event_type: &str, payload: Value, token_count: usize) {
         let Some(audit_logger) = &self.audit_logger else {
             return;

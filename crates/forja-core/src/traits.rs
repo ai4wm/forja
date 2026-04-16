@@ -1,6 +1,7 @@
 use crate::error::Result;
 use crate::types::{MemoryEntry, Message, ToolDefinition};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use std::pin::Pin;
 use tokio_stream::Stream;
 
@@ -33,6 +34,13 @@ pub trait MemoryStore: Send + Sync {
     async fn flush(&self) -> Result<()>;
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TelegramConnectionStatus {
+    Connected,
+    Disconnected,
+    Reconnecting,
+}
+
 /// Input/output channel implemented in forja-channel, such as CLI or Telegram.
 ///
 /// # Design note: `&self` vs `&mut self`
@@ -55,6 +63,15 @@ pub trait Channel: Send + Sync {
     /// Print a CLI/log line after clearing transient typing UI such as spinners.
     async fn log_line(&self, text: &str) {
         let _ = text;
+    }
+
+    async fn send_notification(&self, text: &str) -> Result<bool> {
+        let _ = text;
+        Ok(false)
+    }
+
+    fn telegram_status(&self) -> Option<TelegramConnectionStatus> {
+        None
     }
 }
 

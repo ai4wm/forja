@@ -51,6 +51,7 @@ pub enum SlashCommandResult {
     Debate { topic: String },
     Dashboard,
     Task { description: String },
+    AutonomyCommand { command: String },
     Skills,
     Unresolved,
     UpdateSystemPrompt {
@@ -519,6 +520,11 @@ impl Engine {
                             }
                             SlashCommandResult::Task { description } => {
                                 let reply = self.handle_task_command(&description)?;
+                                let reply_msg = Message::text(Role::Assistant, &reply, None);
+                                let _ = self.channel.send(reply_msg).await;
+                            }
+                            SlashCommandResult::AutonomyCommand { command } => {
+                                let reply = self.handle_autonomy_command(&command)?;
                                 let reply_msg = Message::text(Role::Assistant, &reply, None);
                                 let _ = self.channel.send(reply_msg).await;
                             }
