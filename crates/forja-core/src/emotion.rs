@@ -4,6 +4,73 @@ use crate::types::{Content, Message, Role};
 use chrono::{DateTime, Duration, Local, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike};
 use serde::Deserialize;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MoodKey {
+    Neutral,
+    Happy,
+    Focused,
+    Concerned,
+    Excited,
+}
+
+impl MoodKey {
+    fn from_str(value: &str) -> Option<Self> {
+        match value.trim().to_lowercase().as_str() {
+            "neutral" => Some(Self::Neutral),
+            "happy" => Some(Self::Happy),
+            "focused" => Some(Self::Focused),
+            "concerned" => Some(Self::Concerned),
+            "excited" => Some(Self::Excited),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Neutral => "neutral",
+            Self::Happy => "happy",
+            Self::Focused => "focused",
+            Self::Concerned => "concerned",
+            Self::Excited => "excited",
+        }
+    }
+
+    fn default_tone_instruction(self, intensity: u8) -> String {
+        match self {
+            Self::Happy => {
+                if intensity >= 4 {
+                    "Reply in a bright, confident tone that shares the user's excitement.".to_string()
+                } else {
+                    "Reply in a gentle, positive tone.".to_string()
+                }
+            }
+            Self::Focused => "Reply in a concise, execution-focused tone.".to_string(),
+            Self::Concerned => "Reply in a calm, reassuring tone.".to_string(),
+            Self::Excited => "Reply in an energetic, momentum-building tone.".to_string(),
+            Self::Neutral => "Reply in a balanced, respectful tone.".to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelationshipSignal {
+    LateNightDetected,
+    LongAbsenceDetected,
+    ProgressStreakDetected,
+    ErrorStreakDetected,
+}
+
+impl RelationshipSignal {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::LateNightDetected => "late_night_detected",
+            Self::LongAbsenceDetected => "long_absence_detected",
+            Self::ProgressStreakDetected => "progress_streak_detected",
+            Self::ErrorStreakDetected => "error_streak_detected",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MoodState {
     pub mood: String,
@@ -15,10 +82,10 @@ pub struct MoodState {
 
 impl MoodState {
     pub fn neutral() -> Self {
-        let mood = "neutral".to_string();
+        let mood = MoodKey::Neutral.as_str().to_string();
         let intensity = 1;
         Self {
-            tone_instruction: default_tone_instruction(&mood, intensity),
+            tone_instruction: MoodKey::Neutral.default_tone_instruction(intensity),
             mood,
             intensity,
             reason: "neutral".to_string(),
@@ -37,21 +104,31 @@ impl MoodState {
         let (_, rest) = line.split_once("[mood:")?;
         let payload = rest.split(']').next()?;
         let mut parts = payload.splitn(4, ':');
-        let mood = parts.next()?.trim().to_lowercase();
+        let (mood, mood_key) = parse_mood_value(parts.next()?)?;
         let intensity = parts.next()?.trim().parse::<u8>().ok()?.clamp(1, 5);
         let reason = parts.next()?.trim().to_string();
 
-        if mood.is_empty() || reason.is_empty() {
+        if reason.is_empty() {
             return None;
         }
 
         Some(Self {
-            tone_instruction: default_tone_instruction(&mood, intensity),
+            tone_instruction: default_tone_instruction(mood_key, intensity),
             mood,
             intensity,
             reason,
             updated_at: Local::now(),
         })
+    }
+
+    pub fn tone_section(&self) -> String {
+        format!("[tone]\n{}", self.tone_instruction)
+    }
+
+    pub fn has_changed_from(&self, previous: &Self) -> bool {
+        previous.mood != self.mood
+            || previous.intensity != self.intensity
+            || previous.reason != self.reason
     }
 }
 
@@ -98,15 +175,17 @@ impl EmotionEngine {
             Ok(parsed) => parsed,
             Err(_) => return Ok(previous),
         };
-        let mood = sanitize_tag_part(&parsed.mood).to_lowercase();
+        let Some((mood, mood_key)) = parse_mood_value(&parsed.mood) else {
+            return Ok(previous);
+        };
         let reason = sanitize_tag_part(&parsed.reason);
 
-        if mood.is_empty() || reason.is_empty() {
+        if reason.is_empty() {
             return Ok(previous);
         }
 
         let next = MoodState {
-            tone_instruction: normalize_tone_instruction(&parsed.tone_instruction, &mood, parsed.intensity),
+            tone_instruction: normalize_tone_instruction(&parsed.tone_instruction, mood_key, parsed.intensity),
             mood,
             intensity: parsed.intensity.clamp(1, 5),
             reason,
@@ -145,29 +224,63 @@ impl EmotionEngine {
 pub struct RelationshipContext;
 
 impl RelationshipContext {
-    pub fn detect_patterns(memory_content: &str) -> Vec<String> {
+    pub fn detect_pattern_keys(memory_content: &str) -> Vec<RelationshipSignal> {
         let entries = parse_memory_entries(memory_content);
         let mut patterns = Vec::new();
 
-        if has_late_night_streak(&entries) {
-            patterns.push("late_night_detected".to_string());
-        }
+        push_pattern_if(
+            &mut patterns,
+            has_late_night_streak(&entries),
+            RelationshipSignal::LateNightDetected,
+        );
 
-        if let Some(last_timestamp) = entries.iter().filter_map(|entry| entry.timestamp).next_back()
-            && Local::now().signed_duration_since(last_timestamp) >= Duration::days(3)
-        {
-            patterns.push("long_absence_detected".to_string());
-        }
+        push_pattern_if(
+            &mut patterns,
+            entries
+                .iter()
+                .filter_map(|entry| entry.timestamp)
+                .next_back()
+                .is_some_and(|last_timestamp| {
+                    Local::now().signed_duration_since(last_timestamp) >= Duration::days(3)
+                }),
+            RelationshipSignal::LongAbsenceDetected,
+        );
 
-        if has_progress_streak(&entries) {
-            patterns.push("progress_streak_detected".to_string());
-        }
-
-        if has_error_streak(&entries) {
-            patterns.push("error_streak_detected".to_string());
-        }
+        push_pattern_if(
+            &mut patterns,
+            has_progress_streak(&entries),
+            RelationshipSignal::ProgressStreakDetected,
+        );
+        push_pattern_if(
+            &mut patterns,
+            has_error_streak(&entries),
+            RelationshipSignal::ErrorStreakDetected,
+        );
 
         patterns
+    }
+
+    pub fn detect_patterns(memory_content: &str) -> Vec<String> {
+        Self::detect_pattern_keys(memory_content)
+            .into_iter()
+            .map(|pattern| pattern.as_str().to_string())
+            .collect()
+    }
+
+    pub fn build_context(memory_content: &str) -> Option<String> {
+        let patterns = Self::detect_pattern_keys(memory_content);
+        if patterns.is_empty() {
+            return None;
+        }
+
+        Some(format!(
+            "[relationship]\n{}",
+            patterns
+                .into_iter()
+                .map(RelationshipSignal::as_str)
+                .collect::<Vec<_>>()
+                .join("\n")
+        ))
     }
 }
 
@@ -305,6 +418,15 @@ Recent conversation:\n\
     )
 }
 
+fn parse_mood_value(value: &str) -> Option<(String, Option<MoodKey>)> {
+    let mood = sanitize_tag_part(value).to_lowercase();
+    if mood.is_empty() {
+        return None;
+    }
+
+    Some((mood.clone(), MoodKey::from_str(&mood)))
+}
+
 fn sanitize_tag_part(value: &str) -> String {
     value
         .chars()
@@ -318,29 +440,23 @@ fn sanitize_tag_part(value: &str) -> String {
         .join(" ")
 }
 
-fn normalize_tone_instruction(value: &str, mood: &str, intensity: u8) -> String {
+fn normalize_tone_instruction(
+    value: &str,
+    mood_key: Option<MoodKey>,
+    intensity: u8,
+) -> String {
     let normalized = sanitize_tag_part(value);
     if normalized.is_empty() {
-        return default_tone_instruction(mood, intensity);
+        return default_tone_instruction(mood_key, intensity);
     }
 
     normalized
 }
 
-fn default_tone_instruction(mood: &str, intensity: u8) -> String {
-    match mood {
-        "happy" => {
-            if intensity >= 4 {
-                "Reply in a bright, confident tone that shares the user's excitement.".to_string()
-            } else {
-                "Reply in a gentle, positive tone.".to_string()
-            }
-        }
-        "focused" => "Reply in a concise, execution-focused tone.".to_string(),
-        "concerned" => "Reply in a calm, reassuring tone.".to_string(),
-        "excited" => "Reply in an energetic, momentum-building tone.".to_string(),
-        _ => "Reply in a balanced, respectful tone.".to_string(),
-    }
+fn default_tone_instruction(mood_key: Option<MoodKey>, intensity: u8) -> String {
+    mood_key
+        .unwrap_or(MoodKey::Neutral)
+        .default_tone_instruction(intensity)
 }
 
 fn parse_memory_entries(memory_content: &str) -> Vec<MemoryEntryView> {
@@ -408,6 +524,16 @@ fn has_keyword_streak(entries: &[MemoryEntryView], keywords: &[&str], minimum_st
     }
 
     false
+}
+
+fn push_pattern_if(
+    patterns: &mut Vec<RelationshipSignal>,
+    condition: bool,
+    pattern: RelationshipSignal,
+) {
+    if condition {
+        patterns.push(pattern);
+    }
 }
 
 fn is_late_night_entry(timestamp: DateTime<Local>) -> bool {

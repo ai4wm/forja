@@ -1,9 +1,10 @@
 use forja_core::mode::{
     detect_image_path, detect_role, parse_image_command, parse_screenshot_command,
-    parse_slash_command, ExecMode, ModeState, Role, SlashCommand, ThinkLevel,
+    parse_natural_language_command, parse_slash_command, ExecMode, ModeState, Role,
+    SlashCommand, ThinkLevel,
 };
 use forja_core::prompt::base::base_prompt;
-use forja_core::prompt::assemble_system_prompt;
+use forja_core::prompt::{assemble_system_prompt, join_prompt_sections};
 use forja_core::prompt::think::think_prompt;
 use forja_tools::confirm::StdinConfirmation;
 
@@ -188,6 +189,20 @@ fn assemble_system_prompt_respects_section_order() {
 }
 
 #[test]
+fn join_prompt_sections_skips_empty_values() {
+    let joined = join_prompt_sections(["alpha", "", "  ", "beta"], "\n\n");
+
+    assert_eq!(joined, "alpha\n\nbeta");
+}
+
+#[test]
+fn mode_labels_come_from_core_state_types() {
+    assert_eq!(ExecMode::Safe.as_str(), "safe");
+    assert_eq!(ThinkLevel::Max.as_str(), "max");
+    assert_eq!(Role::Assistant.as_str(), "assistant");
+}
+
+#[test]
 fn exec_mode_safe_triggers_confirmation_for_safe_commands() {
     let confirmation = StdinConfirmation::new(ExecMode::Safe);
 
@@ -308,4 +323,46 @@ fn parse_image_command_splits_path_and_prompt() {
 
     assert_eq!(parsed.0.to_string_lossy(), r#"C:\my folder\img.png"#);
     assert_eq!(parsed.1, "explain this");
+}
+
+#[test]
+fn parse_natural_language_command_maps_korean_mode_request() {
+    let mapped = parse_natural_language_command("자동 모드로 바꿔줘");
+
+    assert_eq!(
+        mapped,
+        Some(forja_core::mode::NaturalLanguageCommand::Mode(ExecMode::Auto))
+    );
+}
+
+#[test]
+fn parse_natural_language_command_maps_english_think_request() {
+    let mapped = parse_natural_language_command("think deeply");
+
+    assert_eq!(
+        mapped,
+        Some(forja_core::mode::NaturalLanguageCommand::Think(ThinkLevel::Max))
+    );
+}
+
+#[test]
+fn parse_natural_language_command_maps_korean_role_request() {
+    let mapped = parse_natural_language_command("코더 역할로 해줘");
+
+    assert_eq!(
+        mapped,
+        Some(forja_core::mode::NaturalLanguageCommand::Role(Role::Coder))
+    );
+}
+
+#[test]
+fn parse_natural_language_command_maps_model_request() {
+    let mapped = parse_natural_language_command("llama3 모델로 바꿔줘");
+
+    assert_eq!(
+        mapped,
+        Some(forja_core::mode::NaturalLanguageCommand::Model(
+            "llama3".to_string()
+        ))
+    );
 }

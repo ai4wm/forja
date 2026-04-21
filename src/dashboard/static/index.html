@@ -188,6 +188,9 @@
       <button class="tab-button" data-tab="debates">Debates</button>
       <button class="tab-button" data-tab="budget">Budget</button>
       <button class="tab-button" data-tab="tasks">Tasks</button>
+      <button class="tab-button" data-tab="history">History</button>
+      <button class="tab-button" data-tab="tools">Tools</button>
+      <button class="tab-button" data-tab="memory">Memory</button>
     </div>
   </header>
 
@@ -254,6 +257,23 @@
         </div>
       </div>
     </section>
+
+    <section id="tab-history" class="panel hidden">
+      <div class="muted" style="margin-bottom:10px;">세션 히스토리</div>
+      <div id="history-list" class="debate-list"></div>
+    </section>
+
+    <section id="tab-tools" class="panel hidden">
+      <div class="muted" style="margin-bottom:10px;">도구 실행 로그</div>
+      <div id="tools-list" class="debate-list"></div>
+    </section>
+
+    <section id="tab-memory" class="panel hidden">
+      <div class="muted" style="margin-bottom:10px;">메모리 상태</div>
+      <div id="memory-state" class="debate-list"></div>
+      <div class="muted" style="margin:16px 0 10px;">실시간 이벤트</div>
+      <div id="event-stream" class="debate-list"></div>
+    </section>
   </main>
 
   <script>
@@ -262,7 +282,10 @@
       audit: document.getElementById("tab-audit"),
       debates: document.getElementById("tab-debates"),
       budget: document.getElementById("tab-budget"),
-      tasks: document.getElementById("tab-tasks")
+      tasks: document.getElementById("tab-tasks"),
+      history: document.getElementById("tab-history"),
+      tools: document.getElementById("tab-tools"),
+      memory: document.getElementById("tab-memory")
     };
 
     tabs.forEach((button) => {
@@ -410,6 +433,39 @@
       `).join("");
     }
 
+    async function loadHistory() {
+      const rows = await fetchJson("/api/history");
+      const list = document.getElementById("history-list");
+      list.innerHTML = rows.map((row) => `
+        <div class="debate-item">
+          <div><strong>${row.timestamp}</strong></div>
+          <div class="muted">${row.event_type}</div>
+          <pre>${JSON.stringify(row.payload, null, 2)}</pre>
+        </div>
+      `).join("");
+    }
+
+    async function loadTools() {
+      const rows = await fetchJson("/api/tools");
+      const list = document.getElementById("tools-list");
+      list.innerHTML = rows.map((row) => `
+        <div class="debate-item">
+          <div><strong>${row.timestamp}</strong></div>
+          <div class="muted">${row.tool_name}</div>
+          <pre>${JSON.stringify(row.payload, null, 2)}</pre>
+        </div>
+      `).join("");
+    }
+
+    async function loadMemory() {
+      const state = await fetchJson("/api/memory");
+      const container = document.getElementById("memory-state");
+      container.innerHTML = `
+        <div class="debate-item"><strong>memory_entries</strong><div>${state.memory_entries}</div></div>
+        <div class="debate-item"><strong>memory_summaries</strong><div>${state.memory_summaries}</div></div>
+      `;
+    }
+
     async function loadChannelStatus() {
       const status = await fetchJson("/api/channel-status");
       document.getElementById("telegram-status").textContent = `Telegram: ${status.telegram}`;
@@ -417,7 +473,16 @@
 
     async function refreshAll() {
       try {
-        await Promise.all([loadAudit(), loadDebates(), loadBudget(), loadTasks(), loadChannelStatus()]);
+        await Promise.all([
+          loadAudit(),
+          loadDebates(),
+          loadBudget(),
+          loadTasks(),
+          loadHistory(),
+          loadTools(),
+          loadMemory(),
+          loadChannelStatus()
+        ]);
       } catch (error) {
         console.error(error);
       }
@@ -427,6 +492,17 @@
     document.getElementById("audit-limit").addEventListener("change", loadAudit);
 
     refreshAll();
+    const eventList = document.getElementById("event-stream");
+    const events = new EventSource("/api/events");
+    events.onmessage = (event) => {
+      const item = document.createElement("div");
+      item.className = "debate-item";
+      item.innerHTML = `<pre>${event.data}</pre>`;
+      eventList.prepend(item);
+      while (eventList.children.length > 20) {
+        eventList.removeChild(eventList.lastChild);
+      }
+    };
     setInterval(refreshAll, 5000);
   </script>
 </body>

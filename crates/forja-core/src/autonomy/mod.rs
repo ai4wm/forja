@@ -3,7 +3,11 @@ pub mod skills;
 pub mod task_store;
 pub mod unresolved;
 
+use crate::traits::LlmProvider;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+pub type CloudEscalationConfirmer = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AutonomyConfig {
@@ -86,6 +90,23 @@ pub struct AutonomyStatusSummary {
 pub enum AutonomyAction {
     ExecuteTask { task: Box<QueuedTask> },
     QueueEmpty,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutonomyTarget {
+    pub provider: String,
+    pub model: String,
+    pub label: String,
+    pub local: bool,
+}
+
+#[derive(Clone)]
+pub struct AutonomyExecutionRuntime {
+    pub local_monitor: Option<Arc<dyn LlmProvider>>,
+    pub local_target: Option<AutonomyTarget>,
+    pub cloud_target: Option<AutonomyTarget>,
+    pub cloud_escalation_requires_confirmation: bool,
+    pub cloud_escalation_confirmer: Option<CloudEscalationConfirmer>,
 }
 
 #[cfg(test)]

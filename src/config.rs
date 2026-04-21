@@ -1,4 +1,5 @@
 use forja_llm::{presets, LlmConfig};
+use crate::local_models::{discover_local_models, llama_cpp_base_url, resolve_local_model, LOCAL_PROVIDER};
 use crate::provider_registry::MODEL_TABLE;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -20,6 +21,10 @@ pub struct ForjaConfig {
     pub creation: CreationSection,
     #[serde(default)]
     pub autonomy: AutonomySection,
+    #[serde(default)]
+    pub dream: DreamSection,
+    #[serde(default)]
+    pub notification: NotificationSection,
     #[serde(default)]
     pub dashboard: DashboardSection,
     #[serde(default)]
@@ -144,6 +149,46 @@ impl Default for AutonomySection {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct DreamSection {
+    pub enabled: bool,
+    pub idle_threshold_secs: u64,
+    pub shutdown_threshold_secs: u64,
+}
+
+impl Default for DreamSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            idle_threshold_secs: 300,
+            shutdown_threshold_secs: 3600,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct NotificationSection {
+    pub enabled: bool,
+    pub min_level: String,
+    pub notify_tasks: bool,
+    pub notify_autonomy: bool,
+    pub notify_skills: bool,
+    pub notify_errors: bool,
+}
+
+impl Default for NotificationSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_level: "info".to_string(),
+            notify_tasks: true,
+            notify_autonomy: true,
+            notify_skills: true,
+            notify_errors: true,
+        }
+    }
+}
+
 impl Default for CreationSection {
     fn default() -> Self {
         Self {
@@ -200,6 +245,17 @@ pub fn load_config() -> ForjaConfig {
     if let Ok(v) = std::env::var("FORJA_BUDGET_MODE") {
         config.agent.budget_mode = Some(v);
     }
+    if let Ok(v) = std::env::var("FORJA_DREAM_ENABLED") {
+        config.dream.enabled = matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on");
+    }
+    if let Ok(v) = std::env::var("FORJA_DREAM_IDLE_SECS")
+        && let Ok(parsed) = v.parse::<u64>() {
+            config.dream.idle_threshold_secs = parsed;
+        }
+    if let Ok(v) = std::env::var("FORJA_DREAM_SHUTDOWN_SECS")
+        && let Ok(parsed) = v.parse::<u64>() {
+            config.dream.shutdown_threshold_secs = parsed;
+        }
 
     // API key environment override for the current provider
     if let Ok(key) = std::env::var("FORJA_API_KEY")
@@ -242,10 +298,14 @@ const PROVIDERS: &[(&str, &str)] = &[
     ("moonshot",     "Moonshot (Kimi)"),
     ("xai",          "xAI (Grok)"),
     ("ollama",       "Ollama (local, no API key required)"),
+    ("llama_cpp",    "llama.cpp (local GGUF, no API key required)"),
 ];
 
 /// Model list by provider: (model_id, label)
 pub fn models_for(provider: &str) -> Vec<(&'static str, &'static str)> {
+    if provider == LOCAL_PROVIDER {
+        return Vec::new();
+    }
     MODEL_TABLE
         .iter()
         .filter(|e| e.provider == provider)
@@ -301,7 +361,7 @@ pub fn run_setup() -> ForjaConfig {
         let (pkey, plabel) = PROVIDERS[sel];
 
         // Select authentication method (skip for Ollama)
-        if pkey == "ollama" {
+        if pkey == "ollama" || pkey == LOCAL_PROVIDER {
             println!("  ✅ {} configured (no API key required)", plabel);
         } else if pkey == "openai_oauth" || pkey == "gemini_oauth" {
             // OAuth-only path: open browser login immediately
@@ -363,9 +423,10 @@ pub fn run_setup() -> ForjaConfig {
 
     // 2. Choose the default model
     let auth_data = crate::oauth::AuthData::load();
-    let registered_models: Vec<(&str, &str, &str)> = PROVIDERS.iter()
+    let mut registered_models: Vec<(String, String, String)> = PROVIDERS.iter()
         .filter(|(k, _)| {
             *k == "ollama"
+            || *k == LOCAL_PROVIDER && crate::local_models::has_local_models()
             || config.keys.get_for(k).is_some()
             || match *k {
                 "openai" | "openai_oauth" => auth_data.openai.is_some(),
@@ -374,15 +435,29 @@ pub fn run_setup() -> ForjaConfig {
                 _ => false,
             }
         })
-        .flat_map(|(k, _)| models_for(k).into_iter().map(|(id, label)| (*k, id, label)).collect::<Vec<_>>())
+        .flat_map(|(k, _)| {
+            models_for(k)
+                .into_iter()
+                .map(|(id, label)| (k.to_string(), id.to_string(), label.to_string()))
+                .collect::<Vec<_>>()
+        })
         .collect();
+    if crate::local_models::has_local_models() {
+        registered_models.extend(
+            discover_local_models()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|model| (LOCAL_PROVIDER.to_string(), model.model_id, model.display_name)),
+        );
+    }
 
     if registered_models.is_empty() {
         println!("\n⚠️  No providers are configured. Saving without a default model.");
     } else {
-        let model_items: Vec<String> = registered_models.iter().map(|(prov, id, label)| {
-            format!("[{}] {} — {}", prov, label, id)
-        }).collect();
+        let model_items: Vec<String> = registered_models
+            .iter()
+            .map(|(prov, id, label)| format!("[{}] {} — {}", prov, label, id))
+            .collect();
 
         println!();
         let sel = Select::with_theme(&theme)
@@ -393,9 +468,9 @@ pub fn run_setup() -> ForjaConfig {
             .unwrap_or(None);
 
         if let Some(i) = sel {
-            let (prov, model_id, label) = registered_models[i];
-            config.active.provider = Some(prov.to_string());
-            config.active.model    = Some(model_id.to_string());
+            let (prov, model_id, label) = &registered_models[i];
+            config.active.provider = Some(prov.clone());
+            config.active.model = Some(model_id.clone());
             println!("  ★ Default model: {} — {}", label, model_id);
         }
     }
@@ -437,7 +512,7 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
     let provider = cfg.active.provider.as_deref().unwrap_or("moonshot");
     let mut api_key = cfg.keys.get_for(provider).unwrap_or_default();
 
-    if api_key.is_empty() && provider != "ollama" {
+    if api_key.is_empty() && provider != "ollama" && provider != LOCAL_PROVIDER {
         let auth = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(
                 crate::oauth::AuthData::refresh_token_if_needed(provider)
@@ -484,6 +559,19 @@ pub fn llm_config_from(cfg: &ForjaConfig) -> Result<LlmConfig, String> {
         "xai"         => presets::xai(&api_key),
         "xai_mini"    => presets::xai_mini(&api_key),
         "ollama"      => presets::ollama(cfg.active.model.as_deref().unwrap_or("qwen3.5:9b")),
+        "llama_cpp"   => {
+            let model_id = cfg.active.model.as_deref().ok_or_else(|| {
+                "A local llama.cpp model must be selected before the provider can start.".to_string()
+            })?;
+            let local_model = resolve_local_model(model_id)
+                .map_err(|error| error.to_string())?
+                .ok_or_else(|| format!("Local model '{}' was not found under ~/.forja/models", model_id))?;
+            presets::llama_cpp(
+                &local_model.model_id,
+                &llama_cpp_base_url(&local_model.model_id),
+                &local_model.path,
+            )
+        }
         other         => return Err(format!("Unknown provider: {}", other)),
     };
 
@@ -503,12 +591,52 @@ pub fn provider_info(cfg: &ForjaConfig) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::DashboardSection;
+    use super::{llm_config_from, ActiveSection, DashboardSection, ForjaConfig};
+    use std::fs;
 
     #[test]
     fn dashboard_default_port_is_3700() {
         let dashboard = DashboardSection::default();
         assert_eq!(dashboard.port, 3700);
+    }
+
+    #[test]
+    fn llama_cpp_config_resolves_local_model_file() {
+        let _guard = crate::test_support::env_lock().lock().unwrap();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "forja_llama_cpp_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let model_dir = temp_dir.join(".forja").join("models").join("owner--repo");
+        fs::create_dir_all(&model_dir).unwrap();
+        fs::write(model_dir.join("tiny.gguf"), b"model").unwrap();
+
+        let original = std::env::var("FORJA_HOME_DIR").ok();
+        unsafe {
+            std::env::set_var("FORJA_HOME_DIR", &temp_dir);
+        }
+
+        let mut cfg = ForjaConfig::default();
+        cfg.active = ActiveSection {
+            provider: Some("llama_cpp".to_string()),
+            model: Some("owner--repo/tiny.gguf".to_string()),
+        };
+
+        let llm_config = llm_config_from(&cfg).unwrap();
+
+        assert!(llm_config.manage_local_server);
+        assert!(llm_config.local_model_path.is_some());
+        assert_eq!(llm_config.model, "owner--repo/tiny.gguf");
+
+        if let Some(original) = original {
+            unsafe { std::env::set_var("FORJA_HOME_DIR", original) };
+        } else {
+            unsafe { std::env::remove_var("FORJA_HOME_DIR") };
+        }
+        let _ = fs::remove_dir_all(temp_dir);
     }
 }
 

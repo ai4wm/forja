@@ -7,6 +7,8 @@ use forja_core::traits::LlmProvider;
 use forja_core::types::{Content, Message, Role, ToolDefinition};
 use reqwest::header::{HeaderMap, HeaderValue};
 use std::pin::Pin;
+use std::process::Command;
+use std::time::Duration;
 use tokio_stream::Stream;
 
 /// Generic LlmClient using the OpenAI Chat Completions format.
@@ -303,11 +305,76 @@ impl LlmClient {
         
         payload
     }
+
+    async fn ensure_local_server_ready(&self) -> Result<()> {
+        if !self.config.manage_local_server {
+            return Ok(());
+        }
+
+        let Some(model_path) = &self.config.local_model_path else {
+            return Ok(());
+        };
+
+        if self.local_server_is_ready().await {
+            return Ok(());
+        }
+
+        let url = url::Url::parse(&self.config.base_url)
+            .map_err(|error| ForjaError::Internal(format!("Invalid llama.cpp base URL: {error}")))?;
+        let host = url.host_str().unwrap_or("127.0.0.1").to_string();
+        let port = url.port_or_known_default().unwrap_or(8080);
+        let executable = std::env::var("FORJA_LLAMA_CPP_SERVER")
+            .unwrap_or_else(|_| "llama-server".to_string());
+        let ctx_size = std::env::var("FORJA_LLAMA_CPP_CTX_SIZE")
+            .unwrap_or_else(|_| "8192".to_string());
+
+        Command::new(&executable)
+            .arg("-m")
+            .arg(model_path)
+            .arg("--host")
+            .arg(&host)
+            .arg("--port")
+            .arg(port.to_string())
+            .arg("--ctx-size")
+            .arg(ctx_size)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|error| {
+                ForjaError::LlmError(format!(
+                    "Failed to launch llama.cpp server '{}': {}",
+                    executable, error
+                ))
+            })?;
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        while tokio::time::Instant::now() < deadline {
+            if self.local_server_is_ready().await {
+                return Ok(());
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+
+        Err(ForjaError::LlmError(
+            "llama.cpp server did not become ready within 30 seconds".to_string(),
+        ))
+    }
+
+    async fn local_server_is_ready(&self) -> bool {
+        let models_endpoint = format!("{}/models", self.config.base_url.trim_end_matches('/'));
+        self.client
+            .get(models_endpoint)
+            .send()
+            .await
+            .map(|response| response.status().is_success())
+            .unwrap_or(false)
+    }
 }
 
 #[async_trait]
 impl LlmProvider for LlmClient {
     async fn chat(&self, messages: &[Message], tools: Option<&[ToolDefinition]>) -> Result<Message> {
+        self.ensure_local_server_ready().await?;
         if self.config.use_gemini_native_api {
             let inner = self.prepare_gemini_native_payload(messages, tools);
             let project = std::env::var("FORJA_GEMINI_PROJECT")
@@ -544,6 +611,7 @@ impl LlmProvider for LlmClient {
         messages: &[Message],
         tools: Option<&[ToolDefinition]>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
+        self.ensure_local_server_ready().await?;
         let (endpoint, payload) = if self.config.use_gemini_native_api {
             let inner = self.prepare_gemini_native_payload(messages, tools);
             let project = std::env::var("FORJA_GEMINI_PROJECT")

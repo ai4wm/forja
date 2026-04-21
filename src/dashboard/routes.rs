@@ -1,14 +1,17 @@
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response, Sse};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use forja_core::traits::TelegramConnectionStatus;
 use rusqlite::{params, Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+use tokio_stream::StreamExt;
 use tower_http::cors::{Any, CorsLayer};
 
 const INDEX_HTML: &str = include_str!("static/index.html");
@@ -33,6 +36,10 @@ pub(crate) fn build_router_with_status(
         .route("/api/debate/:id", get(get_debate))
         .route("/api/budget", get(get_budget))
         .route("/api/skills", get(get_skills))
+        .route("/api/history", get(get_history))
+        .route("/api/tools", get(get_tools))
+        .route("/api/memory", get(get_memory))
+        .route("/api/events", get(stream_events))
         .route("/api/unresolved", get(get_unresolved))
         .route("/api/tasks", get(get_tasks))
         .route("/api/channel-status", get(get_channel_status))
@@ -219,6 +226,26 @@ struct SkillRow {
     auto_approved: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct HistoryRow {
+    timestamp: String,
+    event_type: String,
+    payload: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct ToolRow {
+    timestamp: String,
+    tool_name: String,
+    payload: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct MemoryStateRow {
+    memory_entries: i64,
+    memory_summaries: i64,
+}
+
 async fn get_skills(
     State(state): State<DashboardState>,
 ) -> Result<Json<Vec<SkillRow>>, DashboardError> {
@@ -242,6 +269,98 @@ async fn get_skills(
         skills.push(row?);
     }
     Ok(Json(skills))
+}
+
+async fn get_history(
+    State(state): State<DashboardState>,
+) -> Result<Json<Vec<HistoryRow>>, DashboardError> {
+    let connection = open_read_only(&state.db_path)?;
+    let mut statement = connection.prepare(
+        "SELECT timestamp, event_type, payload
+         FROM audit_log
+         WHERE event_type IN ('llm_call', 'tool_call', 'tool_result', 'error', 'compression')
+         ORDER BY id DESC
+         LIMIT 100",
+    )?;
+    let rows = statement.query_map([], |row| {
+        let payload_text: String = row.get(2)?;
+        Ok(HistoryRow {
+            timestamp: row.get(0)?,
+            event_type: row.get(1)?,
+            payload: serde_json::from_str(&payload_text)
+                .unwrap_or(Value::String(payload_text)),
+        })
+    })?;
+
+    let mut history = Vec::new();
+    for row in rows {
+        history.push(row?);
+    }
+    Ok(Json(history))
+}
+
+async fn get_tools(
+    State(state): State<DashboardState>,
+) -> Result<Json<Vec<ToolRow>>, DashboardError> {
+    let connection = open_read_only(&state.db_path)?;
+    let mut statement = connection.prepare(
+        "SELECT timestamp, payload
+         FROM audit_log
+         WHERE event_type = 'tool_call'
+         ORDER BY id DESC
+         LIMIT 50",
+    )?;
+    let rows = statement.query_map([], |row| {
+        let payload_text: String = row.get(1)?;
+        let payload: Value = serde_json::from_str(&payload_text)
+            .unwrap_or(Value::String(payload_text));
+        let tool_name = payload
+            .get("tool_name")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        Ok(ToolRow {
+            timestamp: row.get(0)?,
+            tool_name,
+            payload,
+        })
+    })?;
+
+    let mut tools = Vec::new();
+    for row in rows {
+        tools.push(row?);
+    }
+    Ok(Json(tools))
+}
+
+async fn get_memory(
+    State(state): State<DashboardState>,
+) -> Result<Json<MemoryStateRow>, DashboardError> {
+    let memory_db_path = state
+        .db_path
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("memory")
+        .join("memory.db");
+
+    if !memory_db_path.exists() {
+        return Ok(Json(MemoryStateRow {
+            memory_entries: 0,
+            memory_summaries: 0,
+        }));
+    }
+
+    let connection = open_read_only(&memory_db_path)?;
+    let memory_entries =
+        connection.query_row("SELECT COUNT(*) FROM memory_entries", [], |row| row.get(0))?;
+    let memory_summaries =
+        connection.query_row("SELECT COUNT(*) FROM memory_summaries", [], |row| row.get(0))?;
+
+    Ok(Json(MemoryStateRow {
+        memory_entries,
+        memory_summaries,
+    }))
 }
 
 #[derive(Debug, Serialize)]
@@ -357,6 +476,23 @@ async fn get_channel_status(
     Ok(Json(ChannelStatusRow { telegram }))
 }
 
+async fn stream_events(
+    State(state): State<DashboardState>,
+) -> Sse<impl tokio_stream::Stream<Item = Result<axum::response::sse::Event, Infallible>>> {
+    let db_path = state.db_path.clone();
+    let stream = tokio_stream::wrappers::IntervalStream::new(tokio::time::interval(Duration::from_secs(2)))
+        .then(move |_| {
+            let db_path = db_path.clone();
+            async move {
+                let payload = recent_event_payload(&db_path).unwrap_or_else(|error| {
+                    json!({ "error": format!("{error:?}") })
+                });
+                Ok(axum::response::sse::Event::default().data(payload.to_string()))
+            }
+        });
+    Sse::new(stream)
+}
+
 fn load_debate_groups(db_path: &PathBuf) -> Result<Vec<DebateGroup>, DashboardError> {
     let connection = open_read_only(db_path)?;
     let mut statement = connection.prepare(
@@ -423,6 +559,26 @@ fn load_debate_groups(db_path: &PathBuf) -> Result<Vec<DebateGroup>, DashboardEr
 fn open_read_only(db_path: &PathBuf) -> Result<Connection, DashboardError> {
     Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(DashboardError::Db)
+}
+
+fn recent_event_payload(db_path: &PathBuf) -> Result<Value, DashboardError> {
+    let connection = open_read_only(db_path)?;
+    let mut statement = connection.prepare(
+        "SELECT id, timestamp, event_type, payload
+         FROM audit_log
+         ORDER BY id DESC
+         LIMIT 1",
+    )?;
+    let value = statement.query_row([], |row| {
+        let payload_text: String = row.get(3)?;
+        Ok(json!({
+            "id": row.get::<_, i64>(0)?,
+            "timestamp": row.get::<_, String>(1)?,
+            "event_type": row.get::<_, String>(2)?,
+            "payload": serde_json::from_str::<Value>(&payload_text).unwrap_or(Value::String(payload_text)),
+        }))
+    })?;
+    Ok(value)
 }
 
 fn map_audit_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AuditRow> {

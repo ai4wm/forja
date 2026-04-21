@@ -10,15 +10,22 @@ repository = "https://github.com/ai4wm/forja"
 default = []
 telegram = ["dep:teloxide"]
 discord = ["dep:serenity"]
+voice = ["dep:cpal", "dep:rodio", "dep:hound"]
+notification = ["dep:notify-rust"]
 
 [dependencies]
 forja-core = { version = "0.1.1", path = "../forja-core" }
 tokio = { version = "1.0", features = ["rt", "io-std", "io-util", "macros", "sync"] }
 async-trait = "0.1"
 reqwest = "0.11"
+serde_json = "1.0"
+notify-rust = { version = "4.11", optional = true }
 
 # Feature flags: Optional dependencies
 teloxide = { version = "0.13", features = ["macros", "rustls"], optional = true }
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "rustls_backend", "model"], optional = true }
+cpal = { version = "0.15", optional = true }
+rodio = { version = "0.19", optional = true }
+hound = { version = "3.5", optional = true }
 
 

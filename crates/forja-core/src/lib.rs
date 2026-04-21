@@ -15,6 +15,7 @@ pub mod mode;
 pub mod prompt;
 pub mod ralf;
 pub mod serendipity;
+pub mod skill;
 pub mod traits;
 pub mod types;
 

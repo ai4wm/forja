@@ -1,7 +1,7 @@
 use crate::bootstrap;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use forja_core::error::{ForjaError, Result};
-use forja_core::mode::{ExecMode, Role as ModeRole, ThinkLevel};
+use forja_core::prompt::join_prompt_sections;
 use forja_core::traits::LlmProvider;
 use forja_core::{Content, Message, Role};
 use std::path::Path;
@@ -30,18 +30,12 @@ pub(crate) fn build_system_prompt(
     let loaded_project_file = project_prompt
         .as_ref()
         .map(|(file_name, _)| file_name.clone());
-    let mut combined_prompt = String::new();
-
-    if !bootstrap_prompt.trim().is_empty() {
-        combined_prompt.push_str(&bootstrap_prompt);
-    }
-
+    let mut sections = Vec::new();
+    sections.push(bootstrap_prompt);
     if let Some((_, project_content)) = project_prompt {
-        if !combined_prompt.is_empty() {
-            combined_prompt.push_str("\n\n---\n\n");
-        }
-        combined_prompt.push_str(&project_content);
+        sections.push(project_content);
     }
+    let mut combined_prompt = join_prompt_sections(sections, "\n\n---\n\n");
 
     if !combined_prompt.is_empty() {
         combined_prompt.push_str(&format!(
@@ -114,34 +108,7 @@ Note: Chain find_element result with input tool mouse_click to click visual elem
         );
     }
 
-    sections.join("\n\n")
-}
-
-pub(crate) fn exec_mode_label(mode: ExecMode) -> &'static str {
-    match mode {
-        ExecMode::Safe => "safe",
-        ExecMode::Auto => "auto",
-        ExecMode::Trust => "trust",
-    }
-}
-
-pub(crate) fn think_level_label(level: ThinkLevel) -> &'static str {
-    match level {
-        ThinkLevel::Min => "min",
-        ThinkLevel::Mid => "mid",
-        ThinkLevel::Max => "max",
-    }
-}
-
-pub(crate) fn role_label(role: ModeRole) -> &'static str {
-    match role {
-        ModeRole::Auto => "auto",
-        ModeRole::Coder => "coder",
-        ModeRole::Writer => "writer",
-        ModeRole::Assistant => "assistant",
-        ModeRole::Analyst => "analyst",
-        ModeRole::Default => "default",
-    }
+    join_prompt_sections(sections, "\n\n")
 }
 
 pub(crate) fn load_image_base64(path: &Path) -> std::io::Result<String> {

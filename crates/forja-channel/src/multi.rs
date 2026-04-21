@@ -1,15 +1,24 @@
 use async_trait::async_trait;
+#[cfg(feature = "notification")]
+use crate::notification::NotificationManager;
 #[cfg(feature = "telegram")]
 use crate::telegram_supervisor::{
     start_telegram_supervisor, TelegramRuntimeHandle, TelegramStatusHandle, TelegramWorkerCommand,
 };
+#[cfg(feature = "voice")]
+use crate::voice::{VoiceChannel, VoiceConfig};
 use forja_core::gateway::adapter::{ChannelAdapter, CliAdapter};
-use forja_core::traits::TelegramConnectionStatus;
+use forja_core::traits::{
+    NotificationLevel, NotificationState, NotificationTopic, TelegramConnectionStatus,
+    VoiceChannelStatus,
+};
 use forja_core::{Channel, Content, Role, Message as CoreMessage};
 #[cfg(feature = "telegram")]
 use forja_core::gateway::adapter::TelegramAdapter;
 use crate::cli::process_line;
 use std::io::Write;
+#[cfg(feature = "voice")]
+use std::sync::Arc;
 #[cfg(feature = "telegram")]
 use std::sync::Mutex as StdMutex;
 use tokio::sync::{mpsc, Mutex};
@@ -17,6 +26,8 @@ use tokio::sync::{mpsc, Mutex};
 #[derive(Clone, Debug)]
 pub enum ChannelSource {
     Cli,
+    #[cfg(feature = "voice")]
+    Voice,
     #[cfg(feature = "telegram")]
     Telegram { chat_id: i64 },
 }
@@ -26,6 +37,10 @@ pub struct MultiChannel {
     last_source: Mutex<Option<ChannelSource>>,
     #[cfg(feature = "telegram")]
     telegram_runtime: StdMutex<Option<TelegramRuntimeHandle>>,
+    #[cfg(feature = "voice")]
+    voice_channel: Option<Arc<VoiceChannel>>,
+    #[cfg(feature = "notification")]
+    notification_manager: NotificationManager,
     #[cfg(feature = "telegram")]
     telegram_status: TelegramStatusHandle,
     #[cfg(feature = "telegram")]
@@ -33,7 +48,12 @@ pub struct MultiChannel {
 }
 
 impl MultiChannel {
-    pub async fn new(bot_token: Option<String>, allowed_chat_ids: Vec<i64>) -> Self {
+    pub async fn new(
+        bot_token: Option<String>,
+        allowed_chat_ids: Vec<i64>,
+        #[cfg(feature = "voice")] voice_config: Option<VoiceConfig>,
+        #[cfg(feature = "notification")] notification_state: NotificationState,
+    ) -> Self {
         let (tx, rx) = mpsc::channel::<(ChannelSource, CoreMessage)>(100);
 
         let tx_cli = tx.clone();
@@ -63,6 +83,24 @@ impl MultiChannel {
             }
         });
 
+        #[cfg(feature = "voice")]
+        let voice_channel = voice_config.map(|config| Arc::new(VoiceChannel::new(config)));
+        #[cfg(feature = "voice")]
+        if let Some(voice_channel) = voice_channel.clone() {
+            let tx_voice = tx.clone();
+            tokio::spawn(async move {
+                loop {
+                    let message = match voice_channel.receive().await {
+                        Ok(message) => message,
+                        Err(_) => break,
+                    };
+                    if tx_voice.send((ChannelSource::Voice, message)).await.is_err() {
+                        break;
+                    }
+                }
+            });
+        }
+
         #[cfg(feature = "telegram")]
         let (telegram_runtime, telegram_status) = if let Some(bot_token) = bot_token {
             let runtime_handle =
@@ -84,6 +122,10 @@ impl MultiChannel {
             last_source: Mutex::new(Some(ChannelSource::Cli)),
             #[cfg(feature = "telegram")]
             telegram_runtime: StdMutex::new(telegram_runtime),
+            #[cfg(feature = "voice")]
+            voice_channel,
+            #[cfg(feature = "notification")]
+            notification_manager: NotificationManager::new(notification_state),
             #[cfg(feature = "telegram")]
             telegram_status,
             #[cfg(feature = "telegram")]
@@ -93,12 +135,28 @@ impl MultiChannel {
 
     /// CLI only (no Telegram)
     pub async fn new_cli_only() -> Self {
-        Self::new(None, Vec::new()).await
+        Self::new(
+            None,
+            Vec::new(),
+            #[cfg(feature = "voice")]
+            None,
+            #[cfg(feature = "notification")]
+            NotificationState::default(),
+        )
+        .await
     }
 
     #[cfg(feature = "telegram")]
     pub async fn new_both(bot_token: String, allowed_chat_ids: Vec<i64>) -> Self {
-        Self::new(Some(bot_token), allowed_chat_ids).await
+        Self::new(
+            Some(bot_token),
+            allowed_chat_ids,
+            #[cfg(feature = "voice")]
+            None,
+            #[cfg(feature = "notification")]
+            NotificationState::default(),
+        )
+        .await
     }
 
     pub fn has_telegram(&self) -> bool {
@@ -145,6 +203,11 @@ impl MultiChannel {
     }
 
     fn shutdown_inner(&self) {
+        #[cfg(feature = "voice")]
+        if let Some(voice_channel) = &self.voice_channel {
+            voice_channel.shutdown();
+        }
+
         #[cfg(feature = "telegram")]
         {
             if let Some(runtime) = self
@@ -178,6 +241,10 @@ impl MultiChannel {
                 thread_handle,
                 status: telegram_status.clone(),
             })),
+            #[cfg(feature = "voice")]
+            voice_channel: None,
+            #[cfg(feature = "notification")]
+            notification_manager: NotificationManager::new(NotificationState::default()),
             telegram_status,
             notification_chat_ids: Vec::new(),
         }
@@ -203,6 +270,10 @@ impl MultiChannel {
             receiver: Mutex::new(receiver),
             last_source: Mutex::new(last_source),
             telegram_runtime: StdMutex::new(None),
+            #[cfg(feature = "voice")]
+            voice_channel: None,
+            #[cfg(feature = "notification")]
+            notification_manager: NotificationManager::new(NotificationState::default()),
             telegram_status,
             notification_chat_ids: Vec::new(),
         }
@@ -217,6 +288,13 @@ impl Channel for MultiChannel {
         if let Some((source, msg)) = rx.recv().await {
             let mut last_src = self.last_source.lock().await;
             *last_src = Some(source.clone());
+
+            #[cfg(feature = "voice")]
+            if matches!(source, ChannelSource::Voice)
+                && let Some(voice_channel) = &self.voice_channel
+            {
+                voice_channel.cancel_typing().await;
+            }
 
             #[cfg(feature = "telegram")]
             if let ChannelSource::Telegram { chat_id } = source {
@@ -236,6 +314,8 @@ impl Channel for MultiChannel {
                     let adapter = CliAdapter;
                     adapter.from_envelope(adapter.to_envelope(msg))
                 }
+                #[cfg(feature = "voice")]
+                ChannelSource::Voice => msg,
                 #[cfg(feature = "telegram")]
                 ChannelSource::Telegram { .. } => {
                     let adapter = TelegramAdapter;
@@ -262,6 +342,8 @@ impl Channel for MultiChannel {
                     let adapter = CliAdapter;
                     adapter.from_envelope(adapter.to_envelope(message))
                 }
+                #[cfg(feature = "voice")]
+                ChannelSource::Voice => message,
                 #[cfg(feature = "telegram")]
                 ChannelSource::Telegram { .. } => {
                     let adapter = TelegramAdapter;
@@ -279,6 +361,21 @@ impl Channel for MultiChannel {
                             print!("> ");
                             std::io::stdout().flush().ok();
                         }).await;
+                    }
+                    #[cfg(feature = "voice")]
+                    ChannelSource::Voice => {
+                        if let Some(voice_channel) = &self.voice_channel {
+                            let _ = voice_channel
+                                .send(CoreMessage::text(Role::Assistant, text.clone(), None))
+                                .await;
+                        }
+                        let log_text = text.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            println!("• {}", log_text);
+                            print!("> ");
+                            std::io::stdout().flush().ok();
+                        })
+                        .await;
                     }
                     #[cfg(feature = "telegram")]
                     ChannelSource::Telegram { chat_id } => {
@@ -334,6 +431,11 @@ impl Channel for MultiChannel {
     }
 
     async fn cancel_typing(&self) {
+        #[cfg(feature = "voice")]
+        if let Some(voice_channel) = &self.voice_channel {
+            voice_channel.cancel_typing().await;
+        }
+
         #[cfg(feature = "telegram")]
         {
             if let Some(command_tx) = self.telegram_command_tx() {
@@ -355,6 +457,19 @@ impl Channel for MultiChannel {
     }
 
     async fn send_notification(&self, text: &str) -> forja_core::error::Result<bool> {
+        #[cfg(feature = "notification")]
+        {
+            let delivered = self.notification_manager.send(
+                "Forja",
+                text,
+                NotificationTopic::Autonomy,
+                NotificationLevel::Info,
+            )?;
+            if delivered {
+                return Ok(true);
+            }
+        }
+
         #[cfg(feature = "telegram")]
         {
             if !matches!(
@@ -393,6 +508,25 @@ impl Channel for MultiChannel {
         }
     }
 
+    async fn send_notification_with_level(
+        &self,
+        text: &str,
+        _topic: NotificationTopic,
+        _level: NotificationLevel,
+    ) -> forja_core::error::Result<bool> {
+        #[cfg(feature = "notification")]
+        {
+            let delivered = self
+                .notification_manager
+                .send("Forja", text, _topic, _level)?;
+            if delivered {
+                return Ok(true);
+            }
+        }
+
+        self.send_notification(text).await
+    }
+
     fn shutdown(&self) {
         self.shutdown_inner();
     }
@@ -406,6 +540,73 @@ impl Channel for MultiChannel {
         #[cfg(not(feature = "telegram"))]
         {
             None
+        }
+    }
+
+    fn supports_voice(&self) -> bool {
+        #[cfg(feature = "voice")]
+        {
+            self.voice_channel.is_some()
+        }
+
+        #[cfg(not(feature = "voice"))]
+        {
+            false
+        }
+    }
+
+    fn voice_status(&self) -> Option<VoiceChannelStatus> {
+        #[cfg(feature = "voice")]
+        {
+            self.voice_channel
+                .as_ref()
+                .and_then(|voice_channel| voice_channel.voice_status())
+        }
+
+        #[cfg(not(feature = "voice"))]
+        {
+            None
+        }
+    }
+
+    async fn set_voice_enabled(&self, enabled: bool) -> forja_core::error::Result<VoiceChannelStatus> {
+        #[cfg(feature = "voice")]
+        {
+            if let Some(voice_channel) = &self.voice_channel {
+                return voice_channel.set_voice_enabled(enabled).await;
+            }
+            return Ok(VoiceChannelStatus::Unavailable);
+        }
+
+        #[cfg(not(feature = "voice"))]
+        {
+            let _ = enabled;
+            Ok(VoiceChannelStatus::Unavailable)
+        }
+    }
+
+    fn notification_state(&self) -> Option<NotificationState> {
+        #[cfg(feature = "notification")]
+        {
+            Some(self.notification_manager.state())
+        }
+
+        #[cfg(not(feature = "notification"))]
+        {
+            None
+        }
+    }
+
+    async fn set_notifications_enabled(&self, enabled: bool) -> forja_core::error::Result<NotificationState> {
+        #[cfg(feature = "notification")]
+        {
+            return Ok(self.notification_manager.set_enabled(enabled));
+        }
+
+        #[cfg(not(feature = "notification"))]
+        {
+            let _ = enabled;
+            Ok(NotificationState::default())
         }
     }
 }

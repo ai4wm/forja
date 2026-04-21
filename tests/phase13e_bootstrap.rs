@@ -13,8 +13,14 @@ fn unique_temp_dir(name: &str) -> PathBuf {
 
 fn spawn_forja(home_dir: &Path) -> std::process::Child {
     std::fs::create_dir_all(home_dir).unwrap();
+    let forja_bin = PathBuf::from(env!("CARGO_BIN_EXE_forja"));
+    let forja_bin = if forja_bin.is_absolute() {
+        forja_bin
+    } else {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(forja_bin)
+    };
 
-    Command::new(env!("CARGO_BIN_EXE_forja"))
+    Command::new(forja_bin)
         .current_dir(home_dir)
         .env("FORJA_USE_MOCK", "1")
         .env("FORJA_PROVIDER", "ollama")

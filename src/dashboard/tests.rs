@@ -133,6 +133,75 @@ async fn test_channel_status_api() {
     cleanup(&db_path);
 }
 
+#[tokio::test]
+async fn test_history_api() {
+    let db_path = temp_db_path("history");
+    let connection = create_test_db(&db_path);
+    connection
+        .execute(
+            "INSERT INTO audit_log (timestamp, event_type, agent_id, channel, payload, token_count)
+             VALUES (?1, 'llm_call', 'default', 'cli', ?2, 10)",
+            rusqlite::params!["2026-03-31T00:00:00Z", r#"{"mode":"chat"}"#],
+        )
+        .unwrap();
+    drop(connection);
+
+    let response = build_router_with_status(db_path.clone(), default_telegram_status_provider())
+        .oneshot(Request::builder().uri("/api/history").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json[0]["event_type"], "llm_call");
+
+    cleanup(&db_path);
+}
+
+#[tokio::test]
+async fn test_tools_api() {
+    let db_path = temp_db_path("tools");
+    let connection = create_test_db(&db_path);
+    connection
+        .execute(
+            "INSERT INTO audit_log (timestamp, event_type, agent_id, channel, payload, token_count)
+             VALUES (?1, 'tool_call', 'default', 'cli', ?2, 0)",
+            rusqlite::params!["2026-03-31T00:00:00Z", r#"{"tool_name":"shell"}"#],
+        )
+        .unwrap();
+    drop(connection);
+
+    let response = build_router_with_status(db_path.clone(), default_telegram_status_provider())
+        .oneshot(Request::builder().uri("/api/tools").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json[0]["tool_name"], "shell");
+
+    cleanup(&db_path);
+}
+
+#[tokio::test]
+async fn test_memory_api_without_memory_db_returns_zero_counts() {
+    let db_path = temp_db_path("memory");
+    let connection = create_test_db(&db_path);
+    drop(connection);
+
+    let response = build_router_with_status(db_path.clone(), default_telegram_status_provider())
+        .oneshot(Request::builder().uri("/api/memory").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["memory_entries"], 0);
+    assert_eq!(json["memory_summaries"], 0);
+
+    cleanup(&db_path);
+}
+
 #[test]
 fn test_dashboard_server_stop_without_start() {
     let db_path = temp_db_path("server");

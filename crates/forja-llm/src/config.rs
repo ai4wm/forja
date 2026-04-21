@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// External configuration injected into the LLM client.
 /// Includes base URL, auth key, target model, and extra header values.
@@ -11,6 +12,8 @@ pub struct LlmConfig {
     pub extra_headers: HashMap<String, String>,
     pub use_responses_api: bool,
     pub use_gemini_native_api: bool,
+    pub local_model_path: Option<PathBuf>,
+    pub manage_local_server: bool,
 }
 
 impl LlmConfig {
@@ -26,6 +29,8 @@ impl LlmConfig {
             extra_headers: HashMap::new(),
             use_responses_api: false,
             use_gemini_native_api: false,
+            local_model_path: None,
+            manage_local_server: false,
         }
     }
 
@@ -59,6 +64,16 @@ impl LlmConfig {
     /// Builder method for enabling Gemini Native API mode.
     pub fn with_gemini_native_api(mut self) -> Self {
         self.use_gemini_native_api = true;
+        self
+    }
+
+    pub fn with_local_model_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.local_model_path = Some(path.into());
+        self
+    }
+
+    pub fn with_managed_local_server(mut self) -> Self {
+        self.manage_local_server = true;
         self
     }
 }

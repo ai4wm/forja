@@ -1,4 +1,5 @@
 use crate::config::LlmConfig;
+use std::path::Path;
 
 /// OpenAI GPT-5.2 (latest flagship, 2025.12+)
 pub fn openai(api_key: &str) -> LlmConfig {
@@ -101,4 +102,11 @@ pub fn gemini_oauth(token: &str) -> LlmConfig {
 /// Local Ollama
 pub fn ollama(model: &str) -> LlmConfig {
     LlmConfig::new("http://localhost:11434/v1", model, "ollama")
+}
+
+/// Local llama.cpp server managed by Forja.
+pub fn llama_cpp(model: &str, base_url: &str, model_path: &Path) -> LlmConfig {
+    LlmConfig::new(base_url, model, "llama-cpp")
+        .with_local_model_path(model_path)
+        .with_managed_local_server()
 }

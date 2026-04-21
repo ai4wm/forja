@@ -23,6 +23,7 @@ indicatif = "0.17"
 chrono = "0.4"
 tiktoken-rs = "0.6"
 rusqlite = { version = "0.32", features = ["bundled"] }
+serde_yaml = "0.9"
 
 tokio = { version = "1.0", features = ["macros", "rt", "sync", "time", "test-util"] }
 

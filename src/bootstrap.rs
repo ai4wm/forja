@@ -6,6 +6,8 @@ const DEFAULT_IDENTITY_NAME: &str = "Forja";
 const DEFAULT_TONE: &str = "formal";
 const DEFAULT_ROLE: &str = "AI assistant";
 const DEFAULT_USER_NAME: &str = "User";
+const DOCUMENT_SEPARATOR: &str = "---\n";
+const FRONTMATTER_END: &str = "\n---\n";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityProfile {
@@ -17,6 +19,56 @@ pub struct IdentityProfile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UserProfile {
     pub name: String,
+}
+
+impl IdentityProfile {
+    fn from_document(raw: &str) -> io::Result<Self> {
+        let (frontmatter, _) = parse_frontmatter_document(raw).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "identity.md frontmatter could not be parsed",
+            )
+        })?;
+
+        Ok(Self {
+            name: required_frontmatter_value(&frontmatter, "name")?,
+            role: required_frontmatter_value(&frontmatter, "role")?,
+            tone: required_frontmatter_value(&frontmatter, "tone")?,
+        })
+    }
+
+    fn to_document(&self) -> String {
+        let name = sanitize_frontmatter_value(&self.name);
+        let role = sanitize_frontmatter_value(&self.role);
+        let tone = sanitize_frontmatter_value(&self.tone);
+        format!("{DOCUMENT_SEPARATOR}name: {name}\nrole: {role}\ntone: {tone}{FRONTMATTER_END}")
+    }
+}
+
+impl UserProfile {
+    fn from_optional_document(document: Option<UserDocument>) -> Self {
+        document
+            .and_then(|doc| doc.profile)
+            .unwrap_or_else(|| Self {
+                name: DEFAULT_USER_NAME.to_string(),
+            })
+    }
+
+    fn to_document(&self, preserved_body: Option<&str>) -> String {
+        let name = sanitize_frontmatter_value(&self.name);
+        let mut content = format!("{DOCUMENT_SEPARATOR}name: {name}{FRONTMATTER_END}");
+
+        if let Some(body) = preserved_body {
+            let body = body.trim();
+            if !body.is_empty() {
+                content.push('\n');
+                content.push_str(body);
+                content.push('\n');
+            }
+        }
+
+        content
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +103,13 @@ enum OnboardingMode {
     Reset,
 }
 
+struct OnboardingDefaults {
+    identity_name: String,
+    tone: String,
+    role: String,
+    user_name: Option<String>,
+}
+
 impl BootstrapPaths {
     pub fn from_home(home_dir: impl AsRef<Path>) -> Self {
         let forja_dir = home_dir.as_ref().join(".forja");
@@ -73,12 +132,8 @@ pub fn default_paths() -> BootstrapPaths {
 }
 
 pub fn ensure_bootstrap(paths: &BootstrapPaths) -> io::Result<BootstrapOutcome> {
-    if paths.identity_path.exists() {
-        let profile = load_profile(paths)?;
-        return Ok(BootstrapOutcome {
-            profile,
-            greeting: None,
-        });
+    if let Some(profile) = load_existing_profile(paths)? {
+        return Ok(BootstrapOutcome { profile, greeting: None });
     }
 
     run_onboarding(paths, OnboardingMode::Initial)
@@ -112,65 +167,22 @@ pub fn compose_system_prompt_prefix(paths: &BootstrapPaths) -> io::Result<String
     ))
 }
 
-fn load_profile(paths: &BootstrapPaths) -> io::Result<BootstrapProfile> {
-    let identity_raw = std::fs::read_to_string(&paths.identity_path)?;
-    let (identity_frontmatter, _) = parse_frontmatter_document(&identity_raw).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "identity.md frontmatter could not be parsed",
-        )
-    })?;
-
-    let identity = IdentityProfile {
-        name: required_frontmatter_value(&identity_frontmatter, "name")?,
-        role: required_frontmatter_value(&identity_frontmatter, "role")?,
-        tone: required_frontmatter_value(&identity_frontmatter, "tone")?,
-    };
-
-    let user = if let Some(user_doc) = load_user_document(paths)? {
-        if let Some(profile) = user_doc.profile {
-            profile
-        } else {
-            UserProfile {
-                name: DEFAULT_USER_NAME.to_string(),
-            }
-        }
-    } else {
-        UserProfile {
-            name: DEFAULT_USER_NAME.to_string(),
-        }
-    };
-
-    Ok(BootstrapProfile { identity, user })
-}
-
 fn run_onboarding(paths: &BootstrapPaths, mode: OnboardingMode) -> io::Result<BootstrapOutcome> {
     std::fs::create_dir_all(&paths.forja_dir)?;
 
-    let existing_profile = load_profile(paths).ok();
+    let existing_profile = load_existing_profile(paths).ok().flatten();
     let preserved_user_body = preserved_user_body(paths)?;
+    let defaults = onboarding_defaults(existing_profile.as_ref(), &mode);
 
-    let identity_name_default = existing_profile
-        .as_ref()
-        .map(|profile| profile.identity.name.as_str())
-        .unwrap_or(DEFAULT_IDENTITY_NAME);
-    let tone_default = existing_profile
-        .as_ref()
-        .map(|profile| profile.identity.tone.as_str())
-        .unwrap_or(DEFAULT_TONE);
-    let role_default = existing_profile
-        .as_ref()
-        .map(|profile| profile.identity.role.as_str())
-        .unwrap_or(DEFAULT_ROLE);
-    let user_name_default = match &mode {
-        OnboardingMode::Initial => None,
-        OnboardingMode::Reset => existing_profile.as_ref().map(|profile| profile.user.name.as_str()),
-    };
-
-    let identity_name = prompt_with_default("What should I call myself?", identity_name_default)?;
-    let user_name = prompt_required("How should I address you?", user_name_default)?;
-    let tone = prompt_with_default("What speaking style should I use? (formal/casual)", tone_default)?;
-    let role = prompt_with_default("What is my primary role?", role_default)?;
+    let identity_name =
+        prompt_with_default("What should I call myself?", &defaults.identity_name)?;
+    let user_name = prompt_required(
+        "How should I address you?",
+        defaults.user_name.as_deref(),
+    )?;
+    let tone =
+        prompt_with_default("What speaking style should I use? (formal/casual)", &defaults.tone)?;
+    let role = prompt_with_default("What is my primary role?", &defaults.role)?;
 
     let profile = BootstrapProfile {
         identity: IdentityProfile {
@@ -198,11 +210,7 @@ fn run_onboarding(paths: &BootstrapPaths, mode: OnboardingMode) -> io::Result<Bo
 }
 
 fn preserved_user_body(paths: &BootstrapPaths) -> io::Result<Option<String>> {
-    if let Some(user_doc) = load_user_document(paths)? {
-        return Ok(user_doc.body);
-    }
-
-    Ok(None)
+    Ok(load_user_document(paths)?.and_then(|doc| doc.body))
 }
 
 fn load_user_document(paths: &BootstrapPaths) -> io::Result<Option<UserDocument>> {
@@ -246,11 +254,7 @@ fn read_user_document(path: &Path) -> io::Result<Option<UserDocument>> {
 }
 
 fn write_identity_file(paths: &BootstrapPaths, identity: &IdentityProfile) -> io::Result<()> {
-    let name = sanitize_frontmatter_value(&identity.name);
-    let role = sanitize_frontmatter_value(&identity.role);
-    let tone = sanitize_frontmatter_value(&identity.tone);
-    let content = format!("---\nname: {name}\nrole: {role}\ntone: {tone}\n---\n");
-    std::fs::write(&paths.identity_path, content)
+    std::fs::write(&paths.identity_path, identity.to_document())
 }
 
 fn write_user_file(
@@ -258,19 +262,7 @@ fn write_user_file(
     user: &UserProfile,
     preserved_body: Option<&str>,
 ) -> io::Result<()> {
-    let name = sanitize_frontmatter_value(&user.name);
-    let mut content = format!("---\nname: {name}\n---\n");
-
-    if let Some(body) = preserved_body {
-        let body = body.trim();
-        if !body.is_empty() {
-            content.push('\n');
-            content.push_str(body);
-            content.push('\n');
-        }
-    }
-
-    std::fs::write(&paths.user_path, content)
+    std::fs::write(&paths.user_path, user.to_document(preserved_body))
 }
 
 fn prompt_with_default(question: &str, default: &str) -> io::Result<String> {
@@ -344,8 +336,8 @@ fn required_frontmatter_value(
 
 fn parse_frontmatter_document(content: &str) -> Option<(HashMap<String, String>, String)> {
     let normalized = content.replace("\r\n", "\n");
-    let stripped = normalized.strip_prefix("---\n")?;
-    let (frontmatter, body) = stripped.split_once("\n---\n")?;
+    let stripped = normalized.strip_prefix(DOCUMENT_SEPARATOR)?;
+    let (frontmatter, body) = stripped.split_once(FRONTMATTER_END)?;
 
     let mut values = HashMap::new();
     for line in frontmatter.lines() {
@@ -378,6 +370,47 @@ fn sanitize_frontmatter_value(value: &str) -> String {
         .join(" ")
         .trim()
         .to_string()
+}
+
+fn load_existing_profile(paths: &BootstrapPaths) -> io::Result<Option<BootstrapProfile>> {
+    let Some(identity) = read_identity_profile(paths)? else {
+        return Ok(None);
+    };
+
+    Ok(Some(BootstrapProfile {
+        identity,
+        user: UserProfile::from_optional_document(load_user_document(paths)?),
+    }))
+}
+
+fn read_identity_profile(paths: &BootstrapPaths) -> io::Result<Option<IdentityProfile>> {
+    if !paths.identity_path.exists() {
+        return Ok(None);
+    }
+
+    let identity_raw = std::fs::read_to_string(&paths.identity_path)?;
+    IdentityProfile::from_document(&identity_raw).map(Some)
+}
+
+fn onboarding_defaults(
+    existing_profile: Option<&BootstrapProfile>,
+    mode: &OnboardingMode,
+) -> OnboardingDefaults {
+    OnboardingDefaults {
+        identity_name: existing_profile
+            .map(|profile| profile.identity.name.clone())
+            .unwrap_or_else(|| DEFAULT_IDENTITY_NAME.to_string()),
+        tone: existing_profile
+            .map(|profile| profile.identity.tone.clone())
+            .unwrap_or_else(|| DEFAULT_TONE.to_string()),
+        role: existing_profile
+            .map(|profile| profile.identity.role.clone())
+            .unwrap_or_else(|| DEFAULT_ROLE.to_string()),
+        user_name: match mode {
+            OnboardingMode::Initial => None,
+            OnboardingMode::Reset => existing_profile.map(|profile| profile.user.name.clone()),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -425,6 +458,26 @@ mod tests {
         let body = preserved_user_body(&paths).unwrap();
 
         assert_eq!(body.as_deref(), Some("Keep legacy prompt"));
+
+        let _ = std::fs::remove_dir_all(&home_dir);
+    }
+
+    #[test]
+    fn ensure_bootstrap_uses_default_user_when_identity_exists_without_user_file() {
+        let home_dir = unique_temp_dir("bootstrap_identity_only");
+        let paths = BootstrapPaths::from_home(&home_dir);
+        std::fs::create_dir_all(&paths.forja_dir).unwrap();
+        std::fs::write(
+            &paths.identity_path,
+            "---\nname: Forja\nrole: AI assistant\ntone: formal\n---\n",
+        )
+        .unwrap();
+
+        let outcome = ensure_bootstrap(&paths).unwrap();
+
+        assert_eq!(outcome.profile.identity.name, "Forja");
+        assert_eq!(outcome.profile.user.name, "User");
+        assert!(outcome.greeting.is_none());
 
         let _ = std::fs::remove_dir_all(&home_dir);
     }

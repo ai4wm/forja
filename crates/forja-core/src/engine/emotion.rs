@@ -1,6 +1,7 @@
 use super::Engine;
-use crate::emotion::{MoodState, RelationshipContext};
 use crate::emotion::EmotionEngine;
+use crate::emotion::MoodState;
+use crate::emotion::RelationshipContext;
 use crate::types::{Message, Role};
 
 
@@ -33,21 +34,15 @@ impl Engine {
             }
         };
 
-        self.turn_tone_context = Some(format!("[tone]\n{}", analyzed.tone_instruction));
-
         #[cfg(feature = "memory")]
         {
             let memory_contents = self.load_memory_contents_or_empty().await;
-            let patterns = RelationshipContext::detect_patterns(&memory_contents);
-            if !patterns.is_empty() {
-                self.turn_relationship_context = Some(format!(
-                    "[relationship]\n{}",
-                    patterns.join("\n")
-                ));
-            }
+            self.turn_relationship_context = RelationshipContext::build_context(&memory_contents);
         }
 
-        if mood_has_changed(&previous, &analyzed) {
+        self.turn_tone_context = Some(analyzed.tone_section());
+
+        if analyzed.has_changed_from(&previous) {
             self.persist_mood_change(&analyzed).await;
         }
     }
@@ -96,12 +91,6 @@ impl Engine {
         #[cfg(not(feature = "memory"))]
         let _ = mood;
     }
-}
-
-fn mood_has_changed(previous: &MoodState, next: &MoodState) -> bool {
-    previous.mood != next.mood
-        || previous.intensity != next.intensity
-        || previous.reason != next.reason
 }
 
 

@@ -17,6 +17,7 @@ async-trait = "0.1"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 reqwest-eventsource = { version = "0.6", optional = true }
 async-stream = "0.3"
+url = "2.5.8"
 
 [features]
 default = ["anthropic"]

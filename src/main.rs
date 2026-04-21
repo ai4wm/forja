@@ -1,13 +1,16 @@
 mod bootstrap;
 mod config;
 mod dashboard;
+mod local_models;
 mod oauth;
 mod provider_registry;
 mod runtime;
+mod tui;
+#[cfg(test)]
+mod test_support;
 
 use forja_core::error::Result;
 use forja_core::mode::Role as ModeRole;
-use runtime::prompt::{exec_mode_label, role_label, think_level_label};
 use runtime::shutdown::ShutdownSignal;
 use runtime::startup::{build_runtime, RuntimeOptions};
 use std::io::Write;
@@ -62,6 +65,9 @@ fn parse_runtime_options(args: &[String]) -> RuntimeOptions {
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    if tui::maybe_run_tui_view(&args)? {
+        return Ok(());
+    }
     if args.len() >= 3 && args[1] == "login" {
         oauth::run_login(&args[2]).await;
         std::process::exit(0);
@@ -84,9 +90,9 @@ async fn main() -> Result<()> {
     }
     println!(
         "Mode: {} | Think: {} | Role: {}",
-        exec_mode_label(runtime.exec_mode),
-        think_level_label(runtime.think_level),
-        role_label(ModeRole::Auto)
+        runtime.exec_mode.as_str(),
+        runtime.think_level.as_str(),
+        ModeRole::Auto.as_str()
     );
     println!("Assistant: {}", runtime.assistant_name);
     println!("Engine is ready. Type /models to list models, /model <name> to switch.");

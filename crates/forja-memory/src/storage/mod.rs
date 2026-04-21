@@ -1,12 +1,16 @@
 mod classifier;
+mod dream;
+mod journal;
 mod migration;
 
 use self::classifier::{
     classify_topic_slug, parse_topic_file_name, query_score, summary_text, topic_file_name,
 };
-use chrono::{Local, TimeZone};
+use chrono::{Datelike, Local, TimeZone};
 use forja_core::error::{ForjaError as Error, Result};
+use forja_core::traits::{DreamRunOutcome, DreamTrigger};
 use forja_core::types::MemoryEntry;
+use crate::sqlite::{SqliteEntryRow, SqliteSummaryRow};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -26,6 +30,8 @@ pub struct Storage {
     topics_dir: PathBuf,
     daily_dir: PathBuf,
     archive_dir: PathBuf,
+    dreams_dir: PathBuf,
+    dream_state_file: PathBuf,
     sessions_dir: PathBuf,
     sessions_backup_dir: PathBuf,
 }
@@ -48,6 +54,8 @@ impl Storage {
             topics_dir: base_dir.join("topics"),
             daily_dir: base_dir.join("daily"),
             archive_dir: base_dir.join("archive"),
+            dreams_dir: base_dir.join("dreams"),
+            dream_state_file: base_dir.join("dreams").join("pending.yaml"),
             sessions_dir: base_dir.join("sessions"),
             sessions_backup_dir: base_dir.join("sessions.bak"),
             base_dir,
@@ -176,11 +184,76 @@ impl Storage {
     }
 
     pub async fn reconcile(&self) -> Result<()> { self.rebuild_index().await }
+
+    pub async fn run_dream(&self, trigger: DreamTrigger) -> Result<DreamRunOutcome> {
+        Self::execute_dream(self, trigger).await
+    }
+
+    pub async fn latest_dream_timestamp(&self) -> Result<Option<u64>> {
+        Self::read_latest_dream_timestamp(self).await
+    }
+
+    pub fn memory_db_path(&self) -> PathBuf {
+        self.base_dir.join("memory.db")
+    }
+
+    pub async fn export_entry_rows(&self) -> Result<Vec<SqliteEntryRow>> {
+        let mut rows = Vec::new();
+        let mut paths = list_markdown_files(&self.daily_dir).await?;
+        paths.sort();
+
+        for path in paths {
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let date = name.strip_suffix(".md").unwrap_or(name);
+            let contents = read_trimmed(&path).await?;
+            for (index, line) in contents.lines().enumerate() {
+                let Some((time_text, role, body)) = parse_daily_line(line) else {
+                    continue;
+                };
+                let timestamp = daily_timestamp(date, time_text)?;
+                rows.push(SqliteEntryRow {
+                    id: format!("daily-{date}-{index}"),
+                    timestamp,
+                    role: role.to_string(),
+                    content: body.to_string(),
+                    source: format!("daily/{name}"),
+                });
+            }
+        }
+
+        Ok(rows)
+    }
+
+    pub async fn export_summary_rows(&self) -> Result<Vec<SqliteSummaryRow>> {
+        let mut rows = Vec::new();
+        let mut paths = list_markdown_files(&self.archive_dir).await?;
+        paths.sort();
+
+        for path in paths {
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let contents = read_trimmed(&path).await?;
+            if contents.is_empty() {
+                continue;
+            }
+            rows.push(SqliteSummaryRow {
+                source: format!("archive/{name}"),
+                summary: summary_text(&contents, 2_000),
+                created_at: 0,
+            });
+        }
+
+        Ok(rows)
+    }
+
     async fn ensure_layout(&self) -> Result<()> {
         fs::create_dir_all(&self.base_dir)
             .await
             .map_err(|error| storage_error(format!("Failed to create memory dir: {error}")))?;
-        for directory in [&self.topics_dir, &self.daily_dir, &self.archive_dir] {
+        for directory in [&self.topics_dir, &self.daily_dir, &self.archive_dir, &self.dreams_dir] {
             fs::create_dir_all(directory)
                 .await
                 .map_err(|error| storage_error(format!("Failed to create dir: {error}")))?;
@@ -248,9 +321,7 @@ impl Storage {
             });
         }
 
-        fs::write(&self.index_file, with_trailing_newline(&render_index(&entries)))
-            .await
-            .map_err(|error| storage_error(format!("Failed to rewrite index.md: {error}")))
+        write_file_atomically(&self.index_file, &with_trailing_newline(&render_index(&entries))).await
     }
 
     async fn read_index_entries(&self) -> Result<Vec<TopicIndexEntry>> {
@@ -533,6 +604,25 @@ fn with_trailing_newline(contents: &str) -> String {
     format!("{trimmed}\n")
 }
 
+async fn write_file_atomically(path: &Path, contents: &str) -> Result<()> {
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| storage_error(format!("Invalid file name for {}", path.display())))?;
+    let temp_path = path.with_file_name(format!("{file_name}.tmp"));
+    fs::write(&temp_path, contents)
+        .await
+        .map_err(|error| storage_error(format!("Failed to write {}: {error}", temp_path.display())))?;
+    if path.exists() {
+        fs::remove_file(path)
+            .await
+            .map_err(|error| storage_error(format!("Failed to replace {}: {error}", path.display())))?;
+    }
+    fs::rename(&temp_path, path)
+        .await
+        .map_err(|error| storage_error(format!("Failed to rename {} to {}: {error}", temp_path.display(), path.display())))
+}
+
 fn normalize_summary_lines(summary: &str) -> Option<Vec<String>> {
     let lines = summary
         .lines()
@@ -545,4 +635,34 @@ fn normalize_summary_lines(summary: &str) -> Option<Vec<String>> {
         return None;
     }
     Some(lines)
+}
+
+fn parse_daily_line(line: &str) -> Option<(&str, &str, &str)> {
+    let mut parts = line.splitn(3, " | ");
+    let time_text = parts.next()?.trim();
+    let role = parts.next()?.trim();
+    let body = parts.next()?.trim();
+    if time_text.is_empty() || role.is_empty() || body.is_empty() {
+        return None;
+    }
+    Some((time_text, role, body))
+}
+
+fn daily_timestamp(date: &str, time_text: &str) -> Result<u64> {
+    let day = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .map_err(|error| storage_error(format!("Invalid daily date '{date}': {error}")))?;
+    let (hour, minute) = time_text
+        .split_once(':')
+        .ok_or_else(|| storage_error(format!("Invalid daily time '{time_text}'")))?;
+    let hour = hour
+        .parse::<u32>()
+        .map_err(|error| storage_error(format!("Invalid daily hour: {error}")))?;
+    let minute = minute
+        .parse::<u32>()
+        .map_err(|error| storage_error(format!("Invalid daily minute: {error}")))?;
+    let local_time = Local
+        .with_ymd_and_hms(day.year(), day.month(), day.day(), hour, minute, 0)
+        .single()
+        .ok_or_else(|| storage_error("Invalid local time while exporting memory".to_string()))?;
+    Ok(local_time.timestamp() as u64)
 }

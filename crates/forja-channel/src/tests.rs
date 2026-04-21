@@ -1,4 +1,6 @@
 use crate::multi::MultiChannel;
+#[cfg(feature = "notification")]
+use forja_core::traits::NotificationState;
 #[cfg(feature = "telegram")]
 use forja_core::traits::TelegramConnectionStatus;
 #[cfg(feature = "telegram")]
@@ -78,7 +80,15 @@ async fn test_multichannel_shutdown() {
 
 #[tokio::test]
 async fn test_multichannel_new_without_telegram_starts_in_cli_mode() {
-    let channel = MultiChannel::new(None, Vec::new()).await;
+    let channel = MultiChannel::new(
+        None,
+        Vec::new(),
+        #[cfg(feature = "voice")]
+        None,
+        #[cfg(feature = "notification")]
+        NotificationState::default(),
+    )
+    .await;
 
     assert!(channel.is_cli_source());
     #[cfg(feature = "telegram")]

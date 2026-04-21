@@ -21,6 +21,10 @@ Thumbs.db
 *.swp
 
 # Logs & Outputs
+build_errors.txt
+clippy_result.txt
+error.log
+debate-log.txt
 error.log
 clippy_result.txt
 *.log

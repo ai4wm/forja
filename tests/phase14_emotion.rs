@@ -349,7 +349,8 @@ async fn tone_instruction_is_injected_into_system_prompt() {
     assert!(main_request.contains("base system prompt"));
     assert!(main_request.contains("[tone]"));
     assert!(main_request.contains("짧고 또렷하게 안내하세요"));
-    assert!(main_request.contains("[memory.md - Persistent Memory]"));
+    assert!(main_request.contains("[memory - Structured Persistent Memory]"));
+    assert!(main_request.contains("최근 commit이 계속 이어졌습니다"));
 }
 
 #[tokio::test]

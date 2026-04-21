@@ -13,4 +13,5 @@ chrono = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9" # YAML frontmatter parsing
 async-trait = "0.1"
+rusqlite = { version = "0.32", features = ["bundled"] }
 

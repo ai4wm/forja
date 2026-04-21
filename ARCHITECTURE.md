@@ -1,6 +1,6 @@
 # Forja Architecture
 
-This document is a snapshot of the current implementation in `F:\1.Project\forja`.
+This document is a snapshot of the current implementation in this workspace.
 It describes the code that exists today. It does not replace `docs/ARCHITECTURE.md`, which is a target-state design document for a later milestone.
 
 ## System Shape
@@ -8,9 +8,9 @@ It describes the code that exists today. It does not replace `docs/ARCHITECTURE.
 Forja is a single-binary Rust workspace centered on the `forja` CLI in `src/main.rs`.
 The root binary assembles five internal crates:
 
-- `forja-core`: engine traits, runtime orchestration, prompt assembly, context, audit, budget, heartbeat, autonomy, debate creation, and domain types
+- `forja-core`: engine traits, runtime orchestration, prompt assembly, context, audit, budget, heartbeat, autonomy, dream maintenance orchestration, debate creation, and domain types
 - `forja-llm`: multi-provider LLM client and provider presets
-- `forja-memory`: markdown-backed conversation memory storage
+- `forja-memory`: markdown-backed structured memory storage and dream-maintenance persistence
 - `forja-tools`: shell, file, web, search, browser, input, vision, and external CLI bridge tools
 - `forja-channel`: CLI and Telegram channel adapters
 
@@ -19,7 +19,7 @@ The dominant architectural pattern is a single process with trait-based boundari
 
 ## Runtime Assembly
 
-The startup path is concentrated in `src/main.rs`.
+The runtime startup path is now split across `src/runtime/startup.rs` and the `src/runtime/boot_*.rs` builder modules, with `src/main.rs` acting as the binary entrypoint and top-level command dispatcher.
 
 1. Parse binary commands and flags.
    `forja login <provider>` dispatches to OAuth or token storage.
@@ -27,7 +27,7 @@ The startup path is concentrated in `src/main.rs`.
 2. Load auth, config, and bootstrap profile data from `~/.forja`.
 3. Build the combined system prompt from bootstrap files plus the first available project prompt file.
 4. Select the active provider and model, then create the LLM client or mock provider.
-5. Build runtime state for mode, memory, knowledge, audit, budget, heartbeat, autonomy, and dashboard integration.
+5. Build runtime state for mode, memory, knowledge, audit, budget, heartbeat, dream maintenance, autonomy, and dashboard integration.
 6. Register tools on the engine.
 7. Attach the slash-command handler and start the streaming engine loop.
 
@@ -55,7 +55,7 @@ This layer is composition-heavy and currently owns a large amount of runtime wir
 
 `forja-core` contains the main runtime logic and domain modules.
 
-- `engine`: engine loop, tool recursion, streaming/non-streaming fallback, slash integration, memory loading, and shutdown hooks
+- `engine`: engine loop, tool recursion, streaming/non-streaming fallback, slash integration, memory loading, dream trigger handling, and shutdown hooks
 - `prompt`: system prompt composition and role/think-mode prompt selection
 - `mode`: execution mode, reasoning level, slash parsing, and image command detection
 - `context`: token counting and context compression support
@@ -63,6 +63,7 @@ This layer is composition-heavy and currently owns a large amount of runtime wir
 - `budget`: token budget tracking
 - `heartbeat`: scheduled internal triggers
 - `autonomy`: queued tasks, skill tracking, unresolved-task storage
+- `engine/dream.rs`: idle/manual/shutdown dream trigger management and notification fan-out
 - `creation`: debate engine and multi-agent synthesis flow
 - `emotion`, `knowledge`, `serendipity`: user-context enrichment
 
@@ -71,7 +72,7 @@ This crate is the main domain boundary for all assistant behavior.
 ### 3. Adapter Crates
 
 - `forja-llm`: provider-specific HTTP client logic and preset configuration
-- `forja-memory`: markdown storage implementation for the `MemoryStore` trait
+- `forja-memory`: structured markdown storage implementation for the `MemoryStore` trait, including `dreams/` logs and pending-journal recovery
 - `forja-tools`: concrete tool adapters for shell, browser, input, vision, file, web, search, and external CLIs
 - `forja-channel`: CLI and Telegram channel implementations
 
@@ -94,7 +95,7 @@ The runtime persists state under `~/.forja` and adjacent configured directories.
 - `auth.json`: OAuth tokens
 - `identity.md` and `user.md`: bootstrap identity and user profile
 - `audit.db`: audit log, budgets, autonomy task queue, unresolved items, and learned skills
-- `memory/memory.md` and archive files: conversation memory
+- `memory/index.md`, `memory/topics/`, `memory/daily/`, `memory/archive/`, `memory/dreams/`, and `memory/memory.db`: structured conversation memory, dream logs, and searchable summaries
 - `knowledge/*.md`: knowledge context
 
 Persistence is local-first.
@@ -123,6 +124,7 @@ The currently implemented runtime command surface includes:
 - `/skills`
 - `/unresolved`
 - `/task`
+- `/dream`
 - `/models`
 - `/model`
 - `/identity`

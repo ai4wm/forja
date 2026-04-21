@@ -32,6 +32,47 @@ pub trait MemoryStore: Send + Sync {
         self.load_all().await
     }
     async fn flush(&self) -> Result<()>;
+
+    async fn run_dream(&self, trigger: DreamTrigger) -> Result<DreamRunOutcome> {
+        let _ = trigger;
+        Ok(DreamRunOutcome {
+            status: DreamRunStatus::Skipped,
+            summary: "dream is not supported by this memory store".to_string(),
+            archived_topics: Vec::new(),
+            merged_topics: Vec::new(),
+            split_topics: Vec::new(),
+            completed_at: None,
+        })
+    }
+
+    async fn latest_dream_timestamp(&self) -> Result<Option<u64>> {
+        Ok(None)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DreamTrigger {
+    Idle,
+    Manual,
+    Shutdown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DreamRunStatus {
+    Completed,
+    Skipped,
+    AbortedConflict,
+    Recovered,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DreamRunOutcome {
+    pub status: DreamRunStatus,
+    pub summary: String,
+    pub archived_topics: Vec<String>,
+    pub merged_topics: Vec<String>,
+    pub split_topics: Vec<String>,
+    pub completed_at: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +80,62 @@ pub enum TelegramConnectionStatus {
     Connected,
     Disconnected,
     Reconnecting,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VoiceChannelStatus {
+    Disabled,
+    Listening,
+    Speaking,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum NotificationLevel {
+    Info,
+    Warning,
+    Critical,
+}
+
+impl NotificationLevel {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Info => "info",
+            Self::Warning => "warning",
+            Self::Critical => "critical",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NotificationTopic {
+    Task,
+    Autonomy,
+    Skill,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationState {
+    pub enabled: bool,
+    pub min_level: NotificationLevel,
+    pub notify_tasks: bool,
+    pub notify_autonomy: bool,
+    pub notify_skills: bool,
+    pub notify_errors: bool,
+}
+
+impl Default for NotificationState {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            min_level: NotificationLevel::Info,
+            notify_tasks: true,
+            notify_autonomy: true,
+            notify_skills: true,
+            notify_errors: true,
+        }
+    }
 }
 
 /// Input/output channel implemented in forja-channel, such as CLI or Telegram.
@@ -70,8 +167,39 @@ pub trait Channel: Send + Sync {
         Ok(false)
     }
 
+    async fn send_notification_with_level(
+        &self,
+        text: &str,
+        _topic: NotificationTopic,
+        _level: NotificationLevel,
+    ) -> Result<bool> {
+        self.send_notification(text).await
+    }
+
     fn telegram_status(&self) -> Option<TelegramConnectionStatus> {
         None
+    }
+
+    fn supports_voice(&self) -> bool {
+        false
+    }
+
+    fn voice_status(&self) -> Option<VoiceChannelStatus> {
+        None
+    }
+
+    async fn set_voice_enabled(&self, enabled: bool) -> Result<VoiceChannelStatus> {
+        let _ = enabled;
+        Ok(VoiceChannelStatus::Unavailable)
+    }
+
+    fn notification_state(&self) -> Option<NotificationState> {
+        None
+    }
+
+    async fn set_notifications_enabled(&self, enabled: bool) -> Result<NotificationState> {
+        let _ = enabled;
+        Ok(NotificationState::default())
     }
 }
 

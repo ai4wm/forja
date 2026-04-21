@@ -1,3 +1,11 @@
+pub(crate) mod boot_channel;
+pub(crate) mod boot_config;
+pub(crate) mod boot_dashboard;
+pub(crate) mod boot_engine;
+pub(crate) mod boot_memory;
+pub(crate) mod boot_autonomy;
+pub(crate) mod boot_profile;
+pub(crate) mod boot_provider;
 pub(crate) mod mock;
 pub(crate) mod prompt;
 pub(crate) mod shutdown;

@@ -7,6 +7,25 @@ pub mod writer;
 
 use crate::mode::{ModeState, Role};
 
+pub fn join_prompt_sections<I, S>(sections: I, separator: &str) -> String
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    sections
+        .into_iter()
+        .filter_map(|section| {
+            let trimmed = section.as_ref().trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn assemble_system_prompt(
     mode_state: &ModeState,
@@ -38,12 +57,11 @@ pub fn assemble_system_prompt(
         sections.push(role_prompt.to_string());
     }
 
-    for section in [identity, user, tools, emotion_tone, relationship, knowledge, memory] {
-        let trimmed = section.trim();
-        if !trimmed.is_empty() {
-            sections.push(trimmed.to_string());
-        }
-    }
+    sections.extend(
+        [identity, user, tools, emotion_tone, relationship, knowledge, memory]
+            .into_iter()
+            .map(str::to_string),
+    );
 
-    sections.join("\n\n")
+    join_prompt_sections(sections, "\n\n")
 }
