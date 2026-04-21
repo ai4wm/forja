@@ -4,6 +4,20 @@ Last updated: 2026-04-22
 
 ## Task Record
 
+- Changed files: `crates/forja-core/src/autonomy/tests.rs`, `crates/forja-core/src/creation/debate.rs`, `crates/forja-core/src/creation/mod.rs`, `crates/forja-core/src/creation/tests.rs`, `crates/forja-core/src/creation/types.rs`, `crates/forja-core/src/creation/combination.rs`, `crates/forja-core/src/creation/mutation.rs`, `crates/forja-core/src/creation/execution.rs`, `crates/forja-core/src/creation/expanded_tests.rs`, `crates/forja-core/src/creation/policy_tests.rs`, `crates/forja-core/src/engine/creation.rs`, `src/config.rs`, `src/runtime/boot_engine.rs`, `src/runtime/slash/tests.rs`, `tests/phase28_creation.rs`, `.autopus/specs/SPEC-CREATION-001/spec.md`, `.autopus/specs/SPEC-CREATION-001/plan.md`, `.autopus/specs/SPEC-CREATION-001/acceptance.md`, `.autopus/specs/SPEC-CREATION-001/research.md`, `ARCHITECTURE.md`, `.autopus/project/structure.md`, `.autopus/project/tech.md`, `docs/STATUS.md`
+- Feature status: Done
+- Dependencies for next task: `/auto sync SPEC-CREATION-001` is now ready to finalize. After that, the next chain item to assess is whether the separate RALF/budget request needs any net-new work beyond the already integrated creation-engine changes and existing repository support.
+- Verification: `cargo build --workspace` passed with `CARGO_TARGET_DIR=target-creation`; `cargo clippy --workspace -- -D warnings` passed with `CARGO_TARGET_DIR=target-creation`; `cargo test -p forja-core creation:: -- --nocapture` passed; `cargo test -p forja-core policy_tests -- --nocapture` passed; `cargo test --test phase28_creation -- --nocapture` passed; `cargo test slash_handler_routes_debate_command -- --nocapture` passed; `cargo test -p forja-llm` still failed in existing `test_ollama_streaming` and `test_chat_fallback` because the local Ollama model `qwen3.5:9b` was not available
+
+## Task Record
+
+- Changed files: `.autopus/specs/SPEC-CREATION-001/prd.md`, `.autopus/specs/SPEC-CREATION-001/spec.md`, `.autopus/specs/SPEC-CREATION-001/plan.md`, `.autopus/specs/SPEC-CREATION-001/acceptance.md`, `.autopus/specs/SPEC-CREATION-001/research.md`, `docs/STATUS.md`
+- Feature status: Not started
+- Dependencies for next task: review and approve `SPEC-CREATION-001`, then continue with `/auto go SPEC-CREATION-001`. The planned implementation should extend the current debate baseline instead of replacing it, split `crates/forja-core/src/creation/debate.rs` before adding more stages, and wire RALF plus budget checks into per-creation-agent execution.
+- Verification: planning-only task; code build, clippy, and tests were not rerun in this step; reviewed `docs/ARCHITECTURE.md`, `crates/forja-core/src/creation/{mod.rs,agents.rs,debate.rs,types.rs,tests.rs}`, `crates/forja-core/src/engine/creation.rs`, `crates/forja-core/src/engine/budget.rs`, `crates/forja-core/src/ralf/executor.rs`, `src/config.rs`, and `src/runtime/boot_engine.rs`
+
+## Task Record
+
 - Changed files: `crates/forja-core/src/engine.rs`, `crates/forja-core/src/engine/dream.rs`, `crates/forja-core/src/engine/slash_runtime.rs`, `crates/forja-core/src/engine/state.rs`, `crates/forja-core/src/traits.rs`, `crates/forja-memory/src/lib.rs`, `crates/forja-memory/src/storage/mod.rs`, `crates/forja-memory/src/storage/dream.rs`, `crates/forja-memory/src/storage/journal.rs`, `src/config.rs`, `src/runtime/boot_engine.rs`, `src/runtime/slash.rs`, `src/runtime/slash/tests.rs`, `tests/phase20_dream.rs`, `docs/STATUS.md`
 - Feature status: Done
 - Dependencies for next task: `SPEC-DREAM-001` is synced locally. The next recommended workflow is `/auto canary`. If new feature work is desired after that, start the next cycle with `/auto plan "feature description"`.

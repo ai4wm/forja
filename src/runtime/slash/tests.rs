@@ -158,6 +158,18 @@ fn slash_handler_routes_task_add_as_task_command() {
 }
 
 #[test]
+fn slash_handler_routes_debate_command() {
+    let (handler, _, mut provider, mut mode_state) = test_handler();
+    let result = handler("/debate expand the creation engine", &mut provider, &mut mode_state);
+
+    assert!(matches!(
+        result,
+        Some(forja_core::engine::SlashCommandResult::Debate { topic })
+            if topic == "expand the creation engine"
+    ));
+}
+
+#[test]
 fn slash_handler_routes_task_list_to_reply_until_engine_supports_it() {
     let (handler, _, mut provider, mut mode_state) = test_handler();
     let result = handler("/task list", &mut provider, &mut mode_state);

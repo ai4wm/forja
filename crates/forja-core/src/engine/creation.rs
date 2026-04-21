@@ -1,5 +1,5 @@
 use super::Engine;
-use crate::creation::{DebateEngine, DebateResult};
+use crate::creation::{CreationRunContext, DebateEngine, DebateResult};
 use crate::error::{ForjaError, Result};
 use crate::types::{Message, Role};
 
@@ -37,12 +37,19 @@ impl Engine {
             })
         };
 
+        let run_context = CreationRunContext {
+            ralf_config: self.ralf_config.clone(),
+            budget_manager: self.budget_manager.clone(),
+            budget_mode: self.budget_mode,
+            ..CreationRunContext::default()
+        };
         let result = creation_engine
             .run_debate_with_callback(
                 topic,
                 &provider,
                 audit_logger.as_deref(),
                 Some(&mut callback),
+                Some(run_context),
             )
             .await?;
         self.record_current_agent_usage(result.total_tokens)?;

@@ -113,12 +113,28 @@ pub(crate) fn build_engine_bundle(
             .creation
             .conflict_rounds
             .unwrap_or(3),
+        combination_rounds: runtime_config
+            .forja_cfg
+            .creation
+            .combination_rounds
+            .unwrap_or(1),
+        mutation_rounds: runtime_config
+            .forja_cfg
+            .creation
+            .mutation_rounds
+            .unwrap_or(1),
         converge_rounds: runtime_config
             .forja_cfg
             .creation
             .converge_rounds
             .unwrap_or(1),
+        min_agents: runtime_config.forja_cfg.creation.min_agents.unwrap_or(3),
         max_agents: runtime_config.forja_cfg.creation.max_agents.unwrap_or(5),
+        auto_team_sizing: runtime_config
+            .forja_cfg
+            .creation
+            .auto_team_sizing
+            .unwrap_or(true),
     };
     engine = engine.with_creation_engine(DebateEngine::new(debate_agents, debate_config));
     engine = engine.with_dashboard_handler(dashboard_handler);

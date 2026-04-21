@@ -10,6 +10,8 @@ pub struct TaskItem {
 pub enum DebatePhase {
     Diverge,
     Conflict,
+    Combination,
+    Mutation,
     Converge,
 }
 
@@ -18,9 +20,21 @@ impl DebatePhase {
         match self {
             Self::Diverge => "Diverge",
             Self::Conflict => "Conflict",
+            Self::Combination => "Combination",
+            Self::Mutation => "Mutation",
             Self::Converge => "Converge",
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DebateRunMetadata {
+    pub active_agent_count: usize,
+    pub diverge_rounds: usize,
+    pub conflict_rounds: usize,
+    pub combination_rounds: usize,
+    pub mutation_rounds: usize,
+    pub converge_rounds: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,4 +54,6 @@ pub struct DebateResult {
     pub transcript: Vec<DebateMessage>,
     pub total_tokens: usize,
     pub total_rounds: usize,
+    pub metadata: DebateRunMetadata,
+    pub active_agent_count: usize,
 }

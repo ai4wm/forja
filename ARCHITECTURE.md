@@ -8,7 +8,7 @@ It describes the code that exists today. It does not replace `docs/ARCHITECTURE.
 Forja is a single-binary Rust workspace centered on the `forja` CLI in `src/main.rs`.
 The root binary assembles five internal crates:
 
-- `forja-core`: engine traits, runtime orchestration, prompt assembly, context, audit, budget, heartbeat, autonomy, dream maintenance orchestration, debate creation, and domain types
+- `forja-core`: engine traits, runtime orchestration, prompt assembly, context, audit, budget, heartbeat, autonomy, dream maintenance orchestration, staged debate creation, and domain types
 - `forja-llm`: multi-provider LLM client and provider presets
 - `forja-memory`: markdown-backed structured memory storage and dream-maintenance persistence
 - `forja-tools`: shell, file, web, search, browser, input, vision, and external CLI bridge tools
@@ -64,7 +64,7 @@ This layer is composition-heavy and currently owns a large amount of runtime wir
 - `heartbeat`: scheduled internal triggers
 - `autonomy`: queued tasks, skill tracking, unresolved-task storage
 - `engine/dream.rs`: idle/manual/shutdown dream trigger management and notification fan-out
-- `creation`: debate engine and multi-agent synthesis flow
+- `creation`: staged debate engine, combination/mutation flow, bounded task synthesis, and creation execution policy reuse
 - `emotion`, `knowledge`, `serendipity`: user-context enrichment
 
 This crate is the main domain boundary for all assistant behavior.

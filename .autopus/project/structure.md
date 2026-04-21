@@ -59,6 +59,7 @@ Key module groups:
 
 This crate is the center of the runtime model.
 Its runtime decomposition now includes `engine/dream.rs` for idle/manual/shutdown dream orchestration.
+The creation subsystem is now split across `creation/debate.rs`, `creation/combination.rs`, `creation/mutation.rs`, `creation/execution.rs`, and dedicated creation test modules.
 
 ### `forja-llm`
 

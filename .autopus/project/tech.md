@@ -63,6 +63,7 @@
 - Streaming-first assistant responses with fallback paths
 - SQLite-backed observability for audit, budgets, and autonomy state
 - Background dream maintenance using deterministic local rules over the structured memory layout
+- Staged creation-engine execution with divergence, conflict, combination, mutation, convergence, and task synthesis over the existing budget and RALF policies
 
 ## Configuration Model
 

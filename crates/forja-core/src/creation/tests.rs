@@ -36,6 +36,16 @@ async fn test_debate_phase_counts_and_result_shape() {
         .iter()
         .filter(|message| message.phase == DebatePhase::Conflict)
         .count();
+    let combination_count = result
+        .transcript
+        .iter()
+        .filter(|message| message.phase == DebatePhase::Combination)
+        .count();
+    let mutation_count = result
+        .transcript
+        .iter()
+        .filter(|message| message.phase == DebatePhase::Mutation)
+        .count();
     let converge_count = result
         .transcript
         .iter()
@@ -44,14 +54,23 @@ async fn test_debate_phase_counts_and_result_shape() {
 
     assert_eq!(diverge_count, 10);
     assert_eq!(conflict_count, 15);
+    assert_eq!(combination_count, 5);
+    assert_eq!(mutation_count, 5);
     assert_eq!(converge_count, 1);
-    assert_eq!(result.total_rounds, 6);
+    assert_eq!(result.total_rounds, 8);
     assert!(!result.summary.trim().is_empty());
     assert!(!result.task_list.is_empty());
     assert!(result
         .transcript
         .iter()
-        .all(|message| matches!(message.phase, DebatePhase::Diverge | DebatePhase::Conflict | DebatePhase::Converge)));
+        .all(|message| matches!(
+            message.phase,
+            DebatePhase::Diverge
+                | DebatePhase::Conflict
+                | DebatePhase::Combination
+                | DebatePhase::Mutation
+                | DebatePhase::Converge
+        )));
 }
 
 #[tokio::test(start_paused = true)]
@@ -62,8 +81,12 @@ async fn test_debate_timeout_handling() {
         DebateConfig {
             diverge_rounds: 1,
             conflict_rounds: 0,
+            combination_rounds: 0,
+            mutation_rounds: 0,
             converge_rounds: 0,
+            min_agents: 1,
             max_agents: 1,
+            auto_team_sizing: false,
         },
     );
 
@@ -87,8 +110,12 @@ async fn test_debate_delay_between_calls() {
         DebateConfig {
             diverge_rounds: 2,
             conflict_rounds: 0,
+            combination_rounds: 0,
+            mutation_rounds: 0,
             converge_rounds: 0,
+            min_agents: 1,
             max_agents: 1,
+            auto_team_sizing: false,
         },
     );
 
@@ -124,6 +151,10 @@ impl LlmProvider for MockDebateProvider {
             "Yes, and... split the work into smaller components.".to_string()
         } else if prompt_text.contains("Phase: CONFLICT") {
             "Failure probability: 20%. Alternative: stage the rollout.".to_string()
+        } else if prompt_text.contains("Phase: COMBINATION") {
+            "TRIZ blend: combine runtime and release planning into one path.".to_string()
+        } else if prompt_text.contains("Phase: MUTATION") {
+            "Mutation: invert the default rollout and surface the lowest-risk sequence.".to_string()
         } else if prompt_text.contains("Phase: CONVERGE") {
             [
                 "We should stage Discord integration behind a clear adapter boundary.",
@@ -198,6 +229,10 @@ impl LlmProvider for TimingDebateProvider {
             "Yes, and... split the work into smaller components.".to_string()
         } else if prompt_text.contains("Phase: CONFLICT") {
             "Failure probability: 20%. Alternative: stage the rollout.".to_string()
+        } else if prompt_text.contains("Phase: COMBINATION") {
+            "TRIZ blend: combine runtime and release planning into one path.".to_string()
+        } else if prompt_text.contains("Phase: MUTATION") {
+            "Mutation: invert the default rollout and surface the lowest-risk sequence.".to_string()
         } else {
             [
                 "We should stage Discord integration behind a clear adapter boundary.",

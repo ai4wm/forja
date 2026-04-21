@@ -2,7 +2,7 @@ use super::loop_runner::AutonomousLoop;
 use super::skills::SkillRegistry;
 use super::unresolved::UnresolvedStore;
 use super::AutonomyConfig;
-use crate::creation::{DebateMessage, DebatePhase, DebateResult, TaskItem};
+use crate::creation::{DebateMessage, DebatePhase, DebateResult, DebateRunMetadata, TaskItem};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -127,6 +127,15 @@ fn test_enqueue_from_debate() {
         }],
         total_tokens: 3,
         total_rounds: 1,
+        metadata: DebateRunMetadata {
+            active_agent_count: 1,
+            diverge_rounds: 1,
+            conflict_rounds: 0,
+            combination_rounds: 0,
+            mutation_rounds: 0,
+            converge_rounds: 0,
+        },
+        active_agent_count: 1,
     };
 
     let ids = loop_runner

@@ -104,8 +104,12 @@ pub struct AgentSection {
 pub struct CreationSection {
     pub diverge_rounds: Option<usize>,
     pub conflict_rounds: Option<usize>,
+    pub combination_rounds: Option<usize>,
+    pub mutation_rounds: Option<usize>,
     pub converge_rounds: Option<usize>,
+    pub min_agents: Option<usize>,
     pub max_agents: Option<usize>,
+    pub auto_team_sizing: Option<bool>,
     #[serde(default)]
     pub agents: BTreeMap<String, CreationAgentSection>,
 }
@@ -194,8 +198,12 @@ impl Default for CreationSection {
         Self {
             diverge_rounds: Some(2),
             conflict_rounds: Some(3),
+            combination_rounds: Some(1),
+            mutation_rounds: Some(1),
             converge_rounds: Some(1),
+            min_agents: Some(3),
             max_agents: Some(5),
+            auto_team_sizing: Some(true),
             agents: BTreeMap::new(),
         }
     }
