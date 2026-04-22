@@ -3,13 +3,20 @@ use crate::types::{MemoryEntry, Message, ToolDefinition};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::pin::Pin;
-use tokio_stream::Stream;
+use tokio_stream::{Stream, StreamExt};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum LlmStreamEvent {
+    Text(String),
+    ToolCall(Message),
+}
 
 /// LLM provider implemented in forja-llm, e.g. Anthropic or OpenAI.
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     /// Single response, optionally including tool-call information.
-    async fn chat(&self, messages: &[Message], tools: Option<&[ToolDefinition]>) -> Result<Message>;
+    async fn chat(&self, messages: &[Message], tools: Option<&[ToolDefinition]>)
+    -> Result<Message>;
 
     /// Token streaming response, optionally including tool definitions.
     async fn stream(
@@ -17,6 +24,16 @@ pub trait LlmProvider: Send + Sync {
         messages: &[Message],
         tools: Option<&[ToolDefinition]>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>>;
+
+    async fn stream_events(
+        &self,
+        messages: &[Message],
+        tools: Option<&[ToolDefinition]>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<LlmStreamEvent>> + Send>>> {
+        let stream = self.stream(messages, tools).await?;
+        let mapped = stream.map(|item| item.map(LlmStreamEvent::Text));
+        Ok(Box::pin(mapped))
+    }
 }
 
 /// Memory store implemented in forja-memory, such as markdown files or vector DBs.
@@ -152,13 +169,25 @@ pub trait Channel: Send + Sync {
     fn shutdown(&self) {}
 
     /// Whether the current input source is CLI.
-    fn is_cli_source(&self) -> bool { false }
+    fn is_cli_source(&self) -> bool {
+        false
+    }
+
+    /// Returns the current active channel label when available.
+    fn active_channel_name(&self) -> Option<&'static str> {
+        None
+    }
 
     /// Cancel typing state such as spinners or typing indicators.
     async fn cancel_typing(&self) {}
 
     /// Print a CLI/log line after clearing transient typing UI such as spinners.
     async fn log_line(&self, text: &str) {
+        let _ = text;
+    }
+
+    /// Emit a streaming text chunk for UI surfaces that support incremental output.
+    async fn stream_chunk(&self, text: &str) {
         let _ = text;
     }
 
@@ -219,4 +248,3 @@ pub trait Tool: Send + Sync {
     /// Executes the tool with structured JSON arguments.
     async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value>;
 }
-

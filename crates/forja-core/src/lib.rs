@@ -1,12 +1,10 @@
 pub mod audit;
 pub mod autonomy;
 pub mod budget;
-pub mod creation;
 pub mod context;
-pub mod engine;
+pub mod creation;
 pub mod emotion;
-#[cfg(feature = "runtime")]
-pub mod scheduler;
+pub mod engine;
 pub mod error;
 pub mod gateway;
 pub mod heartbeat;
@@ -14,6 +12,8 @@ pub mod knowledge;
 pub mod mode;
 pub mod prompt;
 pub mod ralf;
+#[cfg(feature = "runtime")]
+pub mod scheduler;
 pub mod serendipity;
 pub mod skill;
 pub mod traits;
@@ -24,7 +24,7 @@ pub use engine::Engine;
 pub use error::{ForjaError, Result};
 pub use knowledge::{KnowledgeManager, TopicEntry};
 pub use serendipity::SerendipityEngine;
-pub use traits::{Channel, LlmProvider, MemoryStore, Tool};
+pub use traits::{Channel, LlmProvider, LlmStreamEvent, MemoryStore, Tool};
 pub use types::{Content, MemoryEntry, Message, Role, ToolDefinition};
 
 #[cfg(test)]

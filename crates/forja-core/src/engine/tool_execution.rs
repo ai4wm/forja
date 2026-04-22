@@ -1,8 +1,8 @@
-use super::{Engine, MAX_TOOL_DEPTH, ANSI_GREEN};
+use super::{ANSI_GREEN, Engine, MAX_TOOL_DEPTH};
 use crate::context::token_counter::{count_message_tokens, count_messages_tokens};
 use crate::error::{ForjaError, Result};
-use crate::ralf::executor::ralf_execute;
 use crate::ralf::RalfState;
+use crate::ralf::executor::ralf_execute;
 use crate::types::{Content, Message, ToolDefinition};
 
 impl Engine {
@@ -12,7 +12,8 @@ impl Engine {
             return Err(ForjaError::MaxDepthExceeded(MAX_TOOL_DEPTH));
         }
 
-        let tool_defs: Vec<ToolDefinition> = self.tools.values().map(|tool| tool.definition()).collect();
+        let tool_defs: Vec<ToolDefinition> =
+            self.tools.values().map(|tool| tool.definition()).collect();
 
         self.compress_context().await?;
         self.check_current_agent_budget()?;
@@ -53,14 +54,10 @@ impl Engine {
                 arguments,
                 reasoning_content: _,
                 thought_signature: _,
-            } => self.handle_tool_call_response(
-                depth,
-                response_msg,
-                call_id,
-                tool_name,
-                arguments,
-            )
-            .await,
+            } => {
+                self.handle_tool_call_response(depth, response_msg, call_id, tool_name, arguments)
+                    .await
+            }
             _ => {
                 self.push_message(response_msg.clone());
                 Ok(response_msg)
@@ -68,7 +65,7 @@ impl Engine {
         }
     }
 
-    async fn handle_tool_call_response(
+    pub(super) async fn handle_tool_call_response(
         &mut self,
         depth: usize,
         response_msg: Message,
@@ -105,7 +102,8 @@ impl Engine {
             result
         };
 
-        let result_msg = Message::tool_result(&call_id, result);
+        let result_msg = Message::tool_result(&call_id, result)
+            .with_metadata("tool_name", serde_json::json!(tool_name));
         self.push_message(result_msg);
         self.handle_step(depth + 1).await
     }

@@ -1,14 +1,18 @@
-use super::{Engine, ANSI_BLUE, ANSI_GREEN};
+use super::{ANSI_BLUE, ANSI_GREEN, Engine};
 use crate::context::token_counter::count_messages_tokens;
 use crate::error::Result;
-use crate::ralf::executor::ralf_execute;
 use crate::ralf::RalfState;
+use crate::ralf::executor::ralf_execute;
+use crate::traits::LlmStreamEvent;
 use crate::traits::{NotificationLevel, NotificationTopic};
 use crate::types::Content;
 
 impl Engine {
     #[cfg(feature = "runtime")]
-    pub(crate) async fn process_streaming_turn(&mut self, user_msg: crate::types::Message) -> Result<()> {
+    pub(crate) async fn process_streaming_turn(
+        &mut self,
+        user_msg: crate::types::Message,
+    ) -> Result<()> {
         if self.dispatch_slash_command(&user_msg).await? {
             return Ok(());
         }
@@ -18,7 +22,8 @@ impl Engine {
 
         let mut response_result = self.execute_streaming_turn_once().await;
         if should_retry_with_emergency(response_result.as_ref()) {
-            self.log_cli_stage(ANSI_BLUE, "Compressing context...").await;
+            self.log_cli_stage(ANSI_BLUE, "Compressing context...")
+                .await;
             response_result = if let Err(error) = self.emergency_compress_context().await {
                 Err(error)
             } else {
@@ -68,10 +73,10 @@ impl Engine {
             || self.stream_step_with_tools(),
         )
         .await
-        .unwrap_or(None);
+        .unwrap_or(StreamingStepOutcome::Fallback);
 
         match streaming_result {
-            Some(text) => {
+            StreamingStepOutcome::Text(text) => {
                 let streamed_text = text;
                 let text = self
                     .maybe_append_serendipity_to_text(streamed_text.clone())
@@ -100,7 +105,18 @@ impl Engine {
 
                 Ok(Some(text))
             }
-            None => {
+            StreamingStepOutcome::ToolCall(tool_call_msg) => {
+                let final_msg = self.handle_streamed_tool_call(tool_call_msg).await?;
+                let final_msg = self.maybe_append_serendipity_to_message(final_msg).await;
+                self.channel.send(final_msg.clone()).await?;
+
+                Ok(if let Content::Text { text, .. } = &final_msg.content {
+                    Some(text.clone())
+                } else {
+                    None
+                })
+            }
+            StreamingStepOutcome::Fallback => {
                 let final_msg = self.handle_step(0).await?;
                 let final_msg = self.maybe_append_serendipity_to_message(final_msg).await;
                 self.channel.send(final_msg.clone()).await?;
@@ -115,8 +131,9 @@ impl Engine {
     }
 
     #[cfg(feature = "runtime")]
-    pub(crate) async fn stream_step_with_tools(&self) -> Result<Option<String>> {
+    async fn stream_step_with_tools(&self) -> Result<StreamingStepOutcome> {
         use tokio_stream::StreamExt;
+        let tool_enabled = !self.tools.is_empty();
 
         let tool_defs: Vec<crate::types::ToolDefinition> =
             self.tools.values().map(|tool| tool.definition()).collect();
@@ -128,9 +145,9 @@ impl Engine {
 
         let request_messages = self.request_messages();
         self.log_cli_stage(ANSI_GREEN, "Calling LLM...").await;
-        let mut stream = match self.provider.stream(&request_messages, tools).await {
+        let mut stream = match self.provider.stream_events(&request_messages, tools).await {
             Ok(stream) => stream,
-            Err(_) => return Ok(None),
+            Err(_) => return Ok(StreamingStepOutcome::Fallback),
         };
 
         let mut full_text = String::new();
@@ -138,15 +155,9 @@ impl Engine {
 
         while let Some(chunk) = stream.next().await {
             match chunk {
-                Ok(token) => {
+                Ok(LlmStreamEvent::Text(token)) => {
                     if token.is_empty() {
                         continue;
-                    }
-
-                    if first_token
-                        && (token.trim_start().starts_with("{\"") || token.contains("tool_call"))
-                    {
-                        return Ok(None);
                     }
 
                     if first_token {
@@ -154,25 +165,55 @@ impl Engine {
                         first_token = false;
                     }
 
-                    if self.channel.is_cli_source() {
+                    if !tool_enabled && self.channel.is_cli_source() {
                         print!("{}", token);
                         std::io::Write::flush(&mut std::io::stdout()).ok();
+                    } else if !tool_enabled {
+                        self.channel.stream_chunk(&token).await;
                     }
                     full_text.push_str(&token);
+                }
+                Ok(LlmStreamEvent::ToolCall(message)) => {
+                    return Ok(StreamingStepOutcome::ToolCall(message));
                 }
                 Err(_) => break,
             }
         }
 
         if full_text.is_empty() {
-            Ok(None)
+            Ok(StreamingStepOutcome::Fallback)
         } else {
-            if self.channel.is_cli_source() {
+            if !tool_enabled && self.channel.is_cli_source() {
                 println!();
             }
-            Ok(Some(full_text))
+            Ok(StreamingStepOutcome::Text(full_text))
         }
     }
+
+    #[cfg(feature = "runtime")]
+    async fn handle_streamed_tool_call(
+        &mut self,
+        response_msg: crate::types::Message,
+    ) -> Result<crate::types::Message> {
+        match response_msg.content.clone() {
+            Content::ToolCall {
+                call_id,
+                tool_name,
+                arguments,
+                ..
+            } => {
+                self.handle_tool_call_response(0, response_msg, call_id, tool_name, arguments)
+                    .await
+            }
+            _ => Ok(response_msg),
+        }
+    }
+}
+
+enum StreamingStepOutcome {
+    Text(String),
+    ToolCall(crate::types::Message),
+    Fallback,
 }
 
 fn should_retry_with_emergency(

@@ -3,7 +3,7 @@ use crate::models::{ChatCompletionMessage, ChatCompletionRequest, ChatCompletion
 
 use async_trait::async_trait;
 use forja_core::error::{ForjaError, Result};
-use forja_core::traits::LlmProvider;
+use forja_core::traits::{LlmProvider, LlmStreamEvent};
 use forja_core::types::{Content, Message, Role, ToolDefinition};
 use reqwest::header::{HeaderMap, HeaderValue};
 use std::pin::Pin;
@@ -36,9 +36,10 @@ impl LlmClient {
         // 2. Apply custom extra headers such as vendor-specific auth/version headers.
         for (k, v) in &config.extra_headers {
             if let Ok(hdr_name) = reqwest::header::HeaderName::from_bytes(k.as_bytes())
-                && let Ok(hdr_val) = HeaderValue::from_str(v) {
-                    headers.insert(hdr_name, hdr_val);
-                }
+                && let Ok(hdr_val) = HeaderValue::from_str(v)
+            {
+                headers.insert(hdr_name, hdr_val);
+            }
         }
 
         // Content-Type is already set by the builder, but keep it explicit.
@@ -63,7 +64,10 @@ impl LlmClient {
             .iter()
             .map(|m| {
                 match &m.content {
-                    Content::Text { text, thought_signature: _ } => {
+                    Content::Text {
+                        text,
+                        thought_signature: _,
+                    } => {
                         let role = match m.role {
                             Role::System => "system",
                             Role::User => "user",
@@ -78,7 +82,13 @@ impl LlmClient {
                             tool_call_id: None,
                         }
                     }
-                    Content::ToolCall { call_id, tool_name, arguments, reasoning_content, thought_signature: _ } => {
+                    Content::ToolCall {
+                        call_id,
+                        tool_name,
+                        arguments,
+                        reasoning_content,
+                        thought_signature: _,
+                    } => {
                         ChatCompletionMessage {
                             role: "assistant".to_string(),
                             content: None, // Reserved for plain text content in assistant messages
@@ -89,35 +99,35 @@ impl LlmClient {
                                 function: crate::models::ToolFunction {
                                     name: tool_name.clone(),
                                     arguments: arguments.to_string(),
-                                }
+                                },
                             }]),
                             tool_call_id: None,
                         }
                     }
-                    Content::ToolResult { call_id, result } => {
-                        ChatCompletionMessage {
-                            role: "tool".to_string(),
-                            content: Some(result.to_string()),
-                            reasoning_content: None,
-                            tool_calls: None,
-                            tool_call_id: Some(call_id.clone()),
-                        }
-                    }
+                    Content::ToolResult { call_id, result } => ChatCompletionMessage {
+                        role: "tool".to_string(),
+                        content: Some(result.to_string()),
+                        reasoning_content: None,
+                        tool_calls: None,
+                        tool_call_id: Some(call_id.clone()),
+                    },
                 }
             })
             .collect();
 
         let api_tools = tools.map(|ts| {
-            ts.iter().map(|t| {
-                serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters,
-                    }
+            ts.iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters,
+                        }
+                    })
                 })
-            }).collect()
+                .collect()
         });
 
         ChatCompletionRequest {
@@ -141,14 +151,20 @@ impl LlmClient {
             .iter()
             .filter_map(|m| {
                 match &m.content {
-                    Content::Text { text, thought_signature: _ } if m.role == Role::System => {
+                    Content::Text {
+                        text,
+                        thought_signature: _,
+                    } if m.role == Role::System => {
                         if !instructions.is_empty() {
                             instructions.push('\n');
                         }
                         instructions.push_str(text);
                         None
                     }
-                    Content::Text { text, thought_signature: _ } => {
+                    Content::Text {
+                        text,
+                        thought_signature: _,
+                    } => {
                         let role = match m.role {
                             Role::User => "user",
                             Role::Assistant => "assistant",
@@ -160,34 +176,37 @@ impl LlmClient {
                             "content": text,
                         }))
                     }
-                    Content::ToolCall { call_id, tool_name, arguments, .. } => {
-                        Some(serde_json::json!({
-                            "type": "function_call",
-                            "call_id": call_id,
-                            "name": tool_name,
-                            "arguments": arguments.to_string(),
-                        }))
-                    }
-                    Content::ToolResult { call_id, result } => {
-                        Some(serde_json::json!({
-                            "type": "function_call_output",
-                            "call_id": call_id,
-                            "output": result.to_string(),
-                        }))
-                    }
+                    Content::ToolCall {
+                        call_id,
+                        tool_name,
+                        arguments,
+                        ..
+                    } => Some(serde_json::json!({
+                        "type": "function_call",
+                        "call_id": call_id,
+                        "name": tool_name,
+                        "arguments": arguments.to_string(),
+                    })),
+                    Content::ToolResult { call_id, result } => Some(serde_json::json!({
+                        "type": "function_call_output",
+                        "call_id": call_id,
+                        "output": result.to_string(),
+                    })),
                 }
             })
             .collect();
 
         let api_tools: Option<Vec<serde_json::Value>> = tools.map(|ts| {
-            ts.iter().map(|t| {
-                serde_json::json!({
-                    "type": "function",
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
+            ts.iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "type": "function",
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    })
                 })
-            }).collect()
+                .collect()
         });
 
         let mut payload = serde_json::json!({
@@ -217,10 +236,10 @@ impl LlmClient {
     ) -> serde_json::Value {
         // 1. Extract system_instruction
         let mut system_parts: Vec<serde_json::Value> = Vec::new();
-        
+
         // 2. Convert messages into Gemini Native "contents" format
         let mut contents: Vec<serde_json::Value> = Vec::new();
-        
+
         for m in messages {
             match (&m.role, &m.content) {
                 (Role::System, Content::Text { text, .. }) => {
@@ -232,7 +251,13 @@ impl LlmClient {
                         "parts": [{"text": text}]
                     }));
                 }
-                (Role::Assistant, Content::Text { text, thought_signature }) => {
+                (
+                    Role::Assistant,
+                    Content::Text {
+                        text,
+                        thought_signature,
+                    },
+                ) => {
                     let mut part = serde_json::json!({"text": text});
                     if let Some(ts) = thought_signature {
                         part["thoughtSignature"] = serde_json::json!(ts);
@@ -242,7 +267,16 @@ impl LlmClient {
                         "parts": [part]
                     }));
                 }
-                (Role::Assistant, Content::ToolCall { call_id, tool_name, arguments, thought_signature, .. }) => {
+                (
+                    Role::Assistant,
+                    Content::ToolCall {
+                        call_id,
+                        tool_name,
+                        arguments,
+                        thought_signature,
+                        ..
+                    },
+                ) => {
                     let mut part = serde_json::json!({
                         "functionCall": {
                             "id": call_id,
@@ -259,13 +293,18 @@ impl LlmClient {
                     }));
                 }
                 (Role::Tool, Content::ToolResult { call_id, result }) => {
+                    let tool_name = m
+                        .metadata
+                        .get("tool_name")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or(call_id);
                     // Gemini expects tool results as a user-side functionResponse part.
                     contents.push(serde_json::json!({
                         "role": "user",
                         "parts": [{
                             "functionResponse": {
-                                "name": call_id,
-                                "response": {"result": result.to_string()}
+                                "name": tool_name,
+                                "response": result
                             }
                         }]
                     }));
@@ -273,19 +312,22 @@ impl LlmClient {
                 _ => {}
             }
         }
-        
+
         // 3. Convert tool definitions into Gemini functionDeclarations format
         let gemini_tools: Option<Vec<serde_json::Value>> = tools.map(|ts| {
-            let decls: Vec<serde_json::Value> = ts.iter().map(|t| {
-                serde_json::json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters
+            let decls: Vec<serde_json::Value> = ts
+                .iter()
+                .map(|t| {
+                    serde_json::json!({
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters
+                    })
                 })
-            }).collect();
+                .collect();
             vec![serde_json::json!({"functionDeclarations": decls})]
         });
-        
+
         // 4. Assemble the final payload
         let mut payload = serde_json::json!({
             "contents": contents,
@@ -298,11 +340,11 @@ impl LlmClient {
                 }
             }
         });
-        
+
         if let Some(t) = gemini_tools {
             payload["tools"] = serde_json::json!(t);
         }
-        
+
         payload
     }
 
@@ -319,14 +361,15 @@ impl LlmClient {
             return Ok(());
         }
 
-        let url = url::Url::parse(&self.config.base_url)
-            .map_err(|error| ForjaError::Internal(format!("Invalid llama.cpp base URL: {error}")))?;
+        let url = url::Url::parse(&self.config.base_url).map_err(|error| {
+            ForjaError::Internal(format!("Invalid llama.cpp base URL: {error}"))
+        })?;
         let host = url.host_str().unwrap_or("127.0.0.1").to_string();
         let port = url.port_or_known_default().unwrap_or(8080);
-        let executable = std::env::var("FORJA_LLAMA_CPP_SERVER")
-            .unwrap_or_else(|_| "llama-server".to_string());
-        let ctx_size = std::env::var("FORJA_LLAMA_CPP_CTX_SIZE")
-            .unwrap_or_else(|_| "8192".to_string());
+        let executable =
+            std::env::var("FORJA_LLAMA_CPP_SERVER").unwrap_or_else(|_| "llama-server".to_string());
+        let ctx_size =
+            std::env::var("FORJA_LLAMA_CPP_CTX_SIZE").unwrap_or_else(|_| "8192".to_string());
 
         Command::new(&executable)
             .arg("-m")
@@ -373,12 +416,19 @@ impl LlmClient {
 
 #[async_trait]
 impl LlmProvider for LlmClient {
-    async fn chat(&self, messages: &[Message], tools: Option<&[ToolDefinition]>) -> Result<Message> {
+    async fn chat(
+        &self,
+        messages: &[Message],
+        tools: Option<&[ToolDefinition]>,
+    ) -> Result<Message> {
         self.ensure_local_server_ready().await?;
         if self.config.use_gemini_native_api {
             let inner = self.prepare_gemini_native_payload(messages, tools);
-            let project = std::env::var("FORJA_GEMINI_PROJECT")
-                .map_err(|_| ForjaError::LlmError("Project ID missing... please run forja login gemini again".to_string()))?;
+            let project = std::env::var("FORJA_GEMINI_PROJECT").map_err(|_| {
+                ForjaError::LlmError(
+                    "Project ID missing... please run forja login gemini again".to_string(),
+                )
+            })?;
             let payload = serde_json::json!({
                 "request": inner,
                 "model": self.config.model,
@@ -400,17 +450,23 @@ impl LlmProvider for LlmClient {
             if !response.status().is_success() {
                 let status = response.status();
                 let text = response.text().await.unwrap_or_default();
-                eprintln!("[GEMINI-ERROR] Http {}: {}", status, &text[..text.len().min(300)]);
+                eprintln!(
+                    "[GEMINI-ERROR] Http {}: {}",
+                    status,
+                    &text[..text.len().min(300)]
+                );
                 return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
             }
 
-                        let mut raw = String::new();
-            while let Some(chunk) = response.chunk().await
-                .map_err(|e| ForjaError::LlmError(e.to_string()))? 
+            let mut raw = String::new();
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|e| ForjaError::LlmError(e.to_string()))?
             {
                 let chunk_str = String::from_utf8_lossy(&chunk);
                 raw.push_str(&chunk_str);
-                
+
                 // Stop once finishReason appears in the response
                 if raw.contains("\"finishReason\"") {
                     break;
@@ -422,7 +478,8 @@ impl LlmProvider for LlmClient {
                 if let Some(data) = line.strip_prefix("data: ")
                     && let Ok(ev) = serde_json::from_str::<serde_json::Value>(data)
                 {
-                    let candidates = ev.get("response")
+                    let candidates = ev
+                        .get("response")
                         .and_then(|r| r.get("candidates"))
                         .or_else(|| ev.get("candidates"));
 
@@ -438,20 +495,22 @@ impl LlmProvider for LlmClient {
                             for part in parts {
                                 // Detect tool calls
                                 if let Some(fc) = part.get("functionCall") {
-                                    let call_id = fc.get("id")
+                                    let call_id = fc
+                                        .get("id")
                                         .or_else(|| fc.get("name"))
                                         .and_then(|v| v.as_str())
                                         .unwrap_or_default()
                                         .to_string();
-                                    let name = fc.get("name")
+                                    let name = fc
+                                        .get("name")
                                         .and_then(|v| v.as_str())
                                         .unwrap_or_default()
                                         .to_string();
-                                    let args = fc.get("args")
-                                        .cloned()
-                                        .unwrap_or(serde_json::json!({}));
+                                    let args =
+                                        fc.get("args").cloned().unwrap_or(serde_json::json!({}));
 
-                                    let ts = part.get("thoughtSignature")
+                                    let ts = part
+                                        .get("thoughtSignature")
                                         .and_then(|v| v.as_str())
                                         .map(|s| s.to_string());
 
@@ -461,10 +520,16 @@ impl LlmProvider for LlmClient {
                                 }
 
                                 // Collect text parts, skipping thoughts
-                                if part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) {
+                                if part
+                                    .get("thought")
+                                    .and_then(|t| t.as_bool())
+                                    .unwrap_or(false)
+                                {
                                     continue;
                                 }
-                                if let Some(ts) = part.get("thoughtSignature").and_then(|t| t.as_str()) {
+                                if let Some(ts) =
+                                    part.get("thoughtSignature").and_then(|t| t.as_str())
+                                {
                                     last_thought_signature = Some(ts.to_string());
                                 }
                                 if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
@@ -475,7 +540,11 @@ impl LlmProvider for LlmClient {
                     }
                 }
             }
-            return Ok(Message::text(Role::Assistant, collected_text, last_thought_signature));
+            return Ok(Message::text(
+                Role::Assistant,
+                collected_text,
+                last_thought_signature,
+            ));
         }
 
         if self.config.use_responses_api {
@@ -495,15 +564,19 @@ impl LlmProvider for LlmClient {
             if !response.status().is_success() {
                 let status = response.status();
                 let text = response.text().await.unwrap_or_default();
-                eprintln!("[GEMINI-ERROR] Http {}: {}", status, &text[..text.len().min(300)]);
+                eprintln!(
+                    "[GEMINI-ERROR] Http {}: {}",
+                    status,
+                    &text[..text.len().min(300)]
+                );
                 return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
             }
 
             // Read and parse the full SSE text body
-                        let raw = response.text().await
+            let raw = response
+                .text()
+                .await
                 .map_err(|e| ForjaError::LlmError(e.to_string()))?;
-
-            
 
             let mut collected_text = String::new();
             let mut last_item_id = String::new();
@@ -528,18 +601,23 @@ impl LlmProvider for LlmClient {
                             }
                         }
                         Some("response.function_call_arguments.done") => {
-                            let call_id = ev["call_id"].as_str()
+                            let call_id = ev["call_id"]
+                                .as_str()
                                 .or_else(|| ev["item_id"].as_str())
                                 .unwrap_or(&last_item_id)
                                 .to_string();
-                            let name = ev["name"].as_str()
+                            let name = ev["name"]
+                                .as_str()
                                 .map(|s| s.to_string())
                                 .filter(|s| !s.is_empty())
                                 .unwrap_or_else(|| last_tool_name.clone());
 
                             let args_str = ev["arguments"].as_str().unwrap_or("{}");
-                            let args = serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
-                            return Ok(Message::tool_call_with_reasoning(&call_id, &name, args, None, None));
+                            let args =
+                                serde_json::from_str(args_str).unwrap_or(serde_json::json!({}));
+                            return Ok(Message::tool_call_with_reasoning(
+                                &call_id, &name, args, None, None,
+                            ));
                         }
                         Some("response.completed") | Some("response.failed") => break,
                         _ => {}
@@ -551,7 +629,7 @@ impl LlmProvider for LlmClient {
         }
 
         let payload = self.prepare_payload(messages, tools, false);
-        
+
         let endpoint = format!("{}/chat/completions", self.config.base_url);
 
         let response = self
@@ -563,17 +641,24 @@ impl LlmProvider for LlmClient {
             .map_err(|e| ForjaError::LlmError(e.to_string()))?;
 
         if !response.status().is_success() {
-                let status = response.status();
-                let text = response.text().await.unwrap_or_default();
-                eprintln!("[GEMINI-ERROR] Http {}: {}", status, &text[..text.len().min(300)]);
-                return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            eprintln!(
+                "[GEMINI-ERROR] Http {}: {}",
+                status,
+                &text[..text.len().min(300)]
+            );
+            return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
         }
 
-        let response_text = response.text().await
+        let response_text = response
+            .text()
+            .await
             .map_err(|e| ForjaError::LlmError(format!("Failed to get response text: {}", e)))?;
 
-        let parsed: ChatCompletionResponse = serde_json::from_str(&response_text)
-            .map_err(|e| ForjaError::LlmError(format!("JSON parsing error: {}. Raw: {}", e, response_text)))?;
+        let parsed: ChatCompletionResponse = serde_json::from_str(&response_text).map_err(|e| {
+            ForjaError::LlmError(format!("JSON parsing error: {}. Raw: {}", e, response_text))
+        })?;
 
         // Extract the first choice message object
         let choice = parsed
@@ -582,27 +667,270 @@ impl LlmProvider for LlmClient {
             .next()
             .ok_or_else(|| ForjaError::LlmError("Empty response from LLM".into()))?;
 
-        let chat_msg = choice.message
+        let chat_msg = choice
+            .message
             .ok_or_else(|| ForjaError::LlmError("Missing message in LLM response".into()))?;
 
         // 1. Check for tool calls
         if let Some(tool_calls) = chat_msg.tool_calls.clone()
-            && let Some(tool_call) = tool_calls.first() {
-                let args_json: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
-                    .unwrap_or(serde_json::json!({}));
-                
-                return Ok(Message::tool_call_with_reasoning(
-                    &tool_call.id,
-                    &tool_call.function.name,
-                    args_json,
-                    chat_msg.reasoning_content,
-                    None,
-                ));
-            }
+            && let Some(tool_call) = tool_calls.first()
+        {
+            let args_json: serde_json::Value = serde_json::from_str(&tool_call.function.arguments)
+                .unwrap_or(serde_json::json!({}));
+
+            return Ok(Message::tool_call_with_reasoning(
+                &tool_call.id,
+                &tool_call.function.name,
+                args_json,
+                chat_msg.reasoning_content,
+                None,
+            ));
+        }
 
         // 2. Otherwise return plain text
         let content = chat_msg.content.unwrap_or_default();
         Ok(Message::text(Role::Assistant, content, None))
+    }
+
+    async fn stream_events(
+        &self,
+        messages: &[Message],
+        tools: Option<&[ToolDefinition]>,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<LlmStreamEvent>> + Send>>> {
+        self.ensure_local_server_ready().await?;
+        let (endpoint, payload) = if self.config.use_gemini_native_api {
+            let inner = self.prepare_gemini_native_payload(messages, tools);
+            let project = std::env::var("FORJA_GEMINI_PROJECT")
+                .unwrap_or_else(|_| "outstanding-sanctum-knhr3".to_string());
+            let payload = serde_json::json!({
+                "request": inner,
+                "model": self.config.model,
+                "project": project,
+            });
+            let endpoint = format!(
+                "{}/v1internal:streamGenerateContent?alt=sse",
+                self.config.base_url
+            );
+            (endpoint, payload)
+        } else if self.config.use_responses_api {
+            let payload = self.prepare_responses_payload(messages, tools, true);
+            let endpoint = format!("{}/codex/responses", self.config.base_url);
+            (endpoint, payload)
+        } else {
+            let payload = serde_json::to_value(self.prepare_payload(messages, tools, true))
+                .map_err(|e| ForjaError::Internal(e.to_string()))?;
+            let endpoint = format!("{}/chat/completions", self.config.base_url);
+            (endpoint, payload)
+        };
+
+        let mut response = self
+            .client
+            .post(&endpoint)
+            .json(&payload)
+            .header("Accept", "text/event-stream")
+            .send()
+            .await
+            .map_err(|e| ForjaError::LlmError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            eprintln!(
+                "[STREAM-ERROR] Http {}: {}",
+                status,
+                &text[..text.len().min(300)]
+            );
+            return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
+        }
+
+        let is_gemini = self.config.use_gemini_native_api;
+        let is_responses = self.config.use_responses_api;
+
+        let stream = async_stream::stream! {
+            let mut buffer = String::new();
+            let mut last_item_id = String::new();
+            let mut last_tool_name = String::new();
+            let mut pending_tool_id = String::new();
+            let mut pending_tool_name = String::new();
+            let mut pending_tool_args = String::new();
+
+            while let Ok(Some(chunk)) = response.chunk().await {
+                let chunk_str = String::from_utf8_lossy(&chunk);
+                buffer.push_str(&chunk_str);
+
+                while let Some(pos) = buffer.find('\n') {
+                    let line = buffer[..pos].trim().to_string();
+                    buffer = buffer[pos + 1..].to_string();
+
+                    if line.is_empty() {
+                        continue;
+                    }
+
+                    if line == "data: [DONE]" {
+                        if let Some(event) = pending_openai_tool_call(
+                            &pending_tool_id,
+                            &pending_tool_name,
+                            &pending_tool_args,
+                        ) {
+                            yield Ok(event);
+                        }
+                        break;
+                    }
+
+                    if let Some(data) = line.strip_prefix("data: ")
+                        && let Ok(ev) = serde_json::from_str::<serde_json::Value>(data)
+                    {
+                        if is_gemini {
+                            let candidates = ev
+                                .get("response")
+                                .and_then(|r| r.get("candidates"))
+                                .or_else(|| ev.get("candidates"));
+
+                            if let Some(candidates) = candidates.and_then(|c| c.as_array())
+                                && let Some(candidate) = candidates.first()
+                            {
+                                if let Some(parts) = candidate
+                                    .get("content")
+                                    .and_then(|content| content.get("parts"))
+                                    .and_then(|parts| parts.as_array())
+                                {
+                                    for part in parts {
+                                        if let Some(function_call) = part.get("functionCall") {
+                                            let call_id = function_call
+                                                .get("id")
+                                                .or_else(|| function_call.get("name"))
+                                                .and_then(|value| value.as_str())
+                                                .unwrap_or_default();
+                                            let name = function_call
+                                                .get("name")
+                                                .and_then(|value| value.as_str())
+                                                .unwrap_or_default();
+                                            let args = function_call
+                                                .get("args")
+                                                .cloned()
+                                                .unwrap_or_else(|| serde_json::json!({}));
+                                            let thought_signature = part
+                                                .get("thoughtSignature")
+                                                .and_then(|value| value.as_str())
+                                                .map(|value| value.to_string());
+                                            yield Ok(LlmStreamEvent::ToolCall(
+                                                Message::tool_call_with_reasoning(
+                                                    call_id,
+                                                    name,
+                                                    args,
+                                                    None,
+                                                    thought_signature,
+                                                ),
+                                            ));
+                                            return;
+                                        }
+
+                                        if part
+                                            .get("thought")
+                                            .and_then(|value| value.as_bool())
+                                            .unwrap_or(false)
+                                        {
+                                            continue;
+                                        }
+
+                                        if let Some(text) = part.get("text").and_then(|value| value.as_str()) {
+                                            yield Ok(LlmStreamEvent::Text(text.to_string()));
+                                        }
+                                    }
+                                }
+
+                                if candidate.get("finishReason").is_some() {
+                                    break;
+                                }
+                            }
+                        } else if is_responses {
+                            match ev["type"].as_str() {
+                                Some("response.output_item.added") => {
+                                    if let Some(id) = ev["item"]["id"].as_str() {
+                                        last_item_id = id.to_string();
+                                    }
+                                    if let Some(name) = ev["item"]["name"].as_str() {
+                                        last_tool_name = name.to_string();
+                                    }
+                                }
+                                Some("response.output_text.delta") => {
+                                    if let Some(delta) = ev["delta"].as_str() {
+                                        yield Ok(LlmStreamEvent::Text(delta.to_string()));
+                                    }
+                                }
+                                Some("response.function_call_arguments.done") => {
+                                    let call_id = ev["call_id"]
+                                        .as_str()
+                                        .or_else(|| ev["item_id"].as_str())
+                                        .unwrap_or(&last_item_id);
+                                    let tool_name = ev["name"]
+                                        .as_str()
+                                        .filter(|name| !name.is_empty())
+                                        .unwrap_or(&last_tool_name);
+                                    let args = serde_json::from_str(
+                                        ev["arguments"].as_str().unwrap_or("{}"),
+                                    )
+                                    .unwrap_or_else(|_| serde_json::json!({}));
+
+                                    yield Ok(LlmStreamEvent::ToolCall(
+                                        Message::tool_call_with_reasoning(
+                                            call_id,
+                                            tool_name,
+                                            args,
+                                            None,
+                                            None,
+                                        ),
+                                    ));
+                                    return;
+                                }
+                                Some("response.completed") | Some("response.failed") => break,
+                                _ => {}
+                            }
+                        } else {
+                            let choice = &ev["choices"][0];
+                            if let Some(text) = choice["delta"]["content"].as_str() {
+                                yield Ok(LlmStreamEvent::Text(text.to_string()));
+                            }
+
+                            if let Some(tool_calls) = choice["delta"]["tool_calls"].as_array() {
+                                for tool_call in tool_calls {
+                                    if let Some(id) = tool_call.get("id").and_then(|value| value.as_str()) {
+                                        pending_tool_id = id.to_string();
+                                    }
+                                    if let Some(name) = tool_call
+                                        .get("function")
+                                        .and_then(|function| function.get("name"))
+                                        .and_then(|value| value.as_str())
+                                    {
+                                        pending_tool_name = name.to_string();
+                                    }
+                                    if let Some(arguments) = tool_call
+                                        .get("function")
+                                        .and_then(|function| function.get("arguments"))
+                                        .and_then(|value| value.as_str())
+                                    {
+                                        pending_tool_args.push_str(arguments);
+                                    }
+                                }
+                            }
+
+                            if choice["finish_reason"].as_str() == Some("tool_calls") {
+                                if let Some(event) = pending_openai_tool_call(
+                                    &pending_tool_id,
+                                    &pending_tool_name,
+                                    &pending_tool_args,
+                                ) {
+                                    yield Ok(event);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(stream))
     }
 
     #[cfg(feature = "anthropic")]
@@ -621,7 +949,10 @@ impl LlmProvider for LlmClient {
                 "model": self.config.model,
                 "project": project,
             });
-            let endpoint = format!("{}/v1internal:streamGenerateContent?alt=sse", self.config.base_url);
+            let endpoint = format!(
+                "{}/v1internal:streamGenerateContent?alt=sse",
+                self.config.base_url
+            );
             (endpoint, payload)
         } else if self.config.use_responses_api {
             let payload = self.prepare_responses_payload(messages, tools, true);
@@ -634,7 +965,9 @@ impl LlmProvider for LlmClient {
             (endpoint, payload)
         };
 
-        let mut response = self.client.post(&endpoint)
+        let mut response = self
+            .client
+            .post(&endpoint)
             .json(&payload)
             .header("Accept", "text/event-stream")
             .send()
@@ -644,7 +977,11 @@ impl LlmProvider for LlmClient {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            eprintln!("[STREAM-ERROR] Http {}: {}", status, &text[..text.len().min(300)]);
+            eprintln!(
+                "[STREAM-ERROR] Http {}: {}",
+                status,
+                &text[..text.len().min(300)]
+            );
             return Err(ForjaError::LlmError(format!("Http {}: {}", status, text)));
         }
 
@@ -715,6 +1052,31 @@ impl LlmProvider for LlmClient {
         _messages: &[Message],
         _tools: Option<&[ToolDefinition]>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
-        Err(ForjaError::LlmError("streaming feature is not enabled. check cargo features.".into()))
+        Err(ForjaError::LlmError(
+            "streaming feature is not enabled. check cargo features.".into(),
+        ))
     }
+}
+
+fn pending_openai_tool_call(
+    call_id: &str,
+    tool_name: &str,
+    arguments: &str,
+) -> Option<LlmStreamEvent> {
+    if tool_name.is_empty() {
+        return None;
+    }
+
+    let args = serde_json::from_str(arguments).unwrap_or_else(|_| serde_json::json!({}));
+    Some(LlmStreamEvent::ToolCall(Message::tool_call_with_reasoning(
+        if call_id.is_empty() {
+            tool_name
+        } else {
+            call_id
+        },
+        tool_name,
+        args,
+        None,
+        None,
+    )))
 }
