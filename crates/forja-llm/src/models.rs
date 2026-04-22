@@ -37,7 +37,7 @@ pub struct ChatCompletionResponse {
 pub struct Choice {
     /// Completed text returned by a regular non-streaming request.
     pub message: Option<ChatMessage>,
-    
+
     /// Delta chunk returned during streaming (SSE) requests.
     pub delta: Option<ChatDelta>,
 }

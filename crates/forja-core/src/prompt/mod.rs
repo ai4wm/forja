@@ -58,9 +58,17 @@ pub fn assemble_system_prompt(
     }
 
     sections.extend(
-        [identity, user, tools, emotion_tone, relationship, knowledge, memory]
-            .into_iter()
-            .map(str::to_string),
+        [
+            identity,
+            user,
+            tools,
+            emotion_tone,
+            relationship,
+            knowledge,
+            memory,
+        ]
+        .into_iter()
+        .map(str::to_string),
     );
 
     join_prompt_sections(sections, "\n\n")

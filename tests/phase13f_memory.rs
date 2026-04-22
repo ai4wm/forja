@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use chrono::{Datelike, Local, TimeZone};
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::MemoryStore;
-use forja_core::{Channel, Content, Engine, LlmProvider, Message, Role, ToolDefinition};
 use forja_core::types::MemoryEntry;
+use forja_core::{Channel, Content, Engine, LlmProvider, Message, Role, ToolDefinition};
 use forja_memory::MarkdownMemoryStore;
 use std::future::pending;
 use std::path::{Path, PathBuf};
@@ -44,9 +44,8 @@ fn collect_texts(messages: &[Message]) -> String {
 }
 
 fn write_legacy_session(path: &Path, id: &str, timestamp: u64, role: &str, content: &str) {
-    let body = format!(
-        "---\nid: {id}\ntimestamp: {timestamp}\ntags:\n  - {role}\n---\n{content}\n"
-    );
+    let body =
+        format!("---\nid: {id}\ntimestamp: {timestamp}\ntags:\n  - {role}\n---\n{content}\n");
     std::fs::write(path, body).unwrap();
 }
 

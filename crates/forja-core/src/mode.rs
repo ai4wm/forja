@@ -347,8 +347,10 @@ fn detect_mode_change(normalized: &str) -> Option<ExecMode> {
         return None;
     }
 
-    if contains_any(normalized, &["auto mode", "automatic mode", "자동 모드", "오토 모드"])
-        || (mode_cue && contains_any(normalized, &[" auto", "auto ", "automatic", "자동"]))
+    if contains_any(
+        normalized,
+        &["auto mode", "automatic mode", "자동 모드", "오토 모드"],
+    ) || (mode_cue && contains_any(normalized, &[" auto", "auto ", "automatic", "자동"]))
     {
         return Some(ExecMode::Auto);
     }
@@ -420,23 +422,48 @@ fn detect_role_change(normalized: &str) -> Option<Role> {
     let role_cue = contains_any(normalized, &["역할", "role", "act as", "mode"]);
     let change_cue = contains_any(
         normalized,
-        &["해줘", "바꿔", "전환", "설정", "switch", "change", "set", "be "],
+        &[
+            "해줘", "바꿔", "전환", "설정", "switch", "change", "set", "be ",
+        ],
     );
 
     if !(role_cue || change_cue) {
         return None;
     }
 
-    if contains_any(normalized, &["코더 역할", "코더 모드", "coder role", "coding mode", "developer role"]) {
+    if contains_any(
+        normalized,
+        &[
+            "코더 역할",
+            "코더 모드",
+            "coder role",
+            "coding mode",
+            "developer role",
+        ],
+    ) {
         return Some(Role::Coder);
     }
-    if contains_any(normalized, &["작가 역할", "작성 모드", "writer role", "writing mode"]) {
+    if contains_any(
+        normalized,
+        &["작가 역할", "작성 모드", "writer role", "writing mode"],
+    ) {
         return Some(Role::Writer);
     }
-    if contains_any(normalized, &["비서 역할", "assistant role", "assistant mode", "도우미 역할"]) {
+    if contains_any(
+        normalized,
+        &[
+            "비서 역할",
+            "assistant role",
+            "assistant mode",
+            "도우미 역할",
+        ],
+    ) {
         return Some(Role::Assistant);
     }
-    if contains_any(normalized, &["분석가 역할", "분석 모드", "analyst role", "analysis mode"]) {
+    if contains_any(
+        normalized,
+        &["분석가 역할", "분석 모드", "analyst role", "analysis mode"],
+    ) {
         return Some(Role::Analyst);
     }
 
@@ -447,8 +474,17 @@ fn detect_model_change(input: &str, normalized: &str) -> Option<String> {
     let change_cue = contains_any(
         normalized,
         &[
-            "모델", "model", "switch to", "change to", "use model", "use ",
-            "바꿔", "변경", "전환", "써", "사용",
+            "모델",
+            "model",
+            "switch to",
+            "change to",
+            "use model",
+            "use ",
+            "바꿔",
+            "변경",
+            "전환",
+            "써",
+            "사용",
         ],
     );
     if !change_cue {
@@ -499,8 +535,25 @@ fn normalize_model_target(candidate: &str) -> Option<String> {
     }
 
     let sanitized = [
-        "으로", "로", "로 바꿔줘", "로 바꿔", "로 변경해줘", "로 변경", "로 전환해줘", "로 전환",
-        "switch", "change", "set", "please", "해줘", "바꿔줘", "바꿔", "변경해줘", "변경", "전환해줘", "전환",
+        "으로",
+        "로",
+        "로 바꿔줘",
+        "로 바꿔",
+        "로 변경해줘",
+        "로 변경",
+        "로 전환해줘",
+        "로 전환",
+        "switch",
+        "change",
+        "set",
+        "please",
+        "해줘",
+        "바꿔줘",
+        "바꿔",
+        "변경해줘",
+        "변경",
+        "전환해줘",
+        "전환",
     ]
     .iter()
     .fold(trimmed.to_string(), |value, suffix| {

@@ -1,12 +1,12 @@
-use async_trait::async_trait;
+use super::BudgetStatus;
+use super::manager::BudgetManager;
 use crate::budget::BudgetMode;
 use crate::engine::Engine;
 use crate::error::{ForjaError, Result};
 use crate::traits::{Channel, LlmProvider};
 use crate::types::{Message, Role, ToolDefinition};
-use super::manager::BudgetManager;
-use super::BudgetStatus;
-use rusqlite::{params, Connection};
+use async_trait::async_trait;
+use rusqlite::{Connection, params};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -202,10 +202,7 @@ async fn test_enforce_mode_blocks_exceeded_budget() {
 }
 
 fn temp_db_path(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "forja-budget-{label}-{}.db",
-        uuid::Uuid::new_v4()
-    ))
+    std::env::temp_dir().join(format!("forja-budget-{label}-{}.db", uuid::Uuid::new_v4()))
 }
 
 fn cleanup(path: &PathBuf) {

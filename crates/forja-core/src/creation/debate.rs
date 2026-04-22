@@ -76,8 +76,13 @@ impl DebateEngine {
             transcript_for_phase(&transcript, DebatePhase::Diverge, bounded_context_chars);
         for round in 1..=self.config.conflict_rounds {
             for agent in &active_agents {
-                let prompt =
-                    build_conflict_prompt(agent, &diverge_output, &transcript, round, bounded_context_chars);
+                let prompt = build_conflict_prompt(
+                    agent,
+                    &diverge_output,
+                    &transcript,
+                    round,
+                    bounded_context_chars,
+                );
                 let call_context = DebateCallContext {
                     phase: DebatePhase::Conflict,
                     round,
@@ -415,7 +420,10 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         return value.to_string();
     }
-    let mut truncated = value.chars().take(max_chars.saturating_sub(1)).collect::<String>();
+    let mut truncated = value
+        .chars()
+        .take(max_chars.saturating_sub(1))
+        .collect::<String>();
     truncated.push('…');
     truncated
 }

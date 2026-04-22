@@ -87,7 +87,11 @@ impl SessionMemory {
         if !matching_entries.is_empty() {
             sections.push(format!(
                 "[memory session - Active Session Memory]\n\n{}",
-                matching_entries.into_iter().rev().collect::<Vec<_>>().join("\n")
+                matching_entries
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("\n")
             ));
         }
 
@@ -164,8 +168,14 @@ fn summarize_entries(entries: &[MemoryEntry]) -> String {
         return String::new();
     }
 
-    let first_ts = entries.first().map(|entry| entry.timestamp).unwrap_or_default();
-    let last_ts = entries.last().map(|entry| entry.timestamp).unwrap_or_default();
+    let first_ts = entries
+        .first()
+        .map(|entry| entry.timestamp)
+        .unwrap_or_default();
+    let last_ts = entries
+        .last()
+        .map(|entry| entry.timestamp)
+        .unwrap_or_default();
     let lines = entries
         .iter()
         .rev()
@@ -201,13 +211,17 @@ fn truncate_text(value: &str, limit: usize) -> String {
         return collapsed;
     }
 
-    let mut output = collapsed.chars().take(limit.saturating_sub(1)).collect::<String>();
+    let mut output = collapsed
+        .chars()
+        .take(limit.saturating_sub(1))
+        .collect::<String>();
     output.push('…');
     output
 }
 
 fn tokenize(value: &str) -> Vec<String> {
-    value.to_lowercase()
+    value
+        .to_lowercase()
         .chars()
         .map(|char| match char {
             'a'..='z' | '0'..='9' => char,

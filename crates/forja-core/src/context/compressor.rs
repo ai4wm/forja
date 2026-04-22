@@ -1,10 +1,6 @@
-use super::token_counter::count_messages_tokens;
-use super::window::{
-    compressed_summary_message,
-    merge_history,
-    partition_history,
-};
 use super::SummaryCallback;
+use super::token_counter::count_messages_tokens;
+use super::window::{compressed_summary_message, merge_history, partition_history};
 use crate::error::Result;
 use crate::types::{Content, Message};
 
@@ -180,7 +176,9 @@ fn message_text(message: &Message) -> String {
             ..
         } => {
             let reasoning = reasoning_content.as_deref().unwrap_or_default();
-            format!("Tool {tool_name}: {arguments} {reasoning}").trim().to_string()
+            format!("Tool {tool_name}: {arguments} {reasoning}")
+                .trim()
+                .to_string()
         }
         Content::ToolResult { result, .. } => format!("Tool result: {result}"),
     }

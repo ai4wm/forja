@@ -5,8 +5,8 @@ pub mod execution;
 pub mod mutation;
 pub mod types;
 
-use crate::budget::manager::BudgetManager;
 use crate::budget::BudgetMode;
+use crate::budget::manager::BudgetManager;
 use crate::ralf::RalfConfig;
 use std::sync::Arc;
 use std::time::Duration;
@@ -84,8 +84,8 @@ impl Default for CreationRunContext {
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod expanded_tests;
 #[cfg(test)]
 mod policy_tests;
+#[cfg(test)]
+mod tests;

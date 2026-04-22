@@ -1,11 +1,7 @@
-use super::compressor::{
-    compress_history,
-    emergency_compress_history,
-    CompressionOutcome,
-};
+use super::SummaryCallback;
+use super::compressor::{CompressionOutcome, compress_history, emergency_compress_history};
 use super::token_counter::{count_messages_tokens, count_tokens};
 use super::window::{compressed_summary_message, is_compressed_summary};
-use super::SummaryCallback;
 use crate::types::{Message, Role};
 use serde_json::json;
 use std::future::Future;
@@ -122,13 +118,19 @@ fn test_emergency_compression_preserves_last_three_messages() {
     let expected_summary = compressed_summary_message("line 1 line 2 line 3".to_string());
     assert_eq!(messages[0].role, expected_summary.role);
     assert_eq!(messages[0].metadata, expected_summary.metadata);
-    assert_eq!(messages[0].content_text_len(), expected_summary.content_text_len());
+    assert_eq!(
+        messages[0].content_text_len(),
+        expected_summary.content_text_len()
+    );
     let remaining_ids: Vec<String> = messages
         .iter()
         .skip(1)
         .map(|message| message.id.clone())
         .collect();
-    assert_eq!(remaining_ids, last_three.into_iter().rev().collect::<Vec<_>>());
+    assert_eq!(
+        remaining_ids,
+        last_three.into_iter().rev().collect::<Vec<_>>()
+    );
 }
 
 fn seeded_messages(count: usize, tokens_per_message: usize) -> Vec<Message> {
@@ -173,9 +175,5 @@ fn noop_raw_waker() -> RawWaker {
     RawWaker::new(std::ptr::null(), &NOOP_WAKER_VTABLE)
 }
 
-static NOOP_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-    |_data| noop_raw_waker(),
-    |_data| {},
-    |_data| {},
-    |_data| {},
-);
+static NOOP_WAKER_VTABLE: RawWakerVTable =
+    RawWakerVTable::new(|_data| noop_raw_waker(), |_data| {}, |_data| {}, |_data| {});

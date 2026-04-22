@@ -1,10 +1,10 @@
 use crate::runtime::prompt::{auto_summarize_enabled, summarize_memory_block};
+use forja_core::KnowledgeManager;
 use forja_core::emotion::{
-    generate_startup_greeting, generate_startup_greeting_with_context, EmotionEngine, MoodState,
+    EmotionEngine, MoodState, generate_startup_greeting, generate_startup_greeting_with_context,
 };
 use forja_core::error::Result;
 use forja_core::traits::{LlmProvider, MemoryStore};
-use forja_core::KnowledgeManager;
 use forja_memory::MarkdownMemoryStore;
 use std::sync::Arc;
 
@@ -63,33 +63,29 @@ pub(crate) async fn build_memory_bundle(
             String::new()
         }
     };
-    let restored_mood = EmotionEngine::restore_from_memory(&memory_contents)
-        .unwrap_or_else(MoodState::neutral);
+    let restored_mood =
+        EmotionEngine::restore_from_memory(&memory_contents).unwrap_or_else(MoodState::neutral);
     let displayed_greeting = if serendipity_enabled {
-        bootstrap_greeting.or(
-            generate_startup_greeting_with_context(
-                provider.as_ref(),
-                assistant_name,
-                user_title,
-                &memory_contents,
-                &knowledge_contents,
-                bootstrap_greeting_available,
-            )
-            .await
-            .unwrap_or(None),
+        bootstrap_greeting.or(generate_startup_greeting_with_context(
+            provider.as_ref(),
+            assistant_name,
+            user_title,
+            &memory_contents,
+            &knowledge_contents,
+            bootstrap_greeting_available,
         )
+        .await
+        .unwrap_or(None))
     } else {
-        bootstrap_greeting.or(
-            generate_startup_greeting(
-                provider.as_ref(),
-                assistant_name,
-                user_title,
-                &memory_contents,
-                bootstrap_greeting_available,
-            )
-            .await
-            .unwrap_or(None),
+        bootstrap_greeting.or(generate_startup_greeting(
+            provider.as_ref(),
+            assistant_name,
+            user_title,
+            &memory_contents,
+            bootstrap_greeting_available,
         )
+        .await
+        .unwrap_or(None))
     };
 
     Ok(MemoryBundle {

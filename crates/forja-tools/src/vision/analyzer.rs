@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[async_trait]
 pub trait VisionAnalyzer: Send + Sync + 'static {
@@ -133,8 +133,9 @@ impl VisionAnalyzer for GptVisionAnalyzer {
             ));
         }
 
-        let json: Value = serde_json::from_str(&body)
-            .map_err(|error| format!("Failed to parse vision response JSON: {error}. Raw: {body}"))?;
+        let json: Value = serde_json::from_str(&body).map_err(|error| {
+            format!("Failed to parse vision response JSON: {error}. Raw: {body}")
+        })?;
 
         if let Some(text) = json["choices"][0]["message"]["content"].as_str() {
             return Ok(text.to_string());

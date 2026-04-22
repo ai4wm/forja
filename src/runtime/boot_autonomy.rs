@@ -1,5 +1,5 @@
 use crate::config::{self, ForjaConfig};
-use crate::local_models::{discover_local_models, LOCAL_PROVIDER};
+use crate::local_models::{LOCAL_PROVIDER, discover_local_models};
 use crate::oauth::AuthData;
 use crate::provider_registry::MODEL_TABLE;
 use forja_core::autonomy::{AutonomyExecutionRuntime, AutonomyTarget};
@@ -79,7 +79,10 @@ fn infer_local_target(forja_cfg: &ForjaConfig) -> Option<AutonomyTarget> {
 fn infer_cloud_target(forja_cfg: &ForjaConfig) -> Option<AutonomyTarget> {
     let active_provider = forja_cfg.active.provider.as_deref().unwrap_or_default();
     let active_model = forja_cfg.active.model.as_deref().unwrap_or_default();
-    if !is_local_provider(active_provider) && !active_provider.is_empty() && !active_model.is_empty() {
+    if !is_local_provider(active_provider)
+        && !active_provider.is_empty()
+        && !active_model.is_empty()
+    {
         return Some(AutonomyTarget {
             provider: active_provider.to_string(),
             model: active_model.to_string(),
@@ -89,22 +92,20 @@ fn infer_cloud_target(forja_cfg: &ForjaConfig) -> Option<AutonomyTarget> {
     }
 
     let auth = AuthData::load();
-    CLOUD_PROVIDER_PRIORITY
-        .iter()
-        .find_map(|provider| {
-            if !provider_available(provider, forja_cfg, &auth) {
-                return None;
-            }
-            MODEL_TABLE
-                .iter()
-                .find(|entry| entry.provider == *provider)
-                .map(|entry| AutonomyTarget {
-                    provider: entry.provider.to_string(),
-                    model: entry.model_id.to_string(),
-                    label: format!("{}/{}", entry.provider, entry.model_id),
-                    local: false,
-                })
-        })
+    CLOUD_PROVIDER_PRIORITY.iter().find_map(|provider| {
+        if !provider_available(provider, forja_cfg, &auth) {
+            return None;
+        }
+        MODEL_TABLE
+            .iter()
+            .find(|entry| entry.provider == *provider)
+            .map(|entry| AutonomyTarget {
+                provider: entry.provider.to_string(),
+                model: entry.model_id.to_string(),
+                label: format!("{}/{}", entry.provider, entry.model_id),
+                local: false,
+            })
+    })
 }
 
 fn build_provider_from_target(
@@ -114,8 +115,7 @@ fn build_provider_from_target(
     let mut temp = forja_cfg.clone();
     temp.active.provider = Some(target.provider.clone());
     temp.active.model = Some(target.model.clone());
-    let config = config::llm_config_from(&temp)
-        .map_err(forja_core::error::ForjaError::LlmError)?;
+    let config = config::llm_config_from(&temp).map_err(forja_core::error::ForjaError::LlmError)?;
     Ok(Arc::new(LlmClient::new(config)?))
 }
 

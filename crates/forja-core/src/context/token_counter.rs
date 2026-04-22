@@ -20,7 +20,11 @@ pub fn count_messages_tokens(messages: &[Message], model: &str) -> usize {
 }
 
 pub fn count_message_tokens(message: &Message, model: &str) -> usize {
-    if let Some(tokens) = message.metadata.get("tokens").and_then(serde_json::Value::as_u64) {
+    if let Some(tokens) = message
+        .metadata
+        .get("tokens")
+        .and_then(serde_json::Value::as_u64)
+    {
         return tokens as usize;
     }
 

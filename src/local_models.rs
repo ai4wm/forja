@@ -95,7 +95,10 @@ pub(crate) fn llama_cpp_base_url(model_id: &str) -> String {
     format!("http://127.0.0.1:{}/v1", LOCAL_PORT_BASE + offset)
 }
 
-pub(crate) fn parse_hf_repo(input: &str, explicit_filename: Option<&str>) -> Result<HuggingFaceRepo, String> {
+pub(crate) fn parse_hf_repo(
+    input: &str,
+    explicit_filename: Option<&str>,
+) -> Result<HuggingFaceRepo, String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Err("Usage: /model fetch <owner/repo> [filename.gguf]".to_string());
@@ -130,17 +133,11 @@ where
     let client = reqwest::Client::new();
     let filename = match repo.filename {
         Some(filename) => filename,
-        None => choose_repo_model_filename(
-            &client,
-            &repo.repo_id,
-        )
-        .await?,
+        None => choose_repo_model_filename(&client, &repo.repo_id).await?,
     };
     let url = format!(
         "https://huggingface.co/{}/resolve/{}/{}?download=true",
-        repo.repo_id,
-        DEFAULT_HF_BRANCH,
-        filename
+        repo.repo_id, DEFAULT_HF_BRANCH, filename
     );
 
     let response = client
@@ -190,8 +187,11 @@ where
         .await
         .map_err(|error| format!("Could not finalize model file: {error}"))?;
 
-    build_local_model(&ensure_models_dir().map_err(|error| error.to_string())?, &target_path)
-        .ok_or_else(|| "Downloaded file did not produce a valid local model entry".to_string())
+    build_local_model(
+        &ensure_models_dir().map_err(|error| error.to_string())?,
+        &target_path,
+    )
+    .ok_or_else(|| "Downloaded file did not produce a valid local model entry".to_string())
 }
 
 async fn choose_repo_model_filename(
@@ -229,7 +229,11 @@ fn select_downloadable_filename(payload: &Value) -> Option<String> {
         .map(|filename| filename.to_string())
 }
 
-fn collect_model_files(root: &Path, directory: &Path, models: &mut Vec<LocalModel>) -> io::Result<()> {
+fn collect_model_files(
+    root: &Path,
+    directory: &Path,
+    models: &mut Vec<LocalModel>,
+) -> io::Result<()> {
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
         let path = entry.path();
@@ -270,7 +274,9 @@ fn build_local_model(root: &Path, path: &Path) -> Option<LocalModel> {
 
 fn has_model_extension(value: &str) -> bool {
     let normalized = value.to_lowercase();
-    MODEL_EXTENSIONS.iter().any(|extension| normalized.ends_with(extension))
+    MODEL_EXTENSIONS
+        .iter()
+        .any(|extension| normalized.ends_with(extension))
 }
 
 #[cfg(test)]

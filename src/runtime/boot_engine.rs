@@ -2,14 +2,16 @@ use crate::runtime::boot_config::RuntimeConfig;
 use crate::runtime::boot_profile::ProfileBundle;
 use crate::runtime::prompt::summarize_memory_block;
 use forja_core::audit::logger::AuditLogger;
-use forja_core::autonomy::{loop_runner::AutonomousLoop, AutonomyConfig, AutonomyExecutionRuntime};
-use forja_core::budget::{manager::BudgetManager, BudgetMode};
-use forja_core::creation::{agents::default_debate_agents, DebateAgent, DebateConfig, DebateEngine};
+use forja_core::autonomy::{AutonomyConfig, AutonomyExecutionRuntime, loop_runner::AutonomousLoop};
+use forja_core::budget::{BudgetMode, manager::BudgetManager};
+use forja_core::creation::{
+    DebateAgent, DebateConfig, DebateEngine, agents::default_debate_agents,
+};
 use forja_core::engine::{DashboardHandler, DreamRuntimeConfig, TuiHandler};
 use forja_core::error::Result;
-use forja_core::heartbeat::{scheduler::HeartbeatScheduler, HeartbeatConfig};
+use forja_core::heartbeat::{HeartbeatConfig, scheduler::HeartbeatScheduler};
 use forja_core::mode::{ModeState, Role as ModeRole};
-use forja_core::skill::{default_skill_roots, SkillRegistry};
+use forja_core::skill::{SkillRegistry, default_skill_roots};
 use forja_core::traits::{Channel, LlmProvider};
 use forja_core::{Content, Engine, KnowledgeManager, Message, Role, SerendipityEngine};
 use std::sync::Arc;

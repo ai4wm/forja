@@ -1,11 +1,11 @@
-use super::{Engine, SlashHandler, TuiHandler, ANSI_RESET};
+use super::{ANSI_RESET, Engine, SlashHandler, TuiHandler};
 use crate::autonomy::AutonomyExecutionRuntime;
 use crate::context::token_counter::count_message_tokens;
 use crate::error::Result;
 use crate::skill::SkillRegistry;
-use crate::traits::{Channel, LlmProvider, Tool};
 #[cfg(feature = "memory")]
 use crate::traits::MemoryStore;
+use crate::traits::{Channel, LlmProvider, Tool};
 use std::sync::Arc;
 
 use super::context::EngineContextDefaults;

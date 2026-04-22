@@ -6,11 +6,11 @@ mod migration;
 use self::classifier::{
     classify_topic_slug, parse_topic_file_name, query_score, summary_text, topic_file_name,
 };
+use crate::sqlite::{SqliteEntryRow, SqliteSummaryRow};
 use chrono::{Datelike, Local, TimeZone};
 use forja_core::error::{ForjaError as Error, Result};
 use forja_core::traits::{DreamRunOutcome, DreamTrigger};
 use forja_core::types::MemoryEntry;
-use crate::sqlite::{SqliteEntryRow, SqliteSummaryRow};
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -183,7 +183,9 @@ impl Storage {
         ))
     }
 
-    pub async fn reconcile(&self) -> Result<()> { self.rebuild_index().await }
+    pub async fn reconcile(&self) -> Result<()> {
+        self.rebuild_index().await
+    }
 
     pub async fn run_dream(&self, trigger: DreamTrigger) -> Result<DreamRunOutcome> {
         Self::execute_dream(self, trigger).await
@@ -253,7 +255,12 @@ impl Storage {
         fs::create_dir_all(&self.base_dir)
             .await
             .map_err(|error| storage_error(format!("Failed to create memory dir: {error}")))?;
-        for directory in [&self.topics_dir, &self.daily_dir, &self.archive_dir, &self.dreams_dir] {
+        for directory in [
+            &self.topics_dir,
+            &self.daily_dir,
+            &self.archive_dir,
+            &self.dreams_dir,
+        ] {
             fs::create_dir_all(directory)
                 .await
                 .map_err(|error| storage_error(format!("Failed to create dir: {error}")))?;
@@ -293,7 +300,10 @@ impl Storage {
         if !target_path.exists() {
             let header = format!("# Topic: {slug}\n");
             fs::write(&target_path, header).await.map_err(|error| {
-                storage_error(format!("Failed to create topic file {}: {error}", target_path.display()))
+                storage_error(format!(
+                    "Failed to create topic file {}: {error}",
+                    target_path.display()
+                ))
             })?;
         }
         append_text(&target_path, &line).await
@@ -309,7 +319,11 @@ impl Storage {
 
         let mut entries = Vec::new();
         for (slug, mut paths) in groups {
-            paths.sort_by_key(|path| parse_topic_file_name(path).map(|(_, shard)| shard).unwrap_or(1));
+            paths.sort_by_key(|path| {
+                parse_topic_file_name(path)
+                    .map(|(_, shard)| shard)
+                    .unwrap_or(1)
+            });
             let mut summary = String::new();
             if let Some(path) = paths.last() {
                 summary = latest_topic_summary(path).await?;
@@ -321,7 +335,11 @@ impl Storage {
             });
         }
 
-        write_file_atomically(&self.index_file, &with_trailing_newline(&render_index(&entries))).await
+        write_file_atomically(
+            &self.index_file,
+            &with_trailing_newline(&render_index(&entries)),
+        )
+        .await
     }
 
     async fn read_index_entries(&self) -> Result<Vec<TopicIndexEntry>> {
@@ -390,11 +408,17 @@ impl Storage {
                     .unwrap_or(false)
             })
             .collect::<Vec<_>>();
-        shards.sort_by_key(|path| parse_topic_file_name(path).map(|(_, shard)| shard).unwrap_or(1));
+        shards.sort_by_key(|path| {
+            parse_topic_file_name(path)
+                .map(|(_, shard)| shard)
+                .unwrap_or(1)
+        });
         Ok(shards)
     }
 }
-pub(super) fn should_skip_entry(entry: &MemoryEntry) -> bool { entry.content.contains("MockStream") }
+pub(super) fn should_skip_entry(entry: &MemoryEntry) -> bool {
+    entry.content.contains("MockStream")
+}
 
 pub(super) fn storage_error(message: impl Into<String>) -> Error {
     Error::Storage(message.into())
@@ -419,7 +443,11 @@ fn format_daily_line(entry: &MemoryEntry) -> String {
         "{} | {} | {}",
         format_timestamp(entry.timestamp),
         entry_role(entry),
-        entry.content.split_whitespace().collect::<Vec<_>>().join(" ")
+        entry
+            .content
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
     )
 }
 
@@ -433,7 +461,11 @@ fn format_topic_line(entry: &MemoryEntry) -> String {
     format!(
         "- [{date}] {} | {}",
         entry_role(entry),
-        entry.content.split_whitespace().collect::<Vec<_>>().join(" ")
+        entry
+            .content
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
     )
 }
 
@@ -533,7 +565,11 @@ fn parse_index_line(line: &str) -> Option<TopicIndexEntry> {
         .and_then(|part| part.trim().strip_prefix("summary="))
         .unwrap_or_default()
         .to_string();
-    Some(TopicIndexEntry { slug, shards, summary })
+    Some(TopicIndexEntry {
+        slug,
+        shards,
+        summary,
+    })
 }
 
 async fn latest_topic_summary(path: &Path) -> Result<String> {
@@ -541,7 +577,10 @@ async fn latest_topic_summary(path: &Path) -> Result<String> {
     let summary = contents
         .lines()
         .rev()
-        .find_map(|line| line.split_once("| ").map(|(_, text)| text.trim().to_string()))
+        .find_map(|line| {
+            line.split_once("| ")
+                .map(|(_, text)| text.trim().to_string())
+        })
         .unwrap_or_default();
     Ok(summary_text(&summary, INDEX_SUMMARY_CHAR_LIMIT))
 }
@@ -600,7 +639,9 @@ async fn append_text(path: &Path, line: &str) -> Result<()> {
 
 fn with_trailing_newline(contents: &str) -> String {
     let trimmed = contents.trim_end_matches('\n');
-    if trimmed.is_empty() { return String::new(); }
+    if trimmed.is_empty() {
+        return String::new();
+    }
     format!("{trimmed}\n")
 }
 
@@ -610,17 +651,21 @@ async fn write_file_atomically(path: &Path, contents: &str) -> Result<()> {
         .and_then(|value| value.to_str())
         .ok_or_else(|| storage_error(format!("Invalid file name for {}", path.display())))?;
     let temp_path = path.with_file_name(format!("{file_name}.tmp"));
-    fs::write(&temp_path, contents)
-        .await
-        .map_err(|error| storage_error(format!("Failed to write {}: {error}", temp_path.display())))?;
+    fs::write(&temp_path, contents).await.map_err(|error| {
+        storage_error(format!("Failed to write {}: {error}", temp_path.display()))
+    })?;
     if path.exists() {
-        fs::remove_file(path)
-            .await
-            .map_err(|error| storage_error(format!("Failed to replace {}: {error}", path.display())))?;
+        fs::remove_file(path).await.map_err(|error| {
+            storage_error(format!("Failed to replace {}: {error}", path.display()))
+        })?;
     }
-    fs::rename(&temp_path, path)
-        .await
-        .map_err(|error| storage_error(format!("Failed to rename {} to {}: {error}", temp_path.display(), path.display())))
+    fs::rename(&temp_path, path).await.map_err(|error| {
+        storage_error(format!(
+            "Failed to rename {} to {}: {error}",
+            temp_path.display(),
+            path.display()
+        ))
+    })
 }
 
 fn normalize_summary_lines(summary: &str) -> Option<Vec<String>> {

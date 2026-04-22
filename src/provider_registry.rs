@@ -1,5 +1,5 @@
-use crate::config::{llm_config_from, ForjaConfig};
-use crate::local_models::{discover_local_models, has_local_models, LOCAL_PROVIDER};
+use crate::config::{ForjaConfig, llm_config_from};
+use crate::local_models::{LOCAL_PROVIDER, discover_local_models, has_local_models};
 use forja_llm::LlmConfig;
 
 pub struct ModelEntry {
@@ -18,34 +18,174 @@ pub struct RuntimeModelEntry {
 }
 
 pub static MODEL_TABLE: &[ModelEntry] = &[
-    ModelEntry { provider: "openai",       model_id: "gpt-5.4",              label: "GPT-5.4 (API paid)",           aliases: &["smart", "gpt5"] },
-    ModelEntry { provider: "openai",       model_id: "gpt-5.4-mini",         label: "GPT-5.4 Mini (API paid)",      aliases: &["mini"] },
-    ModelEntry { provider: "openai",       model_id: "gpt-5.3-codex",        label: "GPT-5.3 Codex (API paid)",     aliases: &["codex"] },
-    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.4",              label: "GPT-5.4 (subscription ★)", aliases: &["smart5"] },
-    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.3-codex",        label: "GPT-5.3 Codex (subscription)", aliases: &["codex53"] },
-    ModelEntry { provider: "openai_oauth", model_id: "gpt-5.3-codex-spark",  label: "GPT-5.3 Codex Spark (subscription, ultra-fast)", aliases: &["spark"] },
-    ModelEntry { provider: "openai_oauth", model_id: "o3-pro",               label: "o3-Pro (subscription)", aliases: &["o3pro"] },
-    ModelEntry { provider: "anthropic",    model_id: "claude-opus-4-6",      label: "Claude Opus 4.6 (API paid)", aliases: &["opus"] },
-    ModelEntry { provider: "anthropic",    model_id: "claude-sonnet-4-6",    label: "Claude Sonnet 4.6 (API paid)", aliases: &["sonnet"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (API paid ★)", aliases: &["gemini", "pro31"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-3-flash-preview", label: "Gemini 3 Flash (free)", aliases: &["flash", "flash3"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash-Lite (free)", aliases: &["lite"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-2.5-pro",       label: "Gemini 2.5 Pro (free)", aliases: &["gemini25"] },
-    ModelEntry { provider: "gemini",       model_id: "gemini-2.5-flash",     label: "Gemini 2.5 Flash (free)", aliases: &["flash25"] },
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro (CLI subscription ★)", aliases: &["gempro31"] },
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-3-flash-preview", label: "Gemini 3 Flash (CLI subscription)", aliases: &["gemflash3"] },
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-pro",       label: "Gemini 2.5 Pro (CLI subscription)", aliases: &["gempro"] },
-    ModelEntry { provider: "gemini_oauth", model_id: "gemini-2.5-flash",     label: "Gemini 2.5 Flash (CLI subscription)", aliases: &["gemflash"] },
-    ModelEntry { provider: "deepseek",     model_id: "deepseek-chat",        label: "DeepSeek V3.2 (API paid)", aliases: &["ds"] },
-    ModelEntry { provider: "deepseek",     model_id: "deepseek-reasoner",    label: "DeepSeek R1 (API paid)", aliases: &["dsr"] },
-    ModelEntry { provider: "glm",          model_id: "glm-5",                label: "GLM-5 (API paid)", aliases: &["glm"] },
-    ModelEntry { provider: "glm",          model_id: "glm-4.5v",             label: "GLM-4.5V (API paid)", aliases: &["glmv"] },
-    ModelEntry { provider: "moonshot",     model_id: "kimi-k2.5",            label: "Kimi K2.5 (API paid)", aliases: &["kimi", "fast"] },
-    ModelEntry { provider: "xai",          model_id: "grok-3",               label: "Grok-3 (API paid)", aliases: &["grok"] },
-    ModelEntry { provider: "xai",          model_id: "grok-3-mini",          label: "Grok-3 Mini (API paid)", aliases: &["grokmini"] },
-    ModelEntry { provider: "ollama",       model_id: "qwen3.5:9b",           label: "Qwen3.5 9B (local)", aliases: &["local", "ollama"] },
-    ModelEntry { provider: "ollama",       model_id: "llama3:8b",            label: "Llama3 8B (local)", aliases: &["llama"] },
-    ModelEntry { provider: "ollama",       model_id: "mistral:7b",           label: "Mistral 7B (local)", aliases: &["mistral"] },
+    ModelEntry {
+        provider: "openai",
+        model_id: "gpt-5.4",
+        label: "GPT-5.4 (API paid)",
+        aliases: &["smart", "gpt5"],
+    },
+    ModelEntry {
+        provider: "openai",
+        model_id: "gpt-5.4-mini",
+        label: "GPT-5.4 Mini (API paid)",
+        aliases: &["mini"],
+    },
+    ModelEntry {
+        provider: "openai",
+        model_id: "gpt-5.3-codex",
+        label: "GPT-5.3 Codex (API paid)",
+        aliases: &["codex"],
+    },
+    ModelEntry {
+        provider: "openai_oauth",
+        model_id: "gpt-5.4",
+        label: "GPT-5.4 (subscription ★)",
+        aliases: &["smart5"],
+    },
+    ModelEntry {
+        provider: "openai_oauth",
+        model_id: "gpt-5.3-codex",
+        label: "GPT-5.3 Codex (subscription)",
+        aliases: &["codex53"],
+    },
+    ModelEntry {
+        provider: "openai_oauth",
+        model_id: "gpt-5.3-codex-spark",
+        label: "GPT-5.3 Codex Spark (subscription, ultra-fast)",
+        aliases: &["spark"],
+    },
+    ModelEntry {
+        provider: "openai_oauth",
+        model_id: "o3-pro",
+        label: "o3-Pro (subscription)",
+        aliases: &["o3pro"],
+    },
+    ModelEntry {
+        provider: "anthropic",
+        model_id: "claude-opus-4-6",
+        label: "Claude Opus 4.6 (API paid)",
+        aliases: &["opus"],
+    },
+    ModelEntry {
+        provider: "anthropic",
+        model_id: "claude-sonnet-4-6",
+        label: "Claude Sonnet 4.6 (API paid)",
+        aliases: &["sonnet"],
+    },
+    ModelEntry {
+        provider: "gemini",
+        model_id: "gemini-3.1-pro-preview",
+        label: "Gemini 3.1 Pro (API paid ★)",
+        aliases: &["gemini", "pro31"],
+    },
+    ModelEntry {
+        provider: "gemini",
+        model_id: "gemini-3-flash-preview",
+        label: "Gemini 3 Flash (free)",
+        aliases: &["flash", "flash3"],
+    },
+    ModelEntry {
+        provider: "gemini",
+        model_id: "gemini-3.1-flash-lite-preview",
+        label: "Gemini 3.1 Flash-Lite (free)",
+        aliases: &["lite"],
+    },
+    ModelEntry {
+        provider: "gemini",
+        model_id: "gemini-2.5-pro",
+        label: "Gemini 2.5 Pro (free)",
+        aliases: &["gemini25"],
+    },
+    ModelEntry {
+        provider: "gemini",
+        model_id: "gemini-2.5-flash",
+        label: "Gemini 2.5 Flash (free)",
+        aliases: &["flash25"],
+    },
+    ModelEntry {
+        provider: "gemini_oauth",
+        model_id: "gemini-3.1-pro-preview",
+        label: "Gemini 3.1 Pro (CLI subscription ★)",
+        aliases: &["gempro31"],
+    },
+    ModelEntry {
+        provider: "gemini_oauth",
+        model_id: "gemini-3-flash-preview",
+        label: "Gemini 3 Flash (CLI subscription)",
+        aliases: &["gemflash3"],
+    },
+    ModelEntry {
+        provider: "gemini_oauth",
+        model_id: "gemini-2.5-pro",
+        label: "Gemini 2.5 Pro (CLI subscription)",
+        aliases: &["gempro"],
+    },
+    ModelEntry {
+        provider: "gemini_oauth",
+        model_id: "gemini-2.5-flash",
+        label: "Gemini 2.5 Flash (CLI subscription)",
+        aliases: &["gemflash"],
+    },
+    ModelEntry {
+        provider: "deepseek",
+        model_id: "deepseek-chat",
+        label: "DeepSeek V3.2 (API paid)",
+        aliases: &["ds"],
+    },
+    ModelEntry {
+        provider: "deepseek",
+        model_id: "deepseek-reasoner",
+        label: "DeepSeek R1 (API paid)",
+        aliases: &["dsr"],
+    },
+    ModelEntry {
+        provider: "glm",
+        model_id: "glm-5",
+        label: "GLM-5 (API paid)",
+        aliases: &["glm"],
+    },
+    ModelEntry {
+        provider: "glm",
+        model_id: "glm-4.5v",
+        label: "GLM-4.5V (API paid)",
+        aliases: &["glmv"],
+    },
+    ModelEntry {
+        provider: "moonshot",
+        model_id: "kimi-k2.5",
+        label: "Kimi K2.5 (API paid)",
+        aliases: &["kimi", "fast"],
+    },
+    ModelEntry {
+        provider: "xai",
+        model_id: "grok-3",
+        label: "Grok-3 (API paid)",
+        aliases: &["grok"],
+    },
+    ModelEntry {
+        provider: "xai",
+        model_id: "grok-3-mini",
+        label: "Grok-3 Mini (API paid)",
+        aliases: &["grokmini"],
+    },
+    ModelEntry {
+        provider: "ollama",
+        model_id: "qwen3.5:9b",
+        label: "Qwen3.5 9B (local)",
+        aliases: &["local", "ollama"],
+    },
+    ModelEntry {
+        provider: "ollama",
+        model_id: "llama3:8b",
+        label: "Llama3 8B (local)",
+        aliases: &["llama"],
+    },
+    ModelEntry {
+        provider: "ollama",
+        model_id: "mistral:7b",
+        label: "Mistral 7B (local)",
+        aliases: &["mistral"],
+    },
 ];
 
 pub struct ProviderRegistry {
@@ -69,7 +209,11 @@ impl ProviderRegistry {
         &self.active_entry
     }
 
-    fn is_provider_available(provider: &str, cfg: &ForjaConfig, auth: &crate::oauth::AuthData) -> bool {
+    fn is_provider_available(
+        provider: &str,
+        cfg: &ForjaConfig,
+        auth: &crate::oauth::AuthData,
+    ) -> bool {
         match provider {
             "ollama" => true,
             LOCAL_PROVIDER => has_local_models(),
@@ -108,13 +252,14 @@ impl ProviderRegistry {
                 .filter(|index| *index < self.available_entries.len());
         }
 
-        self.available_entries
-            .iter()
-            .position(|entry| {
-                entry.model_id.eq_ignore_ascii_case(&normalized)
-                    || entry.aliases.iter().any(|alias| alias.eq_ignore_ascii_case(&normalized))
-                    || entry.label.to_lowercase().contains(&normalized)
-            })
+        self.available_entries.iter().position(|entry| {
+            entry.model_id.eq_ignore_ascii_case(&normalized)
+                || entry
+                    .aliases
+                    .iter()
+                    .any(|alias| alias.eq_ignore_ascii_case(&normalized))
+                || entry.label.to_lowercase().contains(&normalized)
+        })
     }
 
     pub fn switch_to(&mut self, index: usize, cfg: &ForjaConfig) -> Result<LlmConfig, String> {
@@ -189,7 +334,11 @@ fn runtime_entry_from_static(entry: &ModelEntry) -> RuntimeModelEntry {
         provider: entry.provider.to_string(),
         model_id: entry.model_id.to_string(),
         label: entry.label.to_string(),
-        aliases: entry.aliases.iter().map(|alias| alias.to_string()).collect(),
+        aliases: entry
+            .aliases
+            .iter()
+            .map(|alias| alias.to_string())
+            .collect(),
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::error::{ForjaError, Result};
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde_json::Value;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -55,8 +55,8 @@ impl AuditLogger {
                 .map_err(|error| ForjaError::Storage(error.to_string()))?;
         }
 
-        let connection = Connection::open(db_path)
-            .map_err(|error| ForjaError::Storage(error.to_string()))?;
+        let connection =
+            Connection::open(db_path).map_err(|error| ForjaError::Storage(error.to_string()))?;
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS audit_log (

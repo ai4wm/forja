@@ -1,6 +1,6 @@
 use crate::error::{ForjaError, Result};
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
@@ -61,8 +61,8 @@ pub struct SkillRegistry {
 
 impl SkillRegistry {
     pub fn new(db_path: &Path, skill_roots: &[PathBuf]) -> Result<Self> {
-        let connection = Connection::open(db_path)
-            .map_err(|error| ForjaError::Storage(error.to_string()))?;
+        let connection =
+            Connection::open(db_path).map_err(|error| ForjaError::Storage(error.to_string()))?;
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS skill_runs (
@@ -310,9 +310,8 @@ fn parse_skill_file(path: &Path) -> Result<SkillDefinition> {
             path.display()
         ))
     })?;
-    let parsed: SkillFrontmatter =
-        serde_yaml::from_str(&frontmatter)
-            .map_err(|error| ForjaError::Storage(error.to_string()))?;
+    let parsed: SkillFrontmatter = serde_yaml::from_str(&frontmatter)
+        .map_err(|error| ForjaError::Storage(error.to_string()))?;
 
     Ok(SkillDefinition {
         name: parsed.name.trim().to_string(),
@@ -455,14 +454,25 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let registry = SkillRegistry::new(&db_path, &[]).unwrap();
 
-        registry.record_failure("Demo Skill", "first error").unwrap();
-        assert!(registry.improvement_suggestion("Demo Skill").unwrap().is_none());
+        registry
+            .record_failure("Demo Skill", "first error")
+            .unwrap();
+        assert!(
+            registry
+                .improvement_suggestion("Demo Skill")
+                .unwrap()
+                .is_none()
+        );
 
-        registry.record_failure("Demo Skill", "second error").unwrap();
-        assert!(registry
-            .improvement_suggestion("Demo Skill")
-            .unwrap()
-            .is_some());
+        registry
+            .record_failure("Demo Skill", "second error")
+            .unwrap();
+        assert!(
+            registry
+                .improvement_suggestion("Demo Skill")
+                .unwrap()
+                .is_some()
+        );
 
         let _ = fs::remove_dir_all(root);
     }

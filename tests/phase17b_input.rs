@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use forja_core::traits::Tool;
+use forja_tools::InputTool;
 use forja_tools::confirm::ConfirmationHandler;
 use forja_tools::input::MockBackend;
-use forja_tools::InputTool;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -27,11 +27,8 @@ impl ConfirmationHandler for DenyConfirmation {
 #[tokio::test]
 async fn type_text_parses_valid_text_field() {
     let backend = Arc::new(MockBackend::new());
-    let tool = InputTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        InputTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -43,7 +40,10 @@ async fn type_text_parses_valid_text_field() {
 
     assert_eq!(result["status"], json!("ok"));
     assert_eq!(result["action"], json!("type_text"));
-    assert_eq!(backend.events_snapshot(), vec!["type_text:안녕하세요 hello"]);
+    assert_eq!(
+        backend.events_snapshot(),
+        vec!["type_text:안녕하세요 hello"]
+    );
 }
 
 #[tokio::test]
@@ -73,18 +73,19 @@ async fn key_press_maps_common_named_keys() {
             .unwrap();
 
         assert_eq!(result["status"], json!("ok"), "{key}");
-        assert_eq!(backend.events_snapshot(), vec![expected.to_string()], "{key}");
+        assert_eq!(
+            backend.events_snapshot(),
+            vec![expected.to_string()],
+            "{key}"
+        );
     }
 }
 
 #[tokio::test]
 async fn hotkey_parsing_records_normalized_combo() {
     let backend = Arc::new(MockBackend::new());
-    let tool = InputTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        InputTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -132,11 +133,8 @@ async fn dangerous_hotkeys_are_blocked_without_confirmation() {
 #[tokio::test]
 async fn unsafe_mode_bypasses_dangerous_hotkey_safety() {
     let backend = Arc::new(MockBackend::new());
-    let tool = InputTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(DenyConfirmation),
-        true,
-    );
+    let tool =
+        InputTool::with_backend_and_settings(backend.clone(), Arc::new(DenyConfirmation), true);
 
     let result = tool
         .execute(json!({
@@ -153,11 +151,8 @@ async fn unsafe_mode_bypasses_dangerous_hotkey_safety() {
 #[tokio::test]
 async fn mouse_click_parses_button_and_coordinates() {
     let backend = Arc::new(MockBackend::new());
-    let tool = InputTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        InputTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -176,11 +171,8 @@ async fn mouse_click_parses_button_and_coordinates() {
 #[tokio::test]
 async fn mouse_drag_parses_start_and_end_coordinates() {
     let backend = Arc::new(MockBackend::new());
-    let tool = InputTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        InputTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -200,11 +192,8 @@ async fn mouse_drag_parses_start_and_end_coordinates() {
 #[tokio::test]
 async fn scroll_parses_direction_and_amount() {
     let backend = Arc::new(MockBackend::new());
-    let tool = InputTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        InputTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -222,11 +211,7 @@ async fn scroll_parses_direction_and_amount() {
 #[tokio::test]
 async fn invalid_action_name_returns_error_status() {
     let backend = Arc::new(MockBackend::new());
-    let tool = InputTool::with_backend_and_settings(
-        backend,
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool = InputTool::with_backend_and_settings(backend, Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -242,11 +227,7 @@ async fn invalid_action_name_returns_error_status() {
 #[tokio::test]
 async fn missing_required_fields_return_error_status() {
     let backend = Arc::new(MockBackend::new());
-    let tool = InputTool::with_backend_and_settings(
-        backend,
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool = InputTool::with_backend_and_settings(backend, Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({

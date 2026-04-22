@@ -93,11 +93,7 @@ Knowledge:\n\
         Ok(Some(insight))
     }
 
-    pub fn should_trigger(
-        &self,
-        turn_count: u32,
-        last_triggered: Option<DateTime<Local>>,
-    ) -> bool {
+    pub fn should_trigger(&self, turn_count: u32, last_triggered: Option<DateTime<Local>>) -> bool {
         if let Some(last_triggered) = last_triggered
             && Local::now().signed_duration_since(last_triggered) >= Duration::minutes(10)
         {

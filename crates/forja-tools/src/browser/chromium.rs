@@ -2,15 +2,15 @@ use super::backend::BrowserBackend;
 use async_trait::async_trait;
 
 #[cfg(feature = "browser")]
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
+#[cfg(feature = "browser")]
+use chromiumoxide::Page;
 #[cfg(feature = "browser")]
 use chromiumoxide::browser::{Browser, BrowserConfig};
 #[cfg(feature = "browser")]
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 #[cfg(feature = "browser")]
 use chromiumoxide::page::ScreenshotParams;
-#[cfg(feature = "browser")]
-use chromiumoxide::Page;
 #[cfg(feature = "browser")]
 use tokio::runtime::Handle;
 
@@ -360,11 +360,7 @@ impl BrowserBackend for ChromiumBackend {
         Err(self.feature_disabled_error())
     }
 
-    async fn scroll(
-        &self,
-        _direction: &str,
-        _amount: i32,
-    ) -> std::result::Result<String, String> {
+    async fn scroll(&self, _direction: &str, _amount: i32) -> std::result::Result<String, String> {
         Err(self.feature_disabled_error())
     }
 
@@ -372,11 +368,7 @@ impl BrowserBackend for ChromiumBackend {
         Err(self.feature_disabled_error())
     }
 
-    async fn type_text(
-        &self,
-        _selector: &str,
-        _text: &str,
-    ) -> std::result::Result<String, String> {
+    async fn type_text(&self, _selector: &str, _text: &str) -> std::result::Result<String, String> {
         Err(self.feature_disabled_error())
     }
 

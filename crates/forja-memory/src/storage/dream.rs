@@ -81,7 +81,8 @@ impl Storage {
             clear_pending_journal(&self.dream_state_file).await?;
             return Ok(DreamRunOutcome {
                 status: DreamRunStatus::AbortedConflict,
-                summary: "dream commit aborted because memory files changed during analysis".to_string(),
+                summary: "dream commit aborted because memory files changed during analysis"
+                    .to_string(),
                 archived_topics: plan.archived_topics,
                 merged_topics: plan.merged_topics,
                 split_topics: plan.split_topics,
@@ -249,19 +250,17 @@ impl Storage {
             if !archive.source.exists() {
                 continue;
             }
-            let archive_path = legacy_archive_path(
-                &self.archive_dir,
-                &archive.archive_label,
-                "md",
-            )
-            .await?;
-            fs::rename(&archive.source, &archive_path).await.map_err(|error| {
-                storage_error(format!(
-                    "Failed to archive {} to {}: {error}",
-                    archive.source.display(),
-                    archive_path.display()
-                ))
-            })?;
+            let archive_path =
+                legacy_archive_path(&self.archive_dir, &archive.archive_label, "md").await?;
+            fs::rename(&archive.source, &archive_path)
+                .await
+                .map_err(|error| {
+                    storage_error(format!(
+                        "Failed to archive {} to {}: {error}",
+                        archive.source.display(),
+                        archive_path.display()
+                    ))
+                })?;
         }
 
         for topic in &plan.active_topics {
@@ -269,17 +268,23 @@ impl Storage {
                 .shard_bodies
                 .iter()
                 .enumerate()
-                .map(|(index, _)| self.topics_dir.join(topic_file_name(&topic.slug, index + 1)))
+                .map(|(index, _)| {
+                    self.topics_dir
+                        .join(topic_file_name(&topic.slug, index + 1))
+                })
                 .collect::<Vec<_>>();
 
             for (path, body) in desired_paths.iter().zip(&topic.shard_bodies) {
                 fs::write(path, with_trailing_newline(body))
                     .await
-                    .map_err(|error| storage_error(format!("Failed to write {}: {error}", path.display())))?;
+                    .map_err(|error| {
+                        storage_error(format!("Failed to write {}: {error}", path.display()))
+                    })?;
             }
 
             for original in &topic.original_paths {
-                if !desired_paths.iter().any(|candidate| candidate == original) && original.exists() {
+                if !desired_paths.iter().any(|candidate| candidate == original) && original.exists()
+                {
                     fs::remove_file(original).await.map_err(|error| {
                         storage_error(format!("Failed to remove {}: {error}", original.display()))
                     })?;
@@ -306,7 +311,10 @@ impl Storage {
             .to_string();
         let mut lines = vec![
             format!("## {timestamp} | trigger={trigger:?}"),
-            format!("status: {}", if recovered { "recovered" } else { "completed" }),
+            format!(
+                "status: {}",
+                if recovered { "recovered" } else { "completed" }
+            ),
             format!("summary: {}", self.plan_summary(plan)),
         ];
 
@@ -319,7 +327,10 @@ impl Storage {
         for split in &plan.split_topics {
             lines.push(format!("- split oversized topic: {split}"));
         }
-        if plan.merged_topics.is_empty() && plan.archived_topics.is_empty() && plan.split_topics.is_empty() {
+        if plan.merged_topics.is_empty()
+            && plan.archived_topics.is_empty()
+            && plan.split_topics.is_empty()
+        {
             lines.push("- no maintenance changes were required".to_string());
         }
 
@@ -354,10 +365,16 @@ impl Storage {
             let mut last_timestamp: Option<u64> = None;
             for shard in &paths {
                 let contents = read_trimmed(shard).await?;
-                for line in contents.lines().map(str::trim).filter(|line| line.starts_with("- [")) {
+                for line in contents
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| line.starts_with("- ["))
+                {
                     lines.push(line.to_string());
                     if let Some(timestamp) = parse_topic_timestamp(line) {
-                        last_timestamp = Some(last_timestamp.map_or(timestamp, |current| current.max(timestamp)));
+                        last_timestamp = Some(
+                            last_timestamp.map_or(timestamp, |current| current.max(timestamp)),
+                        );
                     }
                 }
             }
@@ -451,7 +468,9 @@ fn is_stale_topic(last_timestamp: Option<u64>, has_recent_daily_evidence: bool) 
     let Some(last_timestamp) = last_timestamp else {
         return false;
     };
-    let age = Local::now().timestamp().saturating_sub(last_timestamp as i64);
+    let age = Local::now()
+        .timestamp()
+        .saturating_sub(last_timestamp as i64);
     age >= Duration::days(DREAM_STALE_DAYS).num_seconds()
 }
 
@@ -484,15 +503,26 @@ async fn file_mtime_secs(path: &Path) -> Result<Option<u64>> {
     if !path.exists() {
         return Ok(None);
     }
-    let metadata = fs::metadata(path)
-        .await
-        .map_err(|error| storage_error(format!("Failed to read metadata for {}: {error}", path.display())))?;
-    let modified = metadata
-        .modified()
-        .map_err(|error| storage_error(format!("Failed to read modified time for {}: {error}", path.display())))?;
+    let metadata = fs::metadata(path).await.map_err(|error| {
+        storage_error(format!(
+            "Failed to read metadata for {}: {error}",
+            path.display()
+        ))
+    })?;
+    let modified = metadata.modified().map_err(|error| {
+        storage_error(format!(
+            "Failed to read modified time for {}: {error}",
+            path.display()
+        ))
+    })?;
     let seconds = modified
         .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|error| storage_error(format!("Invalid modified time for {}: {error}", path.display())))?
+        .map_err(|error| {
+            storage_error(format!(
+                "Invalid modified time for {}: {error}",
+                path.display()
+            ))
+        })?
         .as_secs();
     Ok(Some(seconds))
 }

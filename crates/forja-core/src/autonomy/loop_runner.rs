@@ -5,11 +5,11 @@ use super::{AutonomyAction, AutonomyConfig, AutonomyStatusSummary, QueuedTask};
 use crate::creation::DebateResult;
 use crate::error::{ForjaError, Result};
 use chrono::{DateTime, Duration, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
     Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 
 #[derive(Clone)]
@@ -28,8 +28,8 @@ pub struct AutonomousLoop {
 impl AutonomousLoop {
     pub fn new(config: AutonomyConfig, db_path: impl AsRef<Path>) -> Result<Self> {
         let db_path = db_path.as_ref().to_path_buf();
-        let connection = Connection::open(&db_path)
-            .map_err(|error| ForjaError::Storage(error.to_string()))?;
+        let connection =
+            Connection::open(&db_path).map_err(|error| ForjaError::Storage(error.to_string()))?;
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS task_queue (
@@ -268,11 +268,7 @@ impl AutonomousLoop {
         Ok(snapshot)
     }
 
-    pub(crate) fn record_task_failure(
-        &self,
-        task_id: i64,
-        error: &str,
-    ) -> Result<QueuedTask> {
+    pub(crate) fn record_task_failure(&self, task_id: i64, error: &str) -> Result<QueuedTask> {
         let mut queue = self.task_store.load_queue()?;
         let now = Utc::now();
         let task = queue
@@ -300,7 +296,8 @@ impl AutonomousLoop {
     }
 
     pub(crate) fn add_unresolved(&self, task: &str, error: &str) -> Result<()> {
-        self.unresolved_store.add(task, error, self.config.max_retries)
+        self.unresolved_store
+            .add(task, error, self.config.max_retries)
     }
 
     fn upsert_task_row(&self, task: &QueuedTask) -> Result<()> {

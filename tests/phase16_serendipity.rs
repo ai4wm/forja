@@ -184,9 +184,8 @@ async fn generate_insight_returns_none_for_none_response() {
 
 #[tokio::test]
 async fn generate_insight_returns_none_on_provider_failure() {
-    let provider = ScriptedProvider::new(vec![ProviderStep::Error(
-        "serendipity failed".to_string(),
-    )]);
+    let provider =
+        ScriptedProvider::new(vec![ProviderStep::Error("serendipity failed".to_string())]);
     let engine = SerendipityEngine::with_interval(5);
 
     let insight = engine
@@ -311,7 +310,8 @@ async fn serendipity_failure_keeps_main_response_intact() {
 #[tokio::test]
 async fn startup_greeting_can_include_daily_summary_and_knowledge() {
     let provider = ScriptedProvider::new(vec![ProviderStep::Text(
-        "주인님, 좋은 아침입니다. 어제 Phase 13i를 마치셨고 오늘은 Phase 16부터 시작하시면 됩니다.".to_string(),
+        "주인님, 좋은 아침입니다. 어제 Phase 13i를 마치셨고 오늘은 Phase 16부터 시작하시면 됩니다."
+            .to_string(),
     )]);
     let memory = "--- 2026-03-26 ---\n09:00 | user | Phase 13i done";
     let knowledge = "[knowledge - Topic-based Persistent Knowledge]\n\n## projects.md\n- [2026-03-26] Phase 16 is next";

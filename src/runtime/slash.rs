@@ -3,11 +3,11 @@ use crate::config::ForjaConfig;
 use crate::local_models::{download_hugging_face_model, parse_hf_repo};
 use crate::provider_registry::ProviderRegistry;
 use crate::runtime::prompt::{build_system_prompt, load_image_base64};
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use forja_core::engine::{SlashCommandResult, SlashHandler};
 use forja_core::mode::{
-    detect_image_path, parse_image_command, parse_natural_language_command,
-    parse_screenshot_command, parse_slash_command, ExecMode, ModeState, SlashCommand,
+    ExecMode, ModeState, SlashCommand, detect_image_path, parse_image_command,
+    parse_natural_language_command, parse_screenshot_command, parse_slash_command,
 };
 use forja_core::skill::SkillRegistry;
 use forja_core::traits::{Channel, LlmProvider, VoiceChannelStatus};
@@ -111,7 +111,7 @@ pub(crate) fn build_slash_handler(deps: SlashHandlerDeps) -> SlashHandler {
                         Err(error) => {
                             return Some(SlashCommandResult::Reply(format!(
                                 "❌ Could not read the image file: {error}"
-                            )))
+                            )));
                         }
                     };
                     let result = tokio::task::block_in_place(|| {
@@ -156,7 +156,10 @@ pub(crate) fn build_slash_handler(deps: SlashHandlerDeps) -> SlashHandler {
                             });
                         }
                         Err(error) => {
-                            eprintln!("[Vision] failed to load image '{}': {error}", path.display());
+                            eprintln!(
+                                "[Vision] failed to load image '{}': {error}",
+                                path.display()
+                            );
                         }
                     }
                 }
@@ -192,13 +195,17 @@ pub(crate) fn build_slash_handler(deps: SlashHandlerDeps) -> SlashHandler {
             }
 
             if effective_text == "/debate" {
-                return Some(SlashCommandResult::Reply("Usage: /debate <topic>".to_string()));
+                return Some(SlashCommandResult::Reply(
+                    "Usage: /debate <topic>".to_string(),
+                ));
             }
 
             if let Some(topic) = effective_text.strip_prefix("/debate ") {
                 let topic = topic.trim();
                 if topic.is_empty() {
-                    return Some(SlashCommandResult::Reply("Usage: /debate <topic>".to_string()));
+                    return Some(SlashCommandResult::Reply(
+                        "Usage: /debate <topic>".to_string(),
+                    ));
                 }
 
                 return Some(SlashCommandResult::Debate {
@@ -240,7 +247,10 @@ pub(crate) fn build_slash_handler(deps: SlashHandlerDeps) -> SlashHandler {
                                     .unwrap_or_default()
                             })
                         });
-                        format!("Notifications enabled (min level: {}).", state.min_level.as_str())
+                        format!(
+                            "Notifications enabled (min level: {}).",
+                            state.min_level.as_str()
+                        )
                     }
                     "off" => {
                         let _ = tokio::task::block_in_place(|| {
@@ -454,13 +464,14 @@ pub(crate) fn build_slash_handler(deps: SlashHandlerDeps) -> SlashHandler {
                         Err(error) => {
                             return Some(SlashCommandResult::Reply(format!(
                                 "❌ Model bootstrap failed: {error}"
-                            )))
+                            )));
                         }
                     };
 
                     let mut registry = registry.lock().unwrap();
                     registry.refresh(&cfg_for_handler);
-                    let Some(idx) = registry.resolve(&downloaded_model.model_id, &cfg_for_handler) else {
+                    let Some(idx) = registry.resolve(&downloaded_model.model_id, &cfg_for_handler)
+                    else {
                         return Some(SlashCommandResult::Reply(format!(
                             "✅ Downloaded `{}` but could not resolve it in /models yet.",
                             downloaded_model.model_id
@@ -494,19 +505,19 @@ pub(crate) fn build_slash_handler(deps: SlashHandlerDeps) -> SlashHandler {
                         return Some(SlashCommandResult::Reply(format!(
                             "❌ Could not find model '{}'. Check `/models` for the list.",
                             target
-                        )))
+                        )));
                     }
                     Some(idx) => match registry.switch_to(idx, &cfg_for_handler) {
                         Err(error) => {
                             return Some(SlashCommandResult::Reply(format!(
                                 "❌ Switch failed: {error}"
-                            )))
+                            )));
                         }
                         Ok(new_config) => match forja_llm::LlmClient::new(new_config) {
                             Err(error) => {
                                 return Some(SlashCommandResult::Reply(format!(
                                     "❌ Failed to create LlmClient: {error}"
-                                )))
+                                )));
                             }
                             Ok(client) => {
                                 let entry = registry.active();
@@ -533,7 +544,7 @@ pub(crate) fn build_slash_handler(deps: SlashHandlerDeps) -> SlashHandler {
                     Err(error) => {
                         return Some(SlashCommandResult::Reply(format!(
                             "❌ Identity reset failed: {error}"
-                        )))
+                        )));
                     }
                 };
 
@@ -542,7 +553,7 @@ pub(crate) fn build_slash_handler(deps: SlashHandlerDeps) -> SlashHandler {
                     Err(error) => {
                         return Some(SlashCommandResult::Reply(format!(
                             "❌ Failed to rebuild the system prompt: {error}"
-                        )))
+                        )));
                     }
                 };
 
@@ -581,16 +592,12 @@ fn confirm_state_change(
 
 fn format_voice_status(status: VoiceChannelStatus, requested_enabled: bool) -> String {
     match status {
-        VoiceChannelStatus::Disabled if !requested_enabled => {
-            "Voice channel disabled.".to_string()
-        }
+        VoiceChannelStatus::Disabled if !requested_enabled => "Voice channel disabled.".to_string(),
         VoiceChannelStatus::Listening if requested_enabled => {
             "Voice channel enabled and listening.".to_string()
         }
         VoiceChannelStatus::Speaking => "Voice channel enabled and speaking.".to_string(),
-        VoiceChannelStatus::Unavailable => {
-            "Voice channel unavailable on this system.".to_string()
-        }
+        VoiceChannelStatus::Unavailable => "Voice channel unavailable on this system.".to_string(),
         _ => format!("Voice status: {}", voice_status_label(status)),
     }
 }

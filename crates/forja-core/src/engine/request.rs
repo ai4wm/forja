@@ -4,12 +4,12 @@ use crate::types::{Message, Role};
 
 impl Engine {
     pub(crate) fn push_message(&mut self, message: Message) {
-        self.total_tokens = self
-            .total_tokens
-            .saturating_add(crate::context::token_counter::count_message_tokens(
-                &message,
-                &self.context_model,
-            ));
+        self.total_tokens =
+            self.total_tokens
+                .saturating_add(crate::context::token_counter::count_message_tokens(
+                    &message,
+                    &self.context_model,
+                ));
         self.conversation_history.push(message);
     }
 
@@ -23,7 +23,9 @@ impl Engine {
             "",
             self.tool_prompt.as_deref().unwrap_or_default(),
             self.turn_tone_context.as_deref().unwrap_or_default(),
-            self.turn_relationship_context.as_deref().unwrap_or_default(),
+            self.turn_relationship_context
+                .as_deref()
+                .unwrap_or_default(),
             self.turn_knowledge_context.as_deref().unwrap_or_default(),
             #[cfg(feature = "memory")]
             self.turn_memory_context.as_deref().unwrap_or_default(),

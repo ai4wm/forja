@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::Tool;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::fs;
 
 /// Basic FileTool for filesystem read and overwrite operations.
@@ -81,9 +81,14 @@ impl Tool for FileTool {
                     ForjaError::ToolError(format!("Failed to write to file '{}': {}", path, e))
                 })?;
 
-                Ok(json!({ "status": "success", "message": format!("File {} written successfully.", path) }))
+                Ok(
+                    json!({ "status": "success", "message": format!("File {} written successfully.", path) }),
+                )
             }
-            _ => Err(ForjaError::ToolError(format!("Unsupported action '{}' for file_tool. Allowed: read, write", action))),
+            _ => Err(ForjaError::ToolError(format!(
+                "Unsupported action '{}' for file_tool. Allowed: read, write",
+                action
+            ))),
         }
     }
 }

@@ -10,8 +10,8 @@ use std::future::pending;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, oneshot};
@@ -75,7 +75,9 @@ impl LlmProvider for RecordingProvider {
         _messages: &[Message],
         _tools: Option<&[ToolDefinition]>,
     ) -> Result<Pin<Box<dyn Stream<Item = Result<String>> + Send>>> {
-        Err(ForjaError::LlmError("stream not used in dream tests".to_string()))
+        Err(ForjaError::LlmError(
+            "stream not used in dream tests".to_string(),
+        ))
     }
 }
 
@@ -163,7 +165,10 @@ impl MemoryStore for DreamRecordingStore {
         Ok((value > 0).then_some(value))
     }
 
-    async fn run_dream(&self, trigger: DreamTrigger) -> Result<forja_core::traits::DreamRunOutcome> {
+    async fn run_dream(
+        &self,
+        trigger: DreamTrigger,
+    ) -> Result<forja_core::traits::DreamRunOutcome> {
         self.dream_calls.lock().await.push(trigger);
         if !self.sleep_for.is_zero() {
             tokio::time::sleep(self.sleep_for).await;
@@ -235,7 +240,10 @@ async fn manual_dream_keeps_old_topics_with_recent_daily_evidence() {
     write_topic_file(
         &base_dir,
         "project-atlas.md",
-        &[topic_line(40, "Project Atlas historical implementation note.")],
+        &[topic_line(
+            40,
+            "Project Atlas historical implementation note.",
+        )],
     );
     write_daily_file(
         &base_dir,
@@ -248,9 +256,11 @@ async fn manual_dream_keeps_old_topics_with_recent_daily_evidence() {
 
     assert_eq!(outcome.status, DreamRunStatus::Completed);
     assert!(base_dir.join("topics").join("project-atlas.md").exists());
-    assert!(!std::fs::read_to_string(dream_log_path(&base_dir))
-        .unwrap()
-        .contains("archived stale topic: project-atlas"));
+    assert!(
+        !std::fs::read_to_string(dream_log_path(&base_dir))
+            .unwrap()
+            .contains("archived stale topic: project-atlas")
+    );
 
     let _ = tokio::fs::remove_dir_all(&base_dir).await;
 }
@@ -305,7 +315,15 @@ async fn manual_dream_splits_topics_that_exceed_budget() {
     let memory_path = base_dir.join("memory.md");
     let store = MarkdownMemoryStore::new(&memory_path).await.unwrap();
     let large_topic = (0..120)
-        .map(|index| topic_line(1, &format!("Project Atlas oversized note {index} {}", "alpha ".repeat(14))))
+        .map(|index| {
+            topic_line(
+                1,
+                &format!(
+                    "Project Atlas oversized note {index} {}",
+                    "alpha ".repeat(14)
+                ),
+            )
+        })
         .collect::<Vec<_>>();
 
     write_topic_file(&base_dir, "project-atlas.md", &large_topic);
@@ -410,9 +428,10 @@ async fn engine_rejects_manual_dream_when_one_is_already_running() {
 
     let sent = channel.sent_messages().await;
     assert!(sent.iter().any(|message| message.contains("Dream started")));
-    assert!(sent
-        .iter()
-        .any(|message| message.contains("already in progress")));
+    assert!(
+        sent.iter()
+            .any(|message| message.contains("already in progress"))
+    );
     assert_eq!(memory.dream_calls().await, vec![DreamTrigger::Manual]);
 }
 

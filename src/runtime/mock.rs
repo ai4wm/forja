@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use forja_core::error::Result;
-use forja_core::{Content, Message, Role, ToolDefinition};
 use forja_core::traits::LlmProvider;
+use forja_core::{Content, Message, Role, ToolDefinition};
 use std::pin::Pin;
 use tokio_stream::{Stream, StreamExt};
 
@@ -25,7 +25,9 @@ impl LlmProvider for MockLlmProvider {
             })
             .unwrap_or_default();
 
-        if last.contains("Analyze the emotional state of the conversation below and respond with JSON only.") {
+        if last.contains(
+            "Analyze the emotional state of the conversation below and respond with JSON only.",
+        ) {
             return Ok(Message::text(
                 Role::Assistant,
                 r#"{"mood":"neutral","intensity":1,"reason":"mock mode","tone_instruction":"Reply in a balanced, respectful tone."}"#,
@@ -73,9 +75,8 @@ impl LlmProvider for MockLlmProvider {
             })
             .unwrap_or_default();
 
-        let response = format!(
-            "[MockStream] Received message: '{last}' (streaming effect test...)"
-        );
+        let response =
+            format!("[MockStream] Received message: '{last}' (streaming effect test...)");
         let tokens: Vec<String> = response
             .split(' ')
             .map(|token| format!("{token} "))

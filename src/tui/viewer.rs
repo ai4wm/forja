@@ -1,13 +1,15 @@
 use crossterm::event::{self, Event, KeyCode};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::execute;
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
 use forja_core::error::{ForjaError, Result};
+use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
-use ratatui::Terminal;
 use rusqlite::{Connection, OpenFlags};
 use std::io::{self, Stdout};
 use std::path::Path;
@@ -20,8 +22,8 @@ pub fn run_tui_view(audit_db: &Path, memory_db: &Path) -> Result<()> {
         .map_err(|error| ForjaError::Internal(error.to_string()))?;
 
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)
-        .map_err(|error| ForjaError::Internal(error.to_string()))?;
+    let mut terminal =
+        Terminal::new(backend).map_err(|error| ForjaError::Internal(error.to_string()))?;
     let result = run_loop(&mut terminal, audit_db, memory_db);
 
     disable_raw_mode().ok();
@@ -151,8 +153,7 @@ fn load_tool_state(audit_db: &Path) -> Result<String> {
 
     let mut lines = Vec::new();
     for row in rows {
-        let (event_type, payload) =
-            row.map_err(|error| ForjaError::Storage(error.to_string()))?;
+        let (event_type, payload) = row.map_err(|error| ForjaError::Storage(error.to_string()))?;
         lines.push(format!("{event_type}: {payload}"));
     }
 

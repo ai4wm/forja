@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::Tool;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Tool for fetching web page text with a simple GET request.
 pub struct WebTool;
@@ -42,9 +42,9 @@ impl Tool for WebTool {
     }
 
     async fn execute(&self, args: Value) -> Result<Value> {
-        let url = args["url"].as_str().ok_or_else(|| {
-            ForjaError::ToolError("Missing 'url' parameter for web_tool".into())
-        })?;
+        let url = args["url"]
+            .as_str()
+            .ok_or_else(|| ForjaError::ToolError("Missing 'url' parameter for web_tool".into()))?;
 
         // Build a reqwest client with a 10-second timeout and issue a GET request.
         let client = reqwest::Client::builder()
@@ -73,7 +73,11 @@ impl Tool for WebTool {
         let max_chars = 50_000;
         let truncated = if body.chars().count() > max_chars {
             let cut: String = body.chars().take(max_chars).collect();
-            format!("{}...\n[Truncated: original {} chars]", cut, body.chars().count())
+            format!(
+                "{}...\n[Truncated: original {} chars]",
+                cut,
+                body.chars().count()
+            )
         } else {
             body
         };

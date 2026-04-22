@@ -1,6 +1,6 @@
 use forja_core::traits::Tool;
-use forja_tools::vision::{MockCaptureBackend, MockVisionAnalyzer};
 use forja_tools::VisionTool;
+use forja_tools::vision::{MockCaptureBackend, MockVisionAnalyzer};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -41,7 +41,10 @@ async fn capture_region_parses_coordinates() {
         .unwrap();
 
     assert_eq!(result["status"], json!("ok"));
-    assert_eq!(capture.calls_snapshot(), vec!["capture_region:100,200,500,300"]);
+    assert_eq!(
+        capture.calls_snapshot(),
+        vec!["capture_region:100,200,500,300"]
+    );
 }
 
 #[tokio::test]
@@ -127,7 +130,10 @@ async fn analyze_region_records_capture_and_prompt() {
 
     assert_eq!(result["status"], json!("ok"));
     assert_eq!(capture.calls_snapshot(), vec!["capture_region:10,20,30,40"]);
-    assert_eq!(analyzer.calls_snapshot(), vec!["analyze:Describe this area"]);
+    assert_eq!(
+        analyzer.calls_snapshot(),
+        vec!["analyze:Describe this area"]
+    );
 }
 
 #[tokio::test]
@@ -152,7 +158,9 @@ async fn find_element_uses_special_prompt() {
     assert_eq!(capture.calls_snapshot(), vec!["capture_full"]);
     assert_eq!(
         analyzer.calls_snapshot(),
-        vec!["analyze:Find the UI element matching: red login button. Return JSON: {\"x\": number, \"y\": number, \"width\": number, \"height\": number}. If not found, return NONE."]
+        vec![
+            "analyze:Find the UI element matching: red login button. Return JSON: {\"x\": number, \"y\": number, \"width\": number, \"height\": number}. If not found, return NONE."
+        ]
     );
 }
 
@@ -211,7 +219,10 @@ async fn ocr_uses_region_and_fixed_prompt() {
         .unwrap();
 
     assert_eq!(result["status"], json!("ok"));
-    assert_eq!(capture.calls_snapshot(), vec!["capture_region:0,0,1920,1080"]);
+    assert_eq!(
+        capture.calls_snapshot(),
+        vec!["capture_region:0,0,1920,1080"]
+    );
     assert_eq!(
         analyzer.calls_snapshot(),
         vec!["analyze:Read all text visible in this image. Return the text exactly as shown."]
@@ -243,7 +254,10 @@ async fn mock_backends_record_all_calls() {
     let analyzer = Arc::new(MockVisionAnalyzer::new());
     let tool = VisionTool::with_backends(capture.clone(), analyzer.clone(), false);
 
-    let _ = tool.execute(json!({ "action": "capture_screen" })).await.unwrap();
+    let _ = tool
+        .execute(json!({ "action": "capture_screen" }))
+        .await
+        .unwrap();
     let _ = tool
         .execute(json!({
             "action": "analyze",
@@ -252,6 +266,9 @@ async fn mock_backends_record_all_calls() {
         .await
         .unwrap();
 
-    assert_eq!(capture.calls_snapshot(), vec!["capture_full", "capture_full"]);
+    assert_eq!(
+        capture.calls_snapshot(),
+        vec!["capture_full", "capture_full"]
+    );
     assert_eq!(analyzer.calls_snapshot(), vec!["analyze:Check layout"]);
 }

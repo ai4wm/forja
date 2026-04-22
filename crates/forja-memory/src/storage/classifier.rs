@@ -1,33 +1,58 @@
 use std::path::Path;
 
 const STOP_WORDS: &[&str] = &[
-    "a", "an", "and", "are", "about", "after", "before", "do", "does", "for", "how", "i",
-    "is", "it", "like", "my", "of", "or", "that", "the", "their", "them", "this", "to", "we",
-    "what", "when", "where", "who", "why", "you",
+    "a", "an", "and", "are", "about", "after", "before", "do", "does", "for", "how", "i", "is",
+    "it", "like", "my", "of", "or", "that", "the", "their", "them", "this", "to", "we", "what",
+    "when", "where", "who", "why", "you",
 ];
 
 pub(crate) fn classify_topic_slug(content: &str) -> String {
     let normalized = normalize_text(content);
 
-    if contains_any(&normalized, &["my name", "call me", "address me", "assistant name"]) {
+    if contains_any(
+        &normalized,
+        &["my name", "call me", "address me", "assistant name"],
+    ) {
         return "people".to_string();
     }
-    if contains_any(&normalized, &["prefer", "favorite", "usually", "i like", "i love"]) {
+    if contains_any(
+        &normalized,
+        &["prefer", "favorite", "usually", "i like", "i love"],
+    ) {
         return "preferences".to_string();
     }
     if contains_any(
         &normalized,
-        &["must", "never", "always", "rule", "rules", "decision", "constraint"],
+        &[
+            "must",
+            "never",
+            "always",
+            "rule",
+            "rules",
+            "decision",
+            "constraint",
+        ],
     ) {
         return "decisions".to_string();
     }
     if contains_any(
         &normalized,
-        &["project", "phase", "spec", "refactor", "implement", "forja", "rust"],
+        &[
+            "project",
+            "phase",
+            "spec",
+            "refactor",
+            "implement",
+            "forja",
+            "rust",
+        ],
     ) {
         return "projects".to_string();
     }
-    if contains_any(&normalized, &["todo", "task", "next", "plan", "remember", "fix"]) {
+    if contains_any(
+        &normalized,
+        &["todo", "task", "next", "plan", "remember", "fix"],
+    ) {
         return "workflow".to_string();
     }
 
@@ -55,7 +80,10 @@ pub(crate) fn summary_text(content: &str, limit: usize) -> String {
         return collapsed;
     }
 
-    let mut truncated = collapsed.chars().take(limit.saturating_sub(1)).collect::<String>();
+    let mut truncated = collapsed
+        .chars()
+        .take(limit.saturating_sub(1))
+        .collect::<String>();
     truncated.push('…');
     truncated
 }

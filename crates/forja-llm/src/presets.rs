@@ -13,24 +13,16 @@ pub fn openai_mini(api_key: &str) -> LlmConfig {
 
 /// Anthropic Claude Opus 4.6 (latest, 2026.02.05+)
 pub fn anthropic(api_key: &str) -> LlmConfig {
-    LlmConfig::new(
-        "https://api.anthropic.com/v1",
-        "claude-opus-4-6",
-        api_key,
-    )
-    .with_header("x-api-key", api_key)
-    .with_header("anthropic-version", "2023-06-01")
+    LlmConfig::new("https://api.anthropic.com/v1", "claude-opus-4-6", api_key)
+        .with_header("x-api-key", api_key)
+        .with_header("anthropic-version", "2023-06-01")
 }
 
 /// Anthropic Claude Sonnet 4.6 (optimized for faster responses, 2026.02.17+)
 pub fn anthropic_sonnet(api_key: &str) -> LlmConfig {
-    LlmConfig::new(
-        "https://api.anthropic.com/v1",
-        "claude-sonnet-4-6",
-        api_key,
-    )
-    .with_header("x-api-key", api_key)
-    .with_header("anthropic-version", "2023-06-01")
+    LlmConfig::new("https://api.anthropic.com/v1", "claude-sonnet-4-6", api_key)
+        .with_header("x-api-key", api_key)
+        .with_header("anthropic-version", "2023-06-01")
 }
 
 /// Google Gemini 3.1 Pro (latest, 2026.02.19+)
@@ -88,15 +80,18 @@ pub fn xai_mini(api_key: &str) -> LlmConfig {
 
 /// OAuth only: OpenAI (Codex subscription)
 pub fn openai_oauth(token: &str) -> LlmConfig {
-    LlmConfig::new("https://chatgpt.com/backend-api", "gpt-5.4", token)
-        .with_responses_api()
+    LlmConfig::new("https://chatgpt.com/backend-api", "gpt-5.4", token).with_responses_api()
 }
 
 /// OAuth only: Gemini (CLI subscription, internal endpoint)
 pub fn gemini_oauth(token: &str) -> LlmConfig {
-    LlmConfig::new("https://cloudcode-pa.googleapis.com", "gemini-3-flash-preview", token)
-        .with_gemini_native_api()
-        .with_header("user-agent", "GeminiCLI/v22.12.0 (windows; x86_64)")
+    LlmConfig::new(
+        "https://cloudcode-pa.googleapis.com",
+        "gemini-3-flash-preview",
+        token,
+    )
+    .with_gemini_native_api()
+    .with_header("user-agent", "GeminiCLI/v22.12.0 (windows; x86_64)")
 }
 
 /// Local Ollama

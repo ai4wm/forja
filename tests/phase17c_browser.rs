@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use forja_core::traits::Tool;
+use forja_tools::BrowserTool;
 use forja_tools::browser::MockBrowserBackend;
 use forja_tools::confirm::ConfirmationHandler;
-use forja_tools::BrowserTool;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -27,11 +27,8 @@ impl ConfirmationHandler for DenyConfirmation {
 #[tokio::test]
 async fn open_action_parses_valid_url() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -49,11 +46,8 @@ async fn open_action_parses_valid_url() {
 #[tokio::test]
 async fn goto_action_parses_valid_url() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -70,11 +64,8 @@ async fn goto_action_parses_valid_url() {
 #[tokio::test]
 async fn scroll_action_parses_direction_and_amount() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -92,11 +83,8 @@ async fn scroll_action_parses_direction_and_amount() {
 #[tokio::test]
 async fn click_action_parses_selector() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -113,11 +101,8 @@ async fn click_action_parses_selector() {
 #[tokio::test]
 async fn type_text_action_parses_selector_and_text() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -138,11 +123,8 @@ async fn type_text_action_parses_selector_and_text() {
 #[tokio::test]
 async fn read_text_action_parses_selector() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -160,13 +142,13 @@ async fn read_text_action_parses_selector() {
 #[tokio::test]
 async fn read_page_action_needs_no_params() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
-    let result = tool.execute(json!({ "action": "read_page" })).await.unwrap();
+    let result = tool
+        .execute(json!({ "action": "read_page" }))
+        .await
+        .unwrap();
 
     assert_eq!(result["status"], json!("ok"));
     assert_eq!(result["data"], json!("mock page text"));
@@ -176,13 +158,13 @@ async fn read_page_action_needs_no_params() {
 #[tokio::test]
 async fn screenshot_action_returns_mock_base64() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
-    let result = tool.execute(json!({ "action": "screenshot" })).await.unwrap();
+    let result = tool
+        .execute(json!({ "action": "screenshot" }))
+        .await
+        .unwrap();
 
     assert_eq!(result["status"], json!("ok"));
     assert_eq!(result["data"], json!("bW9jay1zY3JlZW5zaG90"));
@@ -192,11 +174,8 @@ async fn screenshot_action_returns_mock_base64() {
 #[tokio::test]
 async fn evaluate_action_parses_javascript_string() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -214,11 +193,8 @@ async fn evaluate_action_parses_javascript_string() {
 #[tokio::test]
 async fn evaluate_blocks_document_cookie() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(DenyConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(DenyConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -235,11 +211,8 @@ async fn evaluate_blocks_document_cookie() {
 #[tokio::test]
 async fn evaluate_blocks_local_storage_clear() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(DenyConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(DenyConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -256,11 +229,8 @@ async fn evaluate_blocks_local_storage_clear() {
 #[tokio::test]
 async fn evaluate_blocks_external_fetch_with_http() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(DenyConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(DenyConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -277,11 +247,8 @@ async fn evaluate_blocks_external_fetch_with_http() {
 #[tokio::test]
 async fn browser_unsafe_mode_bypasses_evaluate_safety() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(DenyConfirmation),
-        true,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(DenyConfirmation), true);
 
     let result = tool
         .execute(json!({
@@ -298,11 +265,8 @@ async fn browser_unsafe_mode_bypasses_evaluate_safety() {
 #[tokio::test]
 async fn tab_actions_parse_indices() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let list_result = tool.execute(json!({ "action": "tab_list" })).await.unwrap();
     let switch_result = tool
@@ -332,11 +296,8 @@ async fn tab_actions_parse_indices() {
 #[tokio::test]
 async fn back_and_forward_need_no_params() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend.clone(),
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool =
+        BrowserTool::with_backend_and_settings(backend.clone(), Arc::new(AllowConfirmation), false);
 
     let back_result = tool.execute(json!({ "action": "back" })).await.unwrap();
     let forward_result = tool.execute(json!({ "action": "forward" })).await.unwrap();
@@ -349,11 +310,7 @@ async fn back_and_forward_need_no_params() {
 #[tokio::test]
 async fn invalid_action_name_returns_error() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend,
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool = BrowserTool::with_backend_and_settings(backend, Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({
@@ -369,11 +326,7 @@ async fn invalid_action_name_returns_error() {
 #[tokio::test]
 async fn missing_required_fields_return_error() {
     let backend = Arc::new(MockBrowserBackend::new());
-    let tool = BrowserTool::with_backend_and_settings(
-        backend,
-        Arc::new(AllowConfirmation),
-        false,
-    );
+    let tool = BrowserTool::with_backend_and_settings(backend, Arc::new(AllowConfirmation), false);
 
     let result = tool
         .execute(json!({

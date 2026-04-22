@@ -1,7 +1,7 @@
 use super::{AgentBudget, BudgetStatus};
 use crate::error::{ForjaError, Result};
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -17,8 +17,8 @@ impl BudgetManager {
                 .map_err(|error| ForjaError::Storage(error.to_string()))?;
         }
 
-        let connection = Connection::open(db_path)
-            .map_err(|error| ForjaError::Storage(error.to_string()))?;
+        let connection =
+            Connection::open(db_path).map_err(|error| ForjaError::Storage(error.to_string()))?;
         connection
             .execute(
                 "CREATE TABLE IF NOT EXISTS agent_budgets (

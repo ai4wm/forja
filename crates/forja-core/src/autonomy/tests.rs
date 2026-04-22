@@ -1,7 +1,7 @@
+use super::AutonomyConfig;
 use super::loop_runner::AutonomousLoop;
 use super::skills::SkillRegistry;
 use super::unresolved::UnresolvedStore;
-use super::AutonomyConfig;
 use crate::creation::{DebateMessage, DebatePhase, DebateResult, DebateRunMetadata, TaskItem};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -55,7 +55,9 @@ fn test_unresolved_retry() {
         .expect("task should insert");
 
     let pending = store.get_pending().expect("pending should load");
-    store.increment_retry(pending[0].id).expect("retry should increment");
+    store
+        .increment_retry(pending[0].id)
+        .expect("retry should increment");
     let all = store.list_all().expect("all should load");
     assert_eq!(all[0].retry_count, 1);
 
@@ -83,8 +85,8 @@ fn test_unresolved_max_retries() {
 #[test]
 fn test_task_enqueue_and_list() {
     let db_path = temp_db_path("task-enqueue");
-    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
-        .expect("loop should initialize");
+    let loop_runner =
+        AutonomousLoop::new(AutonomyConfig::default(), &db_path).expect("loop should initialize");
     loop_runner
         .enqueue_task("shell {\"command\":\"Get-Date\"}", "user")
         .expect("task should enqueue");
@@ -99,8 +101,8 @@ fn test_task_enqueue_and_list() {
 #[test]
 fn test_enqueue_from_debate() {
     let db_path = temp_db_path("task-from-debate");
-    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
-        .expect("loop should initialize");
+    let loop_runner =
+        AutonomousLoop::new(AutonomyConfig::default(), &db_path).expect("loop should initialize");
     let debate_result = DebateResult {
         summary: "summary".to_string(),
         task_list: vec![
@@ -150,8 +152,8 @@ fn test_enqueue_from_debate() {
 #[test]
 fn test_task_queue_is_persisted_to_queue_json_in_fifo_order() {
     let db_path = temp_db_path("queue-json");
-    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
-        .expect("loop should initialize");
+    let loop_runner =
+        AutonomousLoop::new(AutonomyConfig::default(), &db_path).expect("loop should initialize");
 
     loop_runner
         .enqueue_task("SPEC-RUNTIME-001", "user")
@@ -181,8 +183,8 @@ fn test_task_queue_is_persisted_to_queue_json_in_fifo_order() {
 #[test]
 fn test_mark_task_started_writes_current_checkpoint_file() {
     let db_path = temp_db_path("current-json");
-    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
-        .expect("loop should initialize");
+    let loop_runner =
+        AutonomousLoop::new(AutonomyConfig::default(), &db_path).expect("loop should initialize");
     let task_id = loop_runner
         .enqueue_task("SPEC-CHANNEL-001", "user")
         .expect("task should enqueue");
@@ -209,14 +211,16 @@ fn test_mark_task_started_writes_current_checkpoint_file() {
 #[test]
 fn test_autonomy_mode_start_stop_and_status_are_tracked() {
     let db_path = temp_db_path("mode-state");
-    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
-        .expect("loop should initialize");
+    let loop_runner =
+        AutonomousLoop::new(AutonomyConfig::default(), &db_path).expect("loop should initialize");
 
     assert!(!loop_runner.is_active());
     loop_runner.start().expect("autonomy should start");
     assert!(loop_runner.is_active());
     assert!(loop_runner.status_summary().contains("running=false"));
-    loop_runner.request_stop().expect("stop should be requested");
+    loop_runner
+        .request_stop()
+        .expect("stop should be requested");
     assert!(loop_runner.stop_requested());
 
     cleanup(&db_path);
@@ -225,8 +229,8 @@ fn test_autonomy_mode_start_stop_and_status_are_tracked() {
 #[test]
 fn test_queue_empty_notification_is_emitted_once_per_empty_state() {
     let db_path = temp_db_path("queue-empty-once");
-    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
-        .expect("loop should initialize");
+    let loop_runner =
+        AutonomousLoop::new(AutonomyConfig::default(), &db_path).expect("loop should initialize");
     loop_runner.start().expect("autonomy should start");
 
     let first = loop_runner.tick().expect("first tick should succeed");
@@ -241,8 +245,8 @@ fn test_queue_empty_notification_is_emitted_once_per_empty_state() {
 #[test]
 fn test_restart_repairs_current_json_into_pending_queue_and_reactivates_mode() {
     let db_path = temp_db_path("restart-repair");
-    let loop_runner = AutonomousLoop::new(AutonomyConfig::default(), &db_path)
-        .expect("loop should initialize");
+    let loop_runner =
+        AutonomousLoop::new(AutonomyConfig::default(), &db_path).expect("loop should initialize");
     let task_id = loop_runner
         .enqueue_task("SPEC-RUNTIME-001", "user")
         .expect("task should enqueue");

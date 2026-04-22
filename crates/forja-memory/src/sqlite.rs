@@ -2,7 +2,7 @@ use crate::storage::Storage;
 use chrono::TimeZone;
 use forja_core::error::{ForjaError, Result};
 use forja_core::types::MemoryEntry;
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -18,8 +18,8 @@ impl SqliteMemoryIndex {
                 .map_err(|error| ForjaError::Storage(error.to_string()))?;
         }
 
-        let connection = Connection::open(db_path)
-            .map_err(|error| ForjaError::Storage(error.to_string()))?;
+        let connection =
+            Connection::open(db_path).map_err(|error| ForjaError::Storage(error.to_string()))?;
         connection
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS memory_entries (
@@ -75,7 +75,13 @@ impl SqliteMemoryIndex {
                 .execute(
                     "INSERT INTO memory_entries (id, timestamp, role, content, source)
                      VALUES (?1, ?2, ?3, ?4, ?5)",
-                    params![entry.id, entry.timestamp as i64, entry.role, entry.content, entry.source],
+                    params![
+                        entry.id,
+                        entry.timestamp as i64,
+                        entry.role,
+                        entry.content,
+                        entry.source
+                    ],
                 )
                 .map_err(|error| ForjaError::Storage(error.to_string()))?;
             connection
@@ -116,11 +122,20 @@ impl SqliteMemoryIndex {
             .execute(
                 "INSERT OR REPLACE INTO memory_entries (id, timestamp, role, content, source)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![entry.id, entry.timestamp as i64, role, entry.content, source],
+                params![
+                    entry.id,
+                    entry.timestamp as i64,
+                    role,
+                    entry.content,
+                    source
+                ],
             )
             .map_err(|error| ForjaError::Storage(error.to_string()))?;
         connection
-            .execute("DELETE FROM memory_entries_fts WHERE id = ?1", [entry.id.as_str()])
+            .execute(
+                "DELETE FROM memory_entries_fts WHERE id = ?1",
+                [entry.id.as_str()],
+            )
             .map_err(|error| ForjaError::Storage(error.to_string()))?;
         connection
             .execute(
@@ -195,8 +210,7 @@ impl SqliteMemoryIndex {
             .map_err(|error| ForjaError::Storage(error.to_string()))?;
         let mut summary_lines = Vec::new();
         for row in summary_rows {
-            let (source, summary) =
-                row.map_err(|error| ForjaError::Storage(error.to_string()))?;
+            let (source, summary) = row.map_err(|error| ForjaError::Storage(error.to_string()))?;
             summary_lines.push(format!("## {source}\n{summary}"));
         }
         if !summary_lines.is_empty() {
@@ -227,8 +241,7 @@ impl SqliteMemoryIndex {
 
         let mut sections = Vec::new();
         for row in rows {
-            let (source, summary) =
-                row.map_err(|error| ForjaError::Storage(error.to_string()))?;
+            let (source, summary) = row.map_err(|error| ForjaError::Storage(error.to_string()))?;
             sections.push(format!("## {source}\n{summary}"));
         }
 
@@ -258,7 +271,8 @@ fn fts_query(query: &str) -> String {
 }
 
 fn tokenize(value: &str) -> Vec<String> {
-    value.to_lowercase()
+    value
+        .to_lowercase()
         .chars()
         .map(|char| match char {
             'a'..='z' | '0'..='9' => char,

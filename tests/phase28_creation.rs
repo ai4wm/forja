@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use forja_core::creation::{agents::default_debate_agents, DebateConfig, DebateEngine};
+use forja_core::creation::{DebateConfig, DebateEngine, agents::default_debate_agents};
 use forja_core::engine::SlashCommandResult;
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::{Channel, LlmProvider};
@@ -73,7 +73,8 @@ impl LlmProvider for DebateProvider {
         } else if prompt_text.contains("Phase: COMBINATION") {
             "TRIZ blend: fuse debate and execution policy into one runtime path.".to_string()
         } else if prompt_text.contains("Phase: MUTATION") {
-            "Mutation: invert the failure path and convert it into bounded operator tasks.".to_string()
+            "Mutation: invert the failure path and convert it into bounded operator tasks."
+                .to_string()
         } else if prompt_text.contains("Phase: CONVERGE") {
             [
                 "We should keep creation inside the main runtime.",
@@ -156,7 +157,8 @@ async fn runtime_debate_emits_combination_mutation_and_final_tasks() {
     assert!(sent.iter().any(|text| text.contains("[Combination][R1]")));
     assert!(sent.iter().any(|text| text.contains("[Mutation][R1]")));
     assert!(sent.iter().any(|text| text.contains("[Debate Result]")));
-    assert!(sent
-        .iter()
-        .any(|text| text.contains("Add combination stage execution")));
+    assert!(
+        sent.iter()
+            .any(|text| text.contains("Add combination stage execution"))
+    );
 }

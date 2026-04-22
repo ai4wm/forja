@@ -1,5 +1,5 @@
 use super::analyzer::VisionAnalyzer;
-use super::capture::{transparent_png, ScreenCaptureBackend};
+use super::capture::{ScreenCaptureBackend, transparent_png};
 use async_trait::async_trait;
 use std::sync::Mutex;
 

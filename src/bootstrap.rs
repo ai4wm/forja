@@ -133,7 +133,10 @@ pub fn default_paths() -> BootstrapPaths {
 
 pub fn ensure_bootstrap(paths: &BootstrapPaths) -> io::Result<BootstrapOutcome> {
     if let Some(profile) = load_existing_profile(paths)? {
-        return Ok(BootstrapOutcome { profile, greeting: None });
+        return Ok(BootstrapOutcome {
+            profile,
+            greeting: None,
+        });
     }
 
     run_onboarding(paths, OnboardingMode::Initial)
@@ -174,14 +177,12 @@ fn run_onboarding(paths: &BootstrapPaths, mode: OnboardingMode) -> io::Result<Bo
     let preserved_user_body = preserved_user_body(paths)?;
     let defaults = onboarding_defaults(existing_profile.as_ref(), &mode);
 
-    let identity_name =
-        prompt_with_default("What should I call myself?", &defaults.identity_name)?;
-    let user_name = prompt_required(
-        "How should I address you?",
-        defaults.user_name.as_deref(),
+    let identity_name = prompt_with_default("What should I call myself?", &defaults.identity_name)?;
+    let user_name = prompt_required("How should I address you?", defaults.user_name.as_deref())?;
+    let tone = prompt_with_default(
+        "What speaking style should I use? (formal/casual)",
+        &defaults.tone,
     )?;
-    let tone =
-        prompt_with_default("What speaking style should I use? (formal/casual)", &defaults.tone)?;
     let role = prompt_with_default("What is my primary role?", &defaults.role)?;
 
     let profile = BootstrapProfile {
@@ -318,10 +319,7 @@ fn read_trimmed_if_exists(path: &Path) -> io::Result<Option<String>> {
     Ok(Some(trimmed))
 }
 
-fn required_frontmatter_value(
-    values: &HashMap<String, String>,
-    key: &str,
-) -> io::Result<String> {
+fn required_frontmatter_value(values: &HashMap<String, String>, key: &str) -> io::Result<String> {
     values
         .get(key)
         .map(|value| value.trim().to_string())
@@ -453,7 +451,11 @@ mod tests {
         let home_dir = unique_temp_dir("bootstrap_user_body");
         let paths = BootstrapPaths::from_home(&home_dir);
         std::fs::create_dir_all(&paths.forja_dir).unwrap();
-        std::fs::write(&paths.user_path, "---\nname: User\n---\n\nKeep legacy prompt").unwrap();
+        std::fs::write(
+            &paths.user_path,
+            "---\nname: User\n---\n\nKeep legacy prompt",
+        )
+        .unwrap();
 
         let body = preserved_user_body(&paths).unwrap();
 

@@ -1,4 +1,4 @@
-use super::{Engine, ANSI_CYAN, ANSI_MAGENTA, ANSI_YELLOW};
+use super::{ANSI_CYAN, ANSI_MAGENTA, ANSI_YELLOW, Engine};
 use crate::error::Result;
 use crate::types::{Content, Message};
 
@@ -24,9 +24,11 @@ impl Engine {
     pub(crate) async fn prepare_user_turn(&mut self, user_msg: &Message) {
         self.begin_user_turn();
         self.refresh_turn_role(user_msg);
-        self.log_cli_stage(ANSI_CYAN, "Loading emotion context...").await;
+        self.log_cli_stage(ANSI_CYAN, "Loading emotion context...")
+            .await;
         self.refresh_turn_emotion_context().await;
-        self.log_cli_stage(ANSI_YELLOW, "Loading knowledge...").await;
+        self.log_cli_stage(ANSI_YELLOW, "Loading knowledge...")
+            .await;
         self.refresh_turn_knowledge_context(user_msg).await;
 
         #[cfg(feature = "memory")]
@@ -43,7 +45,8 @@ impl Engine {
     ) -> Result<()> {
         #[cfg(feature = "memory")]
         {
-            self.save_turn_memory_entries(user_msg, assistant_text).await;
+            self.save_turn_memory_entries(user_msg, assistant_text)
+                .await;
             self.clear_turn_memory_context();
             self.check_and_flush_context().await?;
         }

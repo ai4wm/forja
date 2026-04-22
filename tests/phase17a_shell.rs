@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use forja_core::traits::Tool;
-use forja_tools::confirm::ConfirmationHandler;
 use forja_tools::ShellTool;
+use forja_tools::confirm::ConfirmationHandler;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -74,11 +74,8 @@ fn dangerous_delete_command(path: &str) -> String {
 
 #[tokio::test]
 async fn safe_command_execution_returns_output() {
-    let tool = ShellTool::with_settings(
-        Arc::new(AllowConfirmation),
-        Duration::from_secs(30),
-        false,
-    );
+    let tool =
+        ShellTool::with_settings(Arc::new(AllowConfirmation), Duration::from_secs(30), false);
 
     let result = tool
         .execute(json!({ "command": safe_echo_command() }))
@@ -91,13 +88,12 @@ async fn safe_command_execution_returns_output() {
 
 #[tokio::test]
 async fn dangerous_command_returns_warning_when_not_confirmed() {
-    let tool = ShellTool::with_settings(
-        Arc::new(DenyConfirmation),
-        Duration::from_secs(30),
-        false,
-    );
+    let tool = ShellTool::with_settings(Arc::new(DenyConfirmation), Duration::from_secs(30), false);
 
-    let result = tool.execute(json!({ "command": "rm -rf /" })).await.unwrap();
+    let result = tool
+        .execute(json!({ "command": "rm -rf /" }))
+        .await
+        .unwrap();
 
     assert_eq!(result["status"], json!("warning"));
     assert!(result["output"].as_str().unwrap().contains("[WARNING]"));
@@ -127,11 +123,7 @@ fn dangerous_command_patterns_are_all_detected() {
 
 #[tokio::test]
 async fn command_timeout_returns_error() {
-    let tool = ShellTool::with_settings(
-        Arc::new(AllowConfirmation),
-        Duration::from_secs(1),
-        false,
-    );
+    let tool = ShellTool::with_settings(Arc::new(AllowConfirmation), Duration::from_secs(1), false);
 
     let error = tool
         .execute(json!({ "command": timeout_command() }))
@@ -143,11 +135,8 @@ async fn command_timeout_returns_error() {
 
 #[tokio::test]
 async fn stdout_and_stderr_are_combined() {
-    let tool = ShellTool::with_settings(
-        Arc::new(AllowConfirmation),
-        Duration::from_secs(30),
-        false,
-    );
+    let tool =
+        ShellTool::with_settings(Arc::new(AllowConfirmation), Duration::from_secs(30), false);
 
     let result = tool
         .execute(json!({ "command": mixed_output_command() }))
@@ -164,11 +153,7 @@ async fn unsafe_mode_executes_dangerous_command() {
     let temp_dir = unique_temp_dir("phase17a_shell_unsafe");
     std::fs::create_dir_all(&temp_dir).unwrap();
     std::fs::write(temp_dir.join("file.txt"), "hello").unwrap();
-    let tool = ShellTool::with_settings(
-        Arc::new(DenyConfirmation),
-        Duration::from_secs(30),
-        true,
-    );
+    let tool = ShellTool::with_settings(Arc::new(DenyConfirmation), Duration::from_secs(30), true);
     let command = dangerous_delete_command(temp_dir.to_str().unwrap());
 
     let result = tool.execute(json!({ "command": command })).await.unwrap();
@@ -179,11 +164,8 @@ async fn unsafe_mode_executes_dangerous_command() {
 
 #[tokio::test]
 async fn empty_command_returns_error() {
-    let tool = ShellTool::with_settings(
-        Arc::new(AllowConfirmation),
-        Duration::from_secs(30),
-        false,
-    );
+    let tool =
+        ShellTool::with_settings(Arc::new(AllowConfirmation), Duration::from_secs(30), false);
 
     let error = tool.execute(json!({ "command": "   " })).await.unwrap_err();
 

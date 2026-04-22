@@ -3,8 +3,8 @@ use crate::traits::{DreamRunStatus, DreamTrigger, NotificationLevel, Notificatio
 use chrono::Utc;
 use std::future::pending;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::{Interval, MissedTickBehavior};
@@ -58,7 +58,8 @@ impl DreamRuntimeState {
     }
 
     fn note_activity(&self) {
-        self.last_activity_millis.store(now_millis(), Ordering::SeqCst);
+        self.last_activity_millis
+            .store(now_millis(), Ordering::SeqCst);
     }
 
     fn idle_due(&self, idle_after: Duration) -> bool {

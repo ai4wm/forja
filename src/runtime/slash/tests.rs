@@ -1,14 +1,16 @@
-use super::{build_slash_handler, SlashHandlerDeps};
+use super::{SlashHandlerDeps, build_slash_handler};
 use crate::bootstrap::BootstrapPaths;
 use crate::config::ForjaConfig;
 use crate::provider_registry::ProviderRegistry;
 use crate::runtime::mock::MockLlmProvider;
 use async_trait::async_trait;
+use forja_core::Message;
 use forja_core::error::{ForjaError, Result};
 use forja_core::mode::{ExecMode, ModeState, Role, ThinkLevel};
 use forja_core::skill::SkillRegistry;
-use forja_core::traits::{Channel, LlmProvider, NotificationLevel, NotificationState, VoiceChannelStatus};
-use forja_core::Message;
+use forja_core::traits::{
+    Channel, LlmProvider, NotificationLevel, NotificationState, VoiceChannelStatus,
+};
 use forja_tools::{MockCaptureBackend, MockVisionAnalyzer};
 use std::sync::{Arc, Mutex};
 
@@ -20,7 +22,9 @@ struct DummyChannel {
 #[async_trait]
 impl Channel for DummyChannel {
     async fn receive(&self) -> Result<Message> {
-        Err(ForjaError::ChannelError("not used in slash handler tests".to_string()))
+        Err(ForjaError::ChannelError(
+            "not used in slash handler tests".to_string(),
+        ))
     }
 
     async fn send(&self, _message: Message) -> Result<()> {
@@ -160,7 +164,11 @@ fn slash_handler_routes_task_add_as_task_command() {
 #[test]
 fn slash_handler_routes_debate_command() {
     let (handler, _, mut provider, mut mode_state) = test_handler();
-    let result = handler("/debate expand the creation engine", &mut provider, &mut mode_state);
+    let result = handler(
+        "/debate expand the creation engine",
+        &mut provider,
+        &mut mode_state,
+    );
 
     assert!(matches!(
         result,
@@ -326,7 +334,11 @@ fn slash_handler_routes_natural_language_skill_trigger() {
     let mut provider: Arc<dyn LlmProvider> = Arc::new(MockLlmProvider);
     let mut mode_state = ModeState::new(ExecMode::Auto, ThinkLevel::Mid, Role::Auto);
 
-    let result = handler("please run the deploy checklist", &mut provider, &mut mode_state);
+    let result = handler(
+        "please run the deploy checklist",
+        &mut provider,
+        &mut mode_state,
+    );
 
     assert!(matches!(
         result,

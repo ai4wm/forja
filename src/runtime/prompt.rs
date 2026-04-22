@@ -1,5 +1,5 @@
 use crate::bootstrap;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use forja_core::error::{ForjaError, Result};
 use forja_core::prompt::join_prompt_sections;
 use forja_core::traits::LlmProvider;

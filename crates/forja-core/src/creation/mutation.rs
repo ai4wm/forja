@@ -1,5 +1,5 @@
-use super::types::{DebateMessage, DebatePhase};
 use super::DebateAgent;
+use super::types::{DebateMessage, DebatePhase};
 
 const MUTATION_OPERATORS: &[&str] = &[
     "inversion",
@@ -17,11 +17,8 @@ pub(crate) fn build_mutation_prompt(
     bounded_context_chars: usize,
 ) -> String {
     let operator = MUTATION_OPERATORS[(round + agent.id.len()) % MUTATION_OPERATORS.len()];
-    let previous = bounded_transcript_for_phase(
-        transcript,
-        DebatePhase::Mutation,
-        bounded_context_chars,
-    );
+    let previous =
+        bounded_transcript_for_phase(transcript, DebatePhase::Mutation, bounded_context_chars);
     format!(
         "You are {role}. Your framework: {framework}\n\
 Phase: MUTATION.\n\
@@ -54,7 +51,10 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
         return value.to_string();
     }
 
-    let mut truncated = value.chars().take(max_chars.saturating_sub(1)).collect::<String>();
+    let mut truncated = value
+        .chars()
+        .take(max_chars.saturating_sub(1))
+        .collect::<String>();
     truncated.push('…');
     truncated
 }

@@ -1,15 +1,15 @@
 use super::agents::default_debate_agents;
 use super::{CreationRunContext, DebateConfig, DebateEngine};
 use crate::audit::logger::AuditLogger;
-use crate::budget::{manager::BudgetManager, BudgetMode};
+use crate::budget::{BudgetMode, manager::BudgetManager};
 use crate::error::{ForjaError, Result};
 use crate::traits::LlmProvider;
 use crate::types::{Content, Message, Role, ToolDefinition};
 use async_trait::async_trait;
 use std::pin::Pin;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc,
+    atomic::{AtomicUsize, Ordering},
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_stream::Stream;
@@ -41,14 +41,18 @@ async fn debate_includes_combination_and_mutation_phases() {
         .await
         .expect("expanded debate should succeed");
 
-    assert!(result
-        .transcript
-        .iter()
-        .any(|message| message.phase.label() == "Combination"));
-    assert!(result
-        .transcript
-        .iter()
-        .any(|message| message.phase.label() == "Mutation"));
+    assert!(
+        result
+            .transcript
+            .iter()
+            .any(|message| message.phase.label() == "Combination")
+    );
+    assert!(
+        result
+            .transcript
+            .iter()
+            .any(|message| message.phase.label() == "Mutation")
+    );
     assert_eq!(result.active_agent_count, 5);
     assert_eq!(result.total_rounds, 8);
 }
@@ -105,11 +109,19 @@ async fn debate_enforces_budget_for_scoped_creation_agents() {
     let provider: Arc<dyn LlmProvider> = Arc::new(ExpandedDebateProvider::default());
     let budget_path = temp_db_path("creation_budget");
     let budget_manager = Arc::new(BudgetManager::new(&budget_path).unwrap());
-    budget_manager.register_agent("creation/architect", 1).unwrap();
+    budget_manager
+        .register_agent("creation/architect", 1)
+        .unwrap();
     budget_manager.register_agent("creation/critic", 1).unwrap();
-    budget_manager.register_agent("creation/builder", 1).unwrap();
-    budget_manager.register_agent("creation/researcher", 1).unwrap();
-    budget_manager.register_agent("creation/synthesizer", 1).unwrap();
+    budget_manager
+        .register_agent("creation/builder", 1)
+        .unwrap();
+    budget_manager
+        .register_agent("creation/researcher", 1)
+        .unwrap();
+    budget_manager
+        .register_agent("creation/synthesizer", 1)
+        .unwrap();
     let audit_logger = AuditLogger::new(&budget_path).unwrap();
     let engine = DebateEngine::new(default_debate_agents(), DebateConfig::default());
     let context = CreationRunContext {
@@ -157,9 +169,11 @@ impl LlmProvider for ExpandedDebateProvider {
         } else if prompt_text.contains("Phase: CONFLICT") {
             "Failure probability: 20%. Alternative: stage the rollout.".to_string()
         } else if prompt_text.contains("Phase: COMBINATION") {
-            "TRIZ blend: combine runtime and debate telemetry into one execution surface.".to_string()
+            "TRIZ blend: combine runtime and debate telemetry into one execution surface."
+                .to_string()
         } else if prompt_text.contains("Phase: MUTATION") {
-            "Mutation: invert the failure path and turn retries into explicit operator tasks.".to_string()
+            "Mutation: invert the failure path and turn retries into explicit operator tasks."
+                .to_string()
         } else if prompt_text.contains("Phase: CONVERGE") {
             [
                 "We should keep the creation engine inside the main runtime.",
@@ -199,7 +213,9 @@ impl LlmProvider for FlakyDebateProvider {
     ) -> Result<Message> {
         let call_index = self.calls.fetch_add(1, Ordering::SeqCst);
         if call_index == 0 {
-            return Err(ForjaError::LlmError("transient provider failure".to_string()));
+            return Err(ForjaError::LlmError(
+                "transient provider failure".to_string(),
+            ));
         }
 
         ExpandedDebateProvider.chat(messages, None).await

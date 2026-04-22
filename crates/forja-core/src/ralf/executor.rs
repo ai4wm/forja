@@ -60,16 +60,14 @@ fn log_retry(
         return;
     };
 
-    let _ = audit_logger.log_event(
-        AuditEvent::new(
-            "retry",
-            json!({
-                "operation": operation,
-                "retry_count": retry_count,
-                "error": error_text,
-            }),
-        ),
-    );
+    let _ = audit_logger.log_event(AuditEvent::new(
+        "retry",
+        json!({
+            "operation": operation,
+            "retry_count": retry_count,
+            "error": error_text,
+        }),
+    ));
 }
 
 fn log_error(
@@ -82,16 +80,14 @@ fn log_error(
         return;
     };
 
-    let _ = audit_logger.log_event(
-        AuditEvent::new(
-            "error",
-            json!({
-                "operation": operation,
-                "retry_count": retry_count,
-                "error": error_text,
-            }),
-        ),
-    );
+    let _ = audit_logger.log_event(AuditEvent::new(
+        "error",
+        json!({
+            "operation": operation,
+            "retry_count": retry_count,
+            "error": error_text,
+        }),
+    ));
 }
 
 fn wrap_error(error: ForjaError, operation: &str, retry_count: usize) -> ForjaError {

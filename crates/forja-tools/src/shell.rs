@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::Tool;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::process::Command;
@@ -12,7 +12,9 @@ const DEFAULT_TIMEOUT_SECS: u64 = 30;
 const DANGEROUS_PATTERNS: &[&str] = &[
     "rm -rf",
     "del /f",
-    "format c:", "format d:", "format e:",
+    "format c:",
+    "format d:",
+    "format e:",
     "fdisk",
     "shutdown",
     "reboot",
@@ -77,7 +79,10 @@ impl ShellTool {
 
         #[cfg(not(target_os = "windows"))]
         {
-            ("sh".to_string(), vec!["-c".to_string(), command.to_string()])
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), command.to_string()],
+            )
         }
     }
 
@@ -158,9 +163,8 @@ impl Tool for ShellTool {
         }
 
         if !self.unsafe_mode && Self::is_dangerous_command(command) {
-            let warning = format!(
-                "[WARNING] This command may affect the system: {command}\nExecute? (y/n)"
-            );
+            let warning =
+                format!("[WARNING] This command may affect the system: {command}\nExecute? (y/n)");
             if !self.confirmation_handler.confirm(command, true).await {
                 return Ok(json!({
                     "status": "warning",

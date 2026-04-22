@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrono::{Duration, Local, TimeZone};
 use forja_core::emotion::{
-    generate_startup_greeting, EmotionEngine, MoodState, RelationshipContext,
+    EmotionEngine, MoodState, RelationshipContext, generate_startup_greeting,
 };
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::MemoryStore;
@@ -205,7 +205,12 @@ async fn emotion_analyze_parses_json_response() {
 
 #[tokio::test]
 async fn emotion_analyze_keeps_previous_state_on_invalid_json() {
-    let previous = mood_state("concerned", 3, "어려운 구간 지속", "차분하게 안정감을 주세요");
+    let previous = mood_state(
+        "concerned",
+        3,
+        "어려운 구간 지속",
+        "차분하게 안정감을 주세요",
+    );
     let provider = ScriptedProvider::new(vec![ProviderStep::Text("not-json".to_string())]);
     let mut emotion = EmotionEngine::new(previous.clone());
 
@@ -227,10 +232,7 @@ async fn emotion_analyze_keeps_previous_state_on_provider_failure() {
     let mut emotion = EmotionEngine::new(previous.clone());
 
     let mood = emotion
-        .analyze(
-            &[Message::text(Role::User, "도와줘", None)],
-            &provider,
-        )
+        .analyze(&[Message::text(Role::User, "도와줘", None)], &provider)
         .await
         .unwrap();
 
@@ -239,11 +241,16 @@ async fn emotion_analyze_keeps_previous_state_on_provider_failure() {
 
 #[test]
 fn mood_tags_round_trip_through_memory_lines() {
-    let mood = mood_state("excited", 5, "성과가 연속으로 누적", "함께 기세를 살려주세요");
+    let mood = mood_state(
+        "excited",
+        5,
+        "성과가 연속으로 누적",
+        "함께 기세를 살려주세요",
+    );
     let tag = mood.to_memory_tag();
     let line = format!("12:00 | system | {tag}");
-    let restored = EmotionEngine::restore_from_memory(&format!("--- 2026-03-26 ---\n{line}\n"))
-        .unwrap();
+    let restored =
+        EmotionEngine::restore_from_memory(&format!("--- 2026-03-26 ---\n{line}\n")).unwrap();
 
     assert_eq!(tag, "[mood:excited:5:성과가 연속으로 누적]");
     assert_eq!(restored.mood, "excited");
@@ -261,7 +268,11 @@ fn relationship_detects_late_night_work() {
 
     let patterns = RelationshipContext::detect_patterns(&memory);
 
-    assert!(patterns.iter().any(|pattern| pattern == "late_night_detected"));
+    assert!(
+        patterns
+            .iter()
+            .any(|pattern| pattern == "late_night_detected")
+    );
 }
 
 #[test]
@@ -271,7 +282,11 @@ fn relationship_detects_long_gap() {
 
     let patterns = RelationshipContext::detect_patterns(&memory);
 
-    assert!(patterns.iter().any(|pattern| pattern == "long_absence_detected"));
+    assert!(
+        patterns
+            .iter()
+            .any(|pattern| pattern == "long_absence_detected")
+    );
 }
 
 #[test]
@@ -284,7 +299,11 @@ fn relationship_detects_error_streak() {
 
     let patterns = RelationshipContext::detect_patterns(&memory);
 
-    assert!(patterns.iter().any(|pattern| pattern == "error_streak_detected"));
+    assert!(
+        patterns
+            .iter()
+            .any(|pattern| pattern == "error_streak_detected")
+    );
 }
 
 #[test]
@@ -292,12 +311,21 @@ fn relationship_detects_progress_streak() {
     let today = Local::now().date_naive();
     let memory = format!(
         "{}\n09:20 | assistant | commit까지 끝났네요",
-        build_memory_line(today, "09:00", "user", "Phase 14 completed and ready to push")
+        build_memory_line(
+            today,
+            "09:00",
+            "user",
+            "Phase 14 completed and ready to push"
+        )
     );
 
     let patterns = RelationshipContext::detect_patterns(&memory);
 
-    assert!(patterns.iter().any(|pattern| pattern == "progress_streak_detected"));
+    assert!(
+        patterns
+            .iter()
+            .any(|pattern| pattern == "progress_streak_detected")
+    );
 }
 
 #[tokio::test]
@@ -437,10 +465,12 @@ async fn mood_changes_are_saved_as_system_memory_tags() {
 
     let saved_entries = memory_store.saved_entries().await;
 
-    assert!(saved_entries
-        .iter()
-        .any(|entry| entry.tags.iter().any(|tag| tag == "system")
-            && entry.content.contains("[mood:happy:3:밝은 성과 연속]")));
+    assert!(
+        saved_entries
+            .iter()
+            .any(|entry| entry.tags.iter().any(|tag| tag == "system")
+                && entry.content.contains("[mood:happy:3:밝은 성과 연속]"))
+    );
 }
 
 #[tokio::test]
@@ -457,7 +487,10 @@ async fn startup_greeting_uses_memory_context_when_available() {
         .await
         .unwrap();
 
-    assert_eq!(greeting, Some("주인님, 오늘도 늦게까지 하고 계셨네요.".to_string()));
+    assert_eq!(
+        greeting,
+        Some("주인님, 오늘도 늦게까지 하고 계셨네요.".to_string())
+    );
 }
 
 #[tokio::test]

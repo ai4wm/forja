@@ -1,7 +1,7 @@
 use crate::audit::logger::AuditLogger;
 use crate::autonomy::AutonomyExecutionRuntime;
 use crate::autonomy::loop_runner::AutonomousLoop;
-use crate::budget::{manager::BudgetManager, BudgetMode};
+use crate::budget::{BudgetMode, manager::BudgetManager};
 use crate::context::SummaryCallback;
 use crate::creation::DebateEngine;
 use crate::emotion::EmotionEngine;
@@ -35,17 +35,17 @@ mod memory;
 mod mode;
 mod request;
 mod serendipity;
-mod slash_runtime;
 mod skills;
+mod slash_runtime;
 mod state;
 mod streaming;
 mod tool_execution;
 mod turn;
 
 #[cfg(feature = "memory")]
-use crate::traits::MemoryStore;
-#[cfg(feature = "memory")]
 pub use self::dream::DreamRuntimeConfig;
+#[cfg(feature = "memory")]
+use crate::traits::MemoryStore;
 
 pub(super) const MAX_TOOL_DEPTH: usize = 10;
 pub(super) const ANSI_RESET: &str = "\x1b[0m";
@@ -62,15 +62,26 @@ pub(super) const ANSI_BLUE: &str = "\x1b[34m";
 
 pub enum SlashCommandResult {
     Reply(String),
-    ReplyAndSave { user_text: String, reply: String },
-    Debate { topic: String },
+    ReplyAndSave {
+        user_text: String,
+        reply: String,
+    },
+    Debate {
+        topic: String,
+    },
     Dashboard,
     Tui,
     #[cfg(feature = "memory")]
     Dream,
-    Skill { name: String },
-    Task { description: String },
-    AutonomyCommand { command: String },
+    Skill {
+        name: String,
+    },
+    Task {
+        description: String,
+    },
+    AutonomyCommand {
+        command: String,
+    },
     Skills,
     Unresolved,
     UpdateSystemPrompt {
@@ -80,8 +91,11 @@ pub enum SlashCommandResult {
     },
 }
 
-pub type SlashHandler =
-    Arc<dyn Fn(&str, &mut Arc<dyn LlmProvider>, &mut ModeState) -> Option<SlashCommandResult> + Send + Sync>;
+pub type SlashHandler = Arc<
+    dyn Fn(&str, &mut Arc<dyn LlmProvider>, &mut ModeState) -> Option<SlashCommandResult>
+        + Send
+        + Sync,
+>;
 pub type DashboardHandler = Arc<dyn Fn() -> Result<String> + Send + Sync>;
 pub type TuiHandler = Arc<dyn Fn() -> Result<String> + Send + Sync>;
 

@@ -1,5 +1,5 @@
-use super::scheduler::HeartbeatScheduler;
 use super::HeartbeatConfig;
+use super::scheduler::HeartbeatScheduler;
 use crate::gateway::{ChannelKind, MessageType};
 use std::time::Duration;
 

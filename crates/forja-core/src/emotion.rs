@@ -1,7 +1,9 @@
 use crate::error::Result;
 use crate::traits::LlmProvider;
 use crate::types::{Content, Message, Role};
-use chrono::{DateTime, Duration, Local, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use chrono::{
+    DateTime, Duration, Local, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Timelike,
+};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +41,8 @@ impl MoodKey {
         match self {
             Self::Happy => {
                 if intensity >= 4 {
-                    "Reply in a bright, confident tone that shares the user's excitement.".to_string()
+                    "Reply in a bright, confident tone that shares the user's excitement."
+                        .to_string()
                 } else {
                     "Reply in a gentle, positive tone.".to_string()
                 }
@@ -185,7 +188,11 @@ impl EmotionEngine {
         }
 
         let next = MoodState {
-            tone_instruction: normalize_tone_instruction(&parsed.tone_instruction, mood_key, parsed.intensity),
+            tone_instruction: normalize_tone_instruction(
+                &parsed.tone_instruction,
+                mood_key,
+                parsed.intensity,
+            ),
             mood,
             intensity: parsed.intensity.clamp(1, 5),
             reason,
@@ -412,9 +419,7 @@ Recent conversation:\n\
 {}\n\
 \nResponse format:\n\
 {{\"mood\":\"...\",\"intensity\":1-5,\"reason\":\"one line\",\"tone_instruction\":\"tone guidance\"}}",
-        previous.mood,
-        previous.intensity,
-        recent_turns
+        previous.mood, previous.intensity, recent_turns
     )
 }
 
@@ -440,11 +445,7 @@ fn sanitize_tag_part(value: &str) -> String {
         .join(" ")
 }
 
-fn normalize_tone_instruction(
-    value: &str,
-    mood_key: Option<MoodKey>,
-    intensity: u8,
-) -> String {
+fn normalize_tone_instruction(value: &str, mood_key: Option<MoodKey>, intensity: u8) -> String {
     let normalized = sanitize_tag_part(value);
     if normalized.is_empty() {
         return default_tone_instruction(mood_key, intensity);
@@ -501,19 +502,30 @@ fn has_late_night_streak(entries: &[MemoryEntryView]) -> bool {
 }
 
 fn has_progress_streak(entries: &[MemoryEntryView]) -> bool {
-    has_keyword_streak(entries, &["complete", "completed", "phase", "commit", "push"], 2)
+    has_keyword_streak(
+        entries,
+        &["complete", "completed", "phase", "commit", "push"],
+        2,
+    )
 }
 
 fn has_error_streak(entries: &[MemoryEntryView]) -> bool {
     has_keyword_streak(entries, &["error", "failed", "failure", "broken"], 3)
 }
 
-fn has_keyword_streak(entries: &[MemoryEntryView], keywords: &[&str], minimum_streak: usize) -> bool {
+fn has_keyword_streak(
+    entries: &[MemoryEntryView],
+    keywords: &[&str],
+    minimum_streak: usize,
+) -> bool {
     let mut streak = 0;
 
     for entry in entries {
         let normalized = entry.content.to_lowercase();
-        if keywords.iter().any(|keyword| normalized.contains(&keyword.to_lowercase())) {
+        if keywords
+            .iter()
+            .any(|keyword| normalized.contains(&keyword.to_lowercase()))
+        {
             streak += 1;
             if streak >= minimum_streak {
                 return true;
@@ -559,7 +571,10 @@ fn parse_entry_timestamp(current_date: Option<NaiveDate>, line: &str) -> Option<
     let (hour, minute) = time_text.split_once(':')?;
     let hour = hour.parse::<u32>().ok()?;
     let minute = minute.parse::<u32>().ok()?;
-    let naive = NaiveDateTime::new(current_date, chrono::NaiveTime::from_hms_opt(hour, minute, 0)?);
+    let naive = NaiveDateTime::new(
+        current_date,
+        chrono::NaiveTime::from_hms_opt(hour, minute, 0)?,
+    );
 
     match Local.from_local_datetime(&naive) {
         LocalResult::Single(timestamp) => Some(timestamp),

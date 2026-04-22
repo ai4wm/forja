@@ -1,6 +1,6 @@
 use super::Engine;
-use crate::autonomy::AutonomyTarget;
 use crate::autonomy::AutonomyAction;
+use crate::autonomy::AutonomyTarget;
 use crate::error::{ForjaError, Result};
 use crate::traits::{NotificationLevel, NotificationTopic};
 use chrono::Utc;
@@ -49,7 +49,10 @@ struct RouteDecisionResponse {
 }
 
 impl Engine {
-    pub fn with_autonomy(mut self, loop_runner: crate::autonomy::loop_runner::AutonomousLoop) -> Self {
+    pub fn with_autonomy(
+        mut self,
+        loop_runner: crate::autonomy::loop_runner::AutonomousLoop,
+    ) -> Self {
         self.autonomy = Some(loop_runner);
         self
     }
@@ -83,7 +86,8 @@ impl Engine {
                                 outcome.committed,
                                 outcome.test_results.join("; ")
                             );
-                            let completed = autonomy.mark_task_completed(task.id, summary.clone())?;
+                            let completed =
+                                autonomy.mark_task_completed(task.id, summary.clone())?;
                             self.emit_autonomy_notification(
                                 &autonomy,
                                 "task completed",
@@ -100,7 +104,8 @@ impl Engine {
                             .await?;
                         }
                         Err(error) => {
-                            let failed = autonomy.record_task_failure(task.id, &error.to_string())?;
+                            let failed =
+                                autonomy.record_task_failure(task.id, &error.to_string())?;
                             if failed.status == "failed" {
                                 autonomy.add_unresolved(&task.description, &error.to_string())?;
                                 self.emit_autonomy_notification(
@@ -132,13 +137,18 @@ impl Engine {
 
     pub(super) fn handle_task_command(&self, description: &str) -> Result<String> {
         let Some(autonomy) = &self.autonomy else {
-            return Err(ForjaError::Internal("autonomy is not configured".to_string()));
+            return Err(ForjaError::Internal(
+                "autonomy is not configured".to_string(),
+            ));
         };
 
         let trimmed = description.trim();
         if let Some(task_description) = trimmed.strip_prefix("add ") {
             let task_id = autonomy.enqueue_task(task_description.trim(), "user")?;
-            return Ok(format!("Queued task #{task_id}: {}", task_description.trim()));
+            return Ok(format!(
+                "Queued task #{task_id}: {}",
+                task_description.trim()
+            ));
         }
         if trimmed == "list" {
             let tasks = autonomy.list_tasks()?;
@@ -166,7 +176,9 @@ impl Engine {
 
     pub(super) fn handle_autonomy_command(&self, command: &str) -> Result<String> {
         let Some(autonomy) = &self.autonomy else {
-            return Err(ForjaError::Internal("autonomy is not configured".to_string()));
+            return Err(ForjaError::Internal(
+                "autonomy is not configured".to_string(),
+            ));
         };
 
         match command.trim() {
@@ -185,7 +197,9 @@ impl Engine {
 
     pub(super) fn handle_learned_tool_skills(&self) -> Result<String> {
         let Some(autonomy) = &self.autonomy else {
-            return Err(ForjaError::Internal("autonomy is not configured".to_string()));
+            return Err(ForjaError::Internal(
+                "autonomy is not configured".to_string(),
+            ));
         };
 
         let skills = autonomy.skill_registry.list_skills()?;
@@ -198,9 +212,7 @@ impl Engine {
             .map(|skill| {
                 format!(
                     "- {} | success={} | auto_approved={}",
-                    skill.tool_name,
-                    skill.success_count,
-                    skill.auto_approved
+                    skill.tool_name, skill.success_count, skill.auto_approved
                 )
             })
             .collect::<Vec<_>>()
@@ -209,7 +221,9 @@ impl Engine {
 
     pub(super) fn handle_unresolved_command(&self) -> Result<String> {
         let Some(autonomy) = &self.autonomy else {
-            return Err(ForjaError::Internal("autonomy is not configured".to_string()));
+            return Err(ForjaError::Internal(
+                "autonomy is not configured".to_string(),
+            ));
         };
 
         let tasks = autonomy.unresolved_store.list_all()?;
@@ -222,11 +236,7 @@ impl Engine {
             .map(|task| {
                 format!(
                     "- #{} {} | retry {}/{} | status={}",
-                    task.id,
-                    task.task,
-                    task.retry_count,
-                    task.max_retries,
-                    task.status
+                    task.id, task.task, task.retry_count, task.max_retries, task.status
                 )
             })
             .collect::<Vec<_>>()
@@ -238,8 +248,9 @@ impl Engine {
         task: &crate::autonomy::QueuedTask,
         started_at: std::time::Instant,
     ) -> Result<TaskExecutionOutcome> {
-        let workspace = std::env::current_dir()
-            .map_err(|error| ForjaError::Internal(format!("workspace detection failed: {error}")))?;
+        let workspace = std::env::current_dir().map_err(|error| {
+            ForjaError::Internal(format!("workspace detection failed: {error}"))
+        })?;
         let plan = self.select_autonomy_execution_plan(task).await?;
         let (spec_id, mut test_results) = match execute_task_pipeline(
             task,
@@ -254,9 +265,14 @@ impl Engine {
                     && self.confirm_cloud_escalation(task, cloud_target)?
                 {
                     self.check_current_agent_budget()?;
-                    let cloud_overrides = route_env_overrides(cloud_target, self.mode_state.exec_mode.as_str());
-                    let (spec_id, mut test_results) =
-                        execute_task_pipeline(task, &workspace, &cloud_overrides, self.mode_state.exec_mode.as_str())?;
+                    let cloud_overrides =
+                        route_env_overrides(cloud_target, self.mode_state.exec_mode.as_str());
+                    let (spec_id, mut test_results) = execute_task_pipeline(
+                        task,
+                        &workspace,
+                        &cloud_overrides,
+                        self.mode_state.exec_mode.as_str(),
+                    )?;
                     test_results.push(format!("route=cloud-escalated ({})", cloud_target.label));
                     let files_changed = git_lines(&workspace, &["diff", "--name-only"])?;
                     let commit_created =
@@ -275,7 +291,8 @@ impl Engine {
         };
         test_results.push(format!("route={}", plan.route_label));
         let files_changed = git_lines(&workspace, &["diff", "--name-only"])?;
-        let commit_created = maybe_autonomy_commit(&workspace, &spec_id, &files_changed, &test_results)?;
+        let commit_created =
+            maybe_autonomy_commit(&workspace, &spec_id, &files_changed, &test_results)?;
 
         Ok(TaskExecutionOutcome {
             spec_id,
@@ -462,15 +479,14 @@ impl Engine {
         if self.channel.is_cli_source() {
             println!("{prompt} [y/N]");
             let mut input = String::new();
-            std::io::stdin()
-                .read_line(&mut input)
-                .map_err(|error| ForjaError::Internal(format!("failed to read confirmation: {error}")))?;
+            std::io::stdin().read_line(&mut input).map_err(|error| {
+                ForjaError::Internal(format!("failed to read confirmation: {error}"))
+            })?;
             let normalized = input.trim().to_lowercase();
             return Ok(matches!(normalized.as_str(), "y" | "yes" | "예" | "ㅇ"));
         }
         Ok(true)
     }
-
 }
 
 fn execute_task_pipeline(
@@ -483,14 +499,44 @@ fn execute_task_pipeline(
     let baseline_dirty = git_lines(workspace, &["status", "--porcelain"])?;
     let spec_id = resolve_or_plan_spec(task, workspace, env_overrides, exec_mode)?;
 
-    run_checked_command(workspace, "auto", &["go", &spec_id, "--solo", "--auto"], env_overrides, exec_mode)?;
-    run_checked_command(workspace, "cargo", &["build", "--workspace"], &[], exec_mode)?;
+    run_checked_command(
+        workspace,
+        "auto",
+        &["go", &spec_id, "--solo", "--auto"],
+        env_overrides,
+        exec_mode,
+    )?;
+    run_checked_command(
+        workspace,
+        "cargo",
+        &["build", "--workspace"],
+        &[],
+        exec_mode,
+    )?;
     test_results.push("cargo build --workspace=pass".to_string());
-    run_checked_command(workspace, "cargo", &["clippy", "--workspace", "--", "-D", "warnings"], &[], exec_mode)?;
+    run_checked_command(
+        workspace,
+        "cargo",
+        &["clippy", "--workspace", "--", "-D", "warnings"],
+        &[],
+        exec_mode,
+    )?;
     test_results.push("cargo clippy --workspace -- -D warnings=pass".to_string());
-    run_checked_command(workspace, "cargo", &["test", "-p", "forja-llm"], &[], exec_mode)?;
+    run_checked_command(
+        workspace,
+        "cargo",
+        &["test", "-p", "forja-llm"],
+        &[],
+        exec_mode,
+    )?;
     test_results.push("cargo test -p forja-llm=pass".to_string());
-    run_checked_command(workspace, "cargo", &["test", "-p", "forja-llm", "--", "--ignored"], &[], exec_mode)?;
+    run_checked_command(
+        workspace,
+        "cargo",
+        &["test", "-p", "forja-llm", "--", "--ignored"],
+        &[],
+        exec_mode,
+    )?;
     test_results.push("cargo test -p forja-llm -- --ignored=pass".to_string());
     if !baseline_dirty.is_empty() {
         test_results.push("auto-commit=skipped (dirty worktree before task)".to_string());
@@ -527,7 +573,9 @@ fn resolve_or_plan_spec(
         .into_iter()
         .find(|spec_id| !before.contains(spec_id))
         .ok_or_else(|| {
-            ForjaError::Internal("auto plan completed but no new SPEC directory was detected".to_string())
+            ForjaError::Internal(
+                "auto plan completed but no new SPEC directory was detected".to_string(),
+            )
         })?;
     Ok(created)
 }
@@ -573,11 +621,12 @@ fn run_checked_command(
     for (key, value) in env_overrides {
         command.env(key, value);
     }
-    let output = command
-        .output()
-        .map_err(|error| {
-            ForjaError::Internal(format!("failed to execute {program} {}: {error}", args.join(" ")))
-        })?;
+    let output = command.output().map_err(|error| {
+        ForjaError::Internal(format!(
+            "failed to execute {program} {}: {error}",
+            args.join(" ")
+        ))
+    })?;
 
     if output.status.success() {
         return Ok(());
@@ -631,7 +680,11 @@ fn maybe_autonomy_commit(
     Ok(true)
 }
 
-fn build_lore_commit_message(spec_id: &str, files_changed: &[String], test_results: &[String]) -> String {
+fn build_lore_commit_message(
+    spec_id: &str,
+    files_changed: &[String],
+    test_results: &[String],
+) -> String {
     format!(
         "feat(autonomy): complete {spec_id}\n\nAutonomous execution completed for {spec_id}.\nFiles changed: {}\n\nConstraint: auto-commit only after passing build, clippy, and tests\nConfidence: medium\nScope-risk: system\nReversibility: moderate\nDirective: review unattended autonomy behavior before enabling wider task categories\nTested: {}\nRelated: {spec_id}\n\n🐙 Autopus <noreply@autopus.co>",
         format_files(files_changed),
@@ -657,7 +710,10 @@ fn route_env_overrides(target: &AutonomyTarget, exec_mode: &str) -> Vec<(String,
 fn heuristic_route(task: &crate::autonomy::QueuedTask) -> RouteKind {
     let normalized = task.description.to_lowercase();
     if task.retry_count > 0
-        || task.task_ref.as_deref().is_some_and(|task_ref| task_ref.starts_with("SPEC-"))
+        || task
+            .task_ref
+            .as_deref()
+            .is_some_and(|task_ref| task_ref.starts_with("SPEC-"))
         || [
             "architecture",
             "security",
@@ -694,7 +750,10 @@ fn truncate_context(value: &str, limit: usize) -> String {
         return collapsed;
     }
 
-    let mut truncated = collapsed.chars().take(limit.saturating_sub(1)).collect::<String>();
+    let mut truncated = collapsed
+        .chars()
+        .take(limit.saturating_sub(1))
+        .collect::<String>();
     truncated.push('…');
     truncated
 }

@@ -60,17 +60,14 @@ async fn test_debate_phase_counts_and_result_shape() {
     assert_eq!(result.total_rounds, 8);
     assert!(!result.summary.trim().is_empty());
     assert!(!result.task_list.is_empty());
-    assert!(result
-        .transcript
-        .iter()
-        .all(|message| matches!(
-            message.phase,
-            DebatePhase::Diverge
-                | DebatePhase::Conflict
-                | DebatePhase::Combination
-                | DebatePhase::Mutation
-                | DebatePhase::Converge
-        )));
+    assert!(result.transcript.iter().all(|message| matches!(
+        message.phase,
+        DebatePhase::Diverge
+            | DebatePhase::Conflict
+            | DebatePhase::Combination
+            | DebatePhase::Mutation
+            | DebatePhase::Converge
+    )));
 }
 
 #[tokio::test(start_paused = true)]
@@ -95,10 +92,12 @@ async fn test_debate_timeout_handling() {
         .await
         .expect("debate should continue after timeout");
 
-    assert!(result
-        .transcript
-        .iter()
-        .any(|message| message.content == "[timeout] No response within 60s"));
+    assert!(
+        result
+            .transcript
+            .iter()
+            .any(|message| message.content == "[timeout] No response within 60s")
+    );
 }
 
 #[tokio::test(start_paused = true)]

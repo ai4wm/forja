@@ -1,29 +1,46 @@
 use async_trait::async_trait;
-use enigo::{
-    Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings,
-};
+use enigo::{Axis, Button, Coordinate, Direction, Enigo, Key, Keyboard, Mouse, Settings};
 use forja_core::error::{ForjaError, Result};
 use forja_core::traits::Tool;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
 use crate::confirm::ConfirmationHandler;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputCommand {
-    TypeText { text: String },
-    KeyPress { key: String },
-    Hotkey { keys: Vec<String> },
-    MouseMove { x: i32, y: i32 },
-    MouseClick { button: String, x: i32, y: i32 },
-    MouseDoubleClick { x: i32, y: i32 },
+    TypeText {
+        text: String,
+    },
+    KeyPress {
+        key: String,
+    },
+    Hotkey {
+        keys: Vec<String>,
+    },
+    MouseMove {
+        x: i32,
+        y: i32,
+    },
+    MouseClick {
+        button: String,
+        x: i32,
+        y: i32,
+    },
+    MouseDoubleClick {
+        x: i32,
+        y: i32,
+    },
     MouseDrag {
         from_x: i32,
         from_y: i32,
         to_x: i32,
         to_y: i32,
     },
-    Scroll { direction: String, amount: i32 },
+    Scroll {
+        direction: String,
+        amount: i32,
+    },
 }
 
 impl InputCommand {
@@ -91,14 +108,10 @@ impl InputBackend for EnigoBackend {
             .map_err(|_| "Input backend lock was poisoned".to_string())?;
 
         match command {
-            InputCommand::TypeText { text } => {
-                enigo.text(text).map_err(|error| error.to_string())
-            }
-            InputCommand::KeyPress { key } => {
-                enigo
-                    .key(enigo_key(key)?, Direction::Click)
-                    .map_err(|error| error.to_string())
-            }
+            InputCommand::TypeText { text } => enigo.text(text).map_err(|error| error.to_string()),
+            InputCommand::KeyPress { key } => enigo
+                .key(enigo_key(key)?, Direction::Click)
+                .map_err(|error| error.to_string()),
             InputCommand::Hotkey { keys } => execute_hotkey(&mut enigo, keys),
             InputCommand::MouseMove { x, y } => enigo
                 .move_mouse(*x, *y, Coordinate::Abs)
@@ -143,7 +156,9 @@ impl InputBackend for EnigoBackend {
             }
             InputCommand::Scroll { direction, amount } => {
                 let (length, axis) = scroll_target(direction, *amount)?;
-                enigo.scroll(length, axis).map_err(|error| error.to_string())
+                enigo
+                    .scroll(length, axis)
+                    .map_err(|error| error.to_string())
             }
         }
     }
@@ -210,7 +225,11 @@ impl InputTool {
         }
     }
 
-    fn parse_command(&self, action: &str, args: &Value) -> std::result::Result<InputCommand, String> {
+    fn parse_command(
+        &self,
+        action: &str,
+        args: &Value,
+    ) -> std::result::Result<InputCommand, String> {
         match action {
             "type_text" => Ok(InputCommand::TypeText {
                 text: required_string(args, "text")?.to_string(),
@@ -304,9 +323,13 @@ impl Tool for InputTool {
             Err(detail) => return Ok(error_result(&action, detail)),
         };
 
-        let dangerous = matches!(&command, InputCommand::Hotkey { keys } if is_dangerous_hotkey(keys));
+        let dangerous =
+            matches!(&command, InputCommand::Hotkey { keys } if is_dangerous_hotkey(keys));
         if !self.unsafe_mode
-            && !self.confirmation_handler.confirm(&command.detail(), dangerous).await
+            && !self
+                .confirmation_handler
+                .confirm(&command.detail(), dangerous)
+                .await
         {
             let detail = if dangerous {
                 format!(
@@ -553,4 +576,3 @@ fn blocked_result(action: &str, detail: String) -> Value {
         "detail": detail,
     })
 }
-

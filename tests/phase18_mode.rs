@@ -1,11 +1,11 @@
 use forja_core::mode::{
-    detect_image_path, detect_role, parse_image_command, parse_screenshot_command,
-    parse_natural_language_command, parse_slash_command, ExecMode, ModeState, Role,
-    SlashCommand, ThinkLevel,
+    ExecMode, ModeState, Role, SlashCommand, ThinkLevel, detect_image_path, detect_role,
+    parse_image_command, parse_natural_language_command, parse_screenshot_command,
+    parse_slash_command,
 };
 use forja_core::prompt::base::base_prompt;
-use forja_core::prompt::{assemble_system_prompt, join_prompt_sections};
 use forja_core::prompt::think::think_prompt;
+use forja_core::prompt::{assemble_system_prompt, join_prompt_sections};
 use forja_tools::confirm::StdinConfirmation;
 
 #[test]
@@ -114,18 +114,8 @@ fn assemble_system_prompt_includes_base_prompt() {
 fn assemble_system_prompt_includes_think_prompt_when_not_mid() {
     let mut mode_state = ModeState::default();
     mode_state.update_think_level(ThinkLevel::Max);
-    let prompt = assemble_system_prompt(
-        &mode_state,
-        "Forja",
-        "사용자님",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-    );
+    let prompt =
+        assemble_system_prompt(&mode_state, "Forja", "사용자님", "", "", "", "", "", "", "");
 
     assert!(prompt.contains("Think extremely thoroughly before responding."));
 }
@@ -135,18 +125,8 @@ fn assemble_system_prompt_includes_role_prompt_when_role_detected() {
     let mut mode_state = ModeState::default();
     mode_state.update_role(Role::Auto);
     mode_state.update_detected_role(Role::Coder);
-    let prompt = assemble_system_prompt(
-        &mode_state,
-        "Forja",
-        "사용자님",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-    );
+    let prompt =
+        assemble_system_prompt(&mode_state, "Forja", "사용자님", "", "", "", "", "", "", "");
 
     assert!(prompt.contains("## Coding Mode Active"));
 }
@@ -331,7 +311,9 @@ fn parse_natural_language_command_maps_korean_mode_request() {
 
     assert_eq!(
         mapped,
-        Some(forja_core::mode::NaturalLanguageCommand::Mode(ExecMode::Auto))
+        Some(forja_core::mode::NaturalLanguageCommand::Mode(
+            ExecMode::Auto
+        ))
     );
 }
 
@@ -341,7 +323,9 @@ fn parse_natural_language_command_maps_english_think_request() {
 
     assert_eq!(
         mapped,
-        Some(forja_core::mode::NaturalLanguageCommand::Think(ThinkLevel::Max))
+        Some(forja_core::mode::NaturalLanguageCommand::Think(
+            ThinkLevel::Max
+        ))
     );
 }
 

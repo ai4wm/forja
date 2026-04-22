@@ -55,9 +55,10 @@ impl ConfirmationHandler for StdinConfirmation {
         let mut input = String::new();
         if std::io::stdin().read_line(&mut input).is_ok() {
             // Accept "y", "Y", and "yes". Default is no.
-            return input.trim().eq_ignore_ascii_case("y") || input.trim().eq_ignore_ascii_case("yes");
+            return input.trim().eq_ignore_ascii_case("y")
+                || input.trim().eq_ignore_ascii_case("yes");
         }
-        
+
         false
     }
 }

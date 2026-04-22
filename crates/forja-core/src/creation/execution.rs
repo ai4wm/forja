@@ -2,17 +2,17 @@ use super::types::{DebateMessage, DebatePhase};
 use super::{CreationRunContext, DebateAgent};
 use crate::audit::logger::{AuditEvent, AuditLogger};
 use crate::budget::{BudgetMode, BudgetStatus};
+use crate::context::token_counter::count_tokens;
 use crate::error::{ForjaError, Result};
-use crate::ralf::executor::ralf_execute;
 use crate::ralf::RalfState;
+use crate::ralf::executor::ralf_execute;
 use crate::traits::LlmProvider;
 use crate::types::{Content, Message, Role};
-use crate::context::token_counter::count_tokens;
 use serde_json::json;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::time::{sleep, timeout, Duration};
+use tokio::time::{Duration, sleep, timeout};
 
 pub(crate) type DebateMessageCallback =
     dyn FnMut(&DebateMessage) -> Pin<Box<dyn Future<Output = Result<()>> + Send>>;
@@ -44,13 +44,17 @@ pub(crate) async fn execute_agent_call(
     let request_messages = [
         Message::text(
             Role::System,
-            format!("You are {}. Your framework: {}", agent.role, agent.framework),
+            format!(
+                "You are {}. Your framework: {}",
+                agent.role, agent.framework
+            ),
             None,
         ),
         Message::text(Role::User, prompt, None),
     ];
 
-    let content = match call_provider(provider, audit_logger, &request_messages, run_context).await {
+    let content = match call_provider(provider, audit_logger, &request_messages, run_context).await
+    {
         Ok(content) => content,
         Err(error) if error.to_string().to_lowercase().contains("timeout") => {
             "[timeout] No response within 60s".to_string()
@@ -96,12 +100,14 @@ async fn call_provider(
                 let provider = provider.clone();
                 let request_messages = request_messages.to_vec();
                 async move {
-                    match timeout(Duration::from_secs(60), provider.chat(&request_messages, None)).await
+                    match timeout(
+                        Duration::from_secs(60),
+                        provider.chat(&request_messages, None),
+                    )
+                    .await
                     {
                         Ok(result) => result,
-                        Err(_) => Err(ForjaError::LlmError(
-                            "creation agent timeout".to_string(),
-                        )),
+                        Err(_) => Err(ForjaError::LlmError("creation agent timeout".to_string())),
                     }
                 }
             },
@@ -110,7 +116,12 @@ async fn call_provider(
         return extract_text_response(response);
     }
 
-    match timeout(Duration::from_secs(60), provider.chat(request_messages, None)).await {
+    match timeout(
+        Duration::from_secs(60),
+        provider.chat(request_messages, None),
+    )
+    .await
+    {
         Ok(response) => extract_text_response(response?),
         Err(_) => Err(ForjaError::LlmError("creation agent timeout".to_string())),
     }
@@ -245,7 +256,8 @@ pub(crate) fn sanitize_audit_text(text: &str, max_logged_chars: usize) -> String
 }
 
 fn redact_word(word: &str) -> String {
-    let trimmed = word.trim_matches(|char: char| matches!(char, ',' | '.' | ';' | ':' | '"' | '\''));
+    let trimmed =
+        word.trim_matches(|char: char| matches!(char, ',' | '.' | ';' | ':' | '"' | '\''));
     if trimmed.starts_with("sk-")
         || trimmed.starts_with("AIza")
         || trimmed.starts_with("ghp_")
@@ -260,7 +272,10 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
     if value.chars().count() <= max_chars {
         return value.to_string();
     }
-    let mut truncated = value.chars().take(max_chars.saturating_sub(1)).collect::<String>();
+    let mut truncated = value
+        .chars()
+        .take(max_chars.saturating_sub(1))
+        .collect::<String>();
     truncated.push('…');
     truncated
 }

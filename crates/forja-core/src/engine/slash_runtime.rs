@@ -31,7 +31,10 @@ impl Engine {
     ) -> Result<()> {
         match slash_result {
             SlashCommandResult::Reply(reply) => {
-                let _ = self.channel.send(Message::text(Role::Assistant, &reply, None)).await;
+                let _ = self
+                    .channel
+                    .send(Message::text(Role::Assistant, &reply, None))
+                    .await;
             }
             SlashCommandResult::ReplyAndSave { user_text, reply } => {
                 let user_msg_save = Message::text(Role::User, &user_text, None);
@@ -40,7 +43,8 @@ impl Engine {
                 self.push_message(user_msg_save.clone());
                 self.push_message(reply_msg);
                 #[cfg(feature = "memory")]
-                self.save_turn_memory_entries(&user_msg_save, Some(&reply)).await;
+                self.save_turn_memory_entries(&user_msg_save, Some(&reply))
+                    .await;
             }
             SlashCommandResult::Debate { topic } => {
                 let result = self.run_debate_command(&topic).await?;
@@ -53,10 +57,7 @@ impl Engine {
                         .map(|task| {
                             format!(
                                 "- {} | {} | {}h | P{}",
-                                task.name,
-                                task.assigned_role,
-                                task.estimated_hours,
-                                task.priority
+                                task.name, task.assigned_role, task.estimated_hours, task.priority
                             )
                         })
                         .collect::<Vec<_>>()
@@ -67,7 +68,8 @@ impl Engine {
                 self.push_message(user_msg.clone());
                 self.push_message(reply_msg.clone());
                 #[cfg(feature = "memory")]
-                self.save_turn_memory_entries(user_msg, Some(&final_reply)).await;
+                self.save_turn_memory_entries(user_msg, Some(&final_reply))
+                    .await;
             }
             SlashCommandResult::Dashboard => {
                 let reply = match &self.dashboard_handler {
@@ -77,7 +79,10 @@ impl Engine {
                     },
                     None => "❌ Dashboard handler is not configured.".to_string(),
                 };
-                let _ = self.channel.send(Message::text(Role::Assistant, &reply, None)).await;
+                let _ = self
+                    .channel
+                    .send(Message::text(Role::Assistant, &reply, None))
+                    .await;
             }
             SlashCommandResult::Tui => {
                 let reply = match &self.tui_handler {
@@ -87,32 +92,53 @@ impl Engine {
                     },
                     None => "❌ TUI handler is not configured.".to_string(),
                 };
-                let _ = self.channel.send(Message::text(Role::Assistant, &reply, None)).await;
+                let _ = self
+                    .channel
+                    .send(Message::text(Role::Assistant, &reply, None))
+                    .await;
             }
             #[cfg(feature = "memory")]
             SlashCommandResult::Dream => {
                 let reply = self.handle_manual_dream_command();
-                let _ = self.channel.send(Message::text(Role::Assistant, &reply, None)).await;
+                let _ = self
+                    .channel
+                    .send(Message::text(Role::Assistant, &reply, None))
+                    .await;
             }
             SlashCommandResult::Skill { name } => {
                 let reply = self.run_skill_command(&name).await?;
-                let _ = self.channel.send(Message::text(Role::Assistant, &reply, None)).await;
+                let _ = self
+                    .channel
+                    .send(Message::text(Role::Assistant, &reply, None))
+                    .await;
             }
             SlashCommandResult::Task { description } => {
                 let reply = self.handle_task_command(&description)?;
-                let _ = self.channel.send(Message::text(Role::Assistant, &reply, None)).await;
+                let _ = self
+                    .channel
+                    .send(Message::text(Role::Assistant, &reply, None))
+                    .await;
             }
             SlashCommandResult::AutonomyCommand { command } => {
                 let reply = self.handle_autonomy_command(&command)?;
-                let _ = self.channel.send(Message::text(Role::Assistant, &reply, None)).await;
+                let _ = self
+                    .channel
+                    .send(Message::text(Role::Assistant, &reply, None))
+                    .await;
             }
             SlashCommandResult::Skills => {
                 let reply = self.handle_skills_command()?;
-                let _ = self.channel.send(Message::text(Role::Assistant, &reply, None)).await;
+                let _ = self
+                    .channel
+                    .send(Message::text(Role::Assistant, &reply, None))
+                    .await;
             }
             SlashCommandResult::Unresolved => {
                 let reply = self.handle_unresolved_command()?;
-                let _ = self.channel.send(Message::text(Role::Assistant, &reply, None)).await;
+                let _ = self
+                    .channel
+                    .send(Message::text(Role::Assistant, &reply, None))
+                    .await;
             }
             SlashCommandResult::UpdateSystemPrompt {
                 reply,
@@ -121,7 +147,10 @@ impl Engine {
             } => {
                 self.apply_system_prompt_update(system_prompt, reset_history);
                 if !reply.trim().is_empty() {
-                    let _ = self.channel.send(Message::text(Role::Assistant, &reply, None)).await;
+                    let _ = self
+                        .channel
+                        .send(Message::text(Role::Assistant, &reply, None))
+                        .await;
                 }
             }
         }

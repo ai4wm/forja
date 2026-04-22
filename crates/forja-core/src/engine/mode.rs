@@ -1,5 +1,5 @@
 use super::Engine;
-use crate::mode::{detect_role, ModeState};
+use crate::mode::{ModeState, detect_role};
 use crate::types::{Content, Message};
 
 impl Engine {
@@ -26,7 +26,8 @@ impl Engine {
         }
 
         let Content::Text { text, .. } = &user_msg.content else {
-            self.mode_state.update_detected_role(crate::mode::Role::Default);
+            self.mode_state
+                .update_detected_role(crate::mode::Role::Default);
             return;
         };
 

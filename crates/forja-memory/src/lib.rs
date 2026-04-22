@@ -3,17 +3,17 @@ use forja_core::context::token_counter::count_messages_tokens;
 use forja_core::error::Result;
 use forja_core::traits::{DreamRunOutcome, DreamRunStatus, DreamTrigger, MemoryStore};
 use forja_core::types::{MemoryEntry, Message, Role};
-use std::path::Path;
 use std::fmt::Display;
+use std::path::Path;
 use tokio::sync::Mutex;
 
-pub mod storage;
-mod sqlite;
 mod session;
+mod sqlite;
+pub mod storage;
 
-use storage::Storage;
-use sqlite::SqliteMemoryIndex;
 use session::SessionMemory;
+use sqlite::SqliteMemoryIndex;
+use storage::Storage;
 
 pub struct MarkdownMemoryStore {
     storage: Storage,
@@ -39,7 +39,11 @@ impl MarkdownMemoryStore {
         let startup = self.storage.read_startup_context().await?;
         let sqlite_summaries = self.sqlite.recent_summary_context(3)?;
         let session_context = self.session.lock().await.startup_context();
-        Ok(join_non_empty_sections([startup, sqlite_summaries, session_context]))
+        Ok(join_non_empty_sections([
+            startup,
+            sqlite_summaries,
+            session_context,
+        ]))
     }
 
     pub async fn load_relevant(&self, query: &str) -> Result<String> {

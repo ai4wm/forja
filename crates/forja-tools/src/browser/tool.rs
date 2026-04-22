@@ -4,7 +4,7 @@ use crate::confirm::ConfirmationHandler;
 use async_trait::async_trait;
 use forja_core::error::Result;
 use forja_core::traits::Tool;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 pub struct BrowserTool {
@@ -126,11 +126,7 @@ impl Tool for BrowserTool {
     }
 }
 
-async fn execute_url_action(
-    action: &str,
-    args: &Value,
-    backend: &dyn BrowserBackend,
-) -> Value {
+async fn execute_url_action(action: &str, args: &Value, backend: &dyn BrowserBackend) -> Value {
     let url = match required_string(args, "url") {
         Ok(url) => url,
         Err(detail) => return error_result(action, detail),
@@ -142,11 +138,7 @@ async fn execute_url_action(
     simple_action_result(action, result)
 }
 
-async fn execute_scroll_action(
-    action: &str,
-    args: &Value,
-    backend: &dyn BrowserBackend,
-) -> Value {
+async fn execute_scroll_action(action: &str, args: &Value, backend: &dyn BrowserBackend) -> Value {
     let direction = match required_direction(args) {
         Ok(direction) => direction,
         Err(detail) => return error_result(action, detail),
@@ -191,11 +183,7 @@ async fn execute_type_text_action(
     simple_action_result(action, backend.type_text(selector, text).await)
 }
 
-async fn execute_tab_action(
-    action: &str,
-    args: &Value,
-    backend: &dyn BrowserBackend,
-) -> Value {
+async fn execute_tab_action(action: &str, args: &Value, backend: &dyn BrowserBackend) -> Value {
     let index = match required_index(args) {
         Ok(index) => index,
         Err(detail) => return error_result(action, detail),

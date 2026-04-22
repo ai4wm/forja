@@ -67,8 +67,8 @@ async fn save_inserts_date_headers_when_the_day_changes() {
         .await
         .unwrap();
 
-    let first_contents = std::fs::read_to_string(base_dir.join("daily").join(format!("{first_day}.md")))
-        .unwrap();
+    let first_contents =
+        std::fs::read_to_string(base_dir.join("daily").join(format!("{first_day}.md"))).unwrap();
     let second_contents =
         std::fs::read_to_string(base_dir.join("daily").join(format!("{second_day}.md"))).unwrap();
 
@@ -104,7 +104,8 @@ async fn save_filters_out_mockstream_lines() {
         .unwrap();
 
     let date = "2026-03-24";
-    let contents = std::fs::read_to_string(base_dir.join("daily").join(format!("{date}.md"))).unwrap();
+    let contents =
+        std::fs::read_to_string(base_dir.join("daily").join(format!("{date}.md"))).unwrap();
 
     assert!(!contents.contains("MockStream"));
     assert!(contents.contains("10:01 | user | real message"));
@@ -245,8 +246,8 @@ async fn save_updates_daily_log_index_and_relevant_topic_context() {
         .await
         .unwrap();
 
-    let daily_log = std::fs::read_to_string(base_dir.join("daily").join(format!("{day}.md")))
-        .unwrap();
+    let daily_log =
+        std::fs::read_to_string(base_dir.join("daily").join(format!("{day}.md"))).unwrap();
     let index = std::fs::read_to_string(base_dir.join("index.md")).unwrap();
     let relevant = store.load_relevant("What tea do I like?").await.unwrap();
 
@@ -347,11 +348,14 @@ async fn relevant_loading_limits_the_number_of_topic_shards() {
     let store = MarkdownMemoryStore::new(&memory_path).await.unwrap();
     let timestamp = local_timestamp(2026, 3, 24, 9, 30);
 
-    for marker in ["marker-one", "marker-two", "marker-three", "marker-four", "marker-five"] {
-        let content = format!(
-            "Project Atlas {marker} {}",
-            "alpha ".repeat(700)
-        );
+    for marker in [
+        "marker-one",
+        "marker-two",
+        "marker-three",
+        "marker-four",
+        "marker-five",
+    ] {
+        let content = format!("Project Atlas {marker} {}", "alpha ".repeat(700));
         store
             .save(&memory_entry(marker, "user", &content, timestamp))
             .await

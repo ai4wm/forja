@@ -24,7 +24,7 @@ pub enum Role {
 #[serde(tag = "type")]
 pub enum Content {
     /// Plain text message.
-    Text { 
+    Text {
         text: String,
         /// Gemini 3 thoughtSignature that may be returned with a response.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -74,7 +74,7 @@ impl Message {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             role,
-            content: Content::Text { 
+            content: Content::Text {
                 text: text.into(),
                 thought_signature,
             },
@@ -140,9 +140,11 @@ impl Message {
     pub fn content_text_len(&self) -> usize {
         match &self.content {
             Content::Text { text, .. } => text.len(),
-            Content::ToolCall { tool_name, arguments, .. } => {
-                tool_name.len() + arguments.to_string().len()
-            }
+            Content::ToolCall {
+                tool_name,
+                arguments,
+                ..
+            } => tool_name.len() + arguments.to_string().len(),
             Content::ToolResult { result, .. } => result.to_string().len(),
         }
     }

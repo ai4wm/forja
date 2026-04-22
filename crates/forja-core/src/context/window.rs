@@ -36,8 +36,12 @@ pub fn partition_history(messages: &[Message], keep_recent: usize) -> WindowSegm
 }
 
 pub fn compressed_summary_message(summary: String) -> Message {
-    Message::text(Role::System, format!("{COMPRESSED_PREFIX}\n{summary}"), None)
-        .with_metadata("compressed", json!(true))
+    Message::text(
+        Role::System,
+        format!("{COMPRESSED_PREFIX}\n{summary}"),
+        None,
+    )
+    .with_metadata("compressed", json!(true))
 }
 
 pub fn is_compressed_summary(message: &Message) -> bool {

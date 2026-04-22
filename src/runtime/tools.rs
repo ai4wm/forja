@@ -1,14 +1,13 @@
 use crate::config::ForjaConfig;
-use forja_core::mode::ExecMode;
 use forja_core::Engine;
+use forja_core::mode::ExecMode;
 use forja_llm::LlmConfig;
 #[cfg(feature = "vision")]
 use forja_tools::XcapBackend;
 use forja_tools::{
-    browser::MockBrowserBackend, BrowserTool, ClaudeCodeTool, CodexTool, FileTool,
-    GeminiCliTool, GptVisionAnalyzer, InputTool, MockCaptureBackend, MockVisionAnalyzer,
-    ScreenCaptureBackend, SearchProvider, SearchTool, ShellTool, StdinConfirmation, VisionAnalyzer,
-    VisionTool, WebTool,
+    BrowserTool, ClaudeCodeTool, CodexTool, FileTool, GeminiCliTool, GptVisionAnalyzer, InputTool,
+    MockCaptureBackend, MockVisionAnalyzer, ScreenCaptureBackend, SearchProvider, SearchTool,
+    ShellTool, StdinConfirmation, VisionAnalyzer, VisionTool, WebTool, browser::MockBrowserBackend,
 };
 use std::sync::{Arc, Mutex};
 
@@ -126,11 +125,8 @@ pub(crate) async fn register_tools(
     }
 
     if context.vision_enabled {
-        let vision_tool = VisionTool::with_backends(
-            capture_backend.clone(),
-            vision_analyzer.clone(),
-            false,
-        );
+        let vision_tool =
+            VisionTool::with_backends(capture_backend.clone(), vision_analyzer.clone(), false);
         engine.register_tool(Arc::new(vision_tool));
     } else {
         println!("Vision tool disabled by FORJA_VISION=false.");

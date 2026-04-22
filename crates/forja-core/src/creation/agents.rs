@@ -5,19 +5,22 @@ pub fn default_debate_agents() -> Vec<DebateAgent> {
         DebateAgent {
             id: "architect".to_string(),
             role: "Architect".to_string(),
-            framework: "Break every proposal into no more than 3 components. Reject if complex.".to_string(),
+            framework: "Break every proposal into no more than 3 components. Reject if complex."
+                .to_string(),
             budget: 5_000,
         },
         DebateAgent {
             id: "critic".to_string(),
             role: "Critique".to_string(),
-            framework: "Find falsifiable flaws in every claim. Estimate failure probability.".to_string(),
+            framework: "Find falsifiable flaws in every claim. Estimate failure probability."
+                .to_string(),
             budget: 5_000,
         },
         DebateAgent {
             id: "builder".to_string(),
             role: "Build".to_string(),
-            framework: "If it cannot be implemented within 48 hours, propose alternative.".to_string(),
+            framework: "If it cannot be implemented within 48 hours, propose alternative."
+                .to_string(),
             budget: 5_000,
         },
         DebateAgent {

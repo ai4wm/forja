@@ -1,29 +1,20 @@
 use super::Engine;
+use crate::context::SummaryCallback;
 use crate::context::compressor::{
-    compress_history_for_total,
+    CompressionOutcome, DEFAULT_MAX_CONTEXT_TOKENS, compress_history_for_total,
     emergency_compress_history,
-    CompressionOutcome,
-    DEFAULT_MAX_CONTEXT_TOKENS,
 };
 use crate::context::token_counter::count_messages_tokens;
-use crate::context::SummaryCallback;
 use crate::error::Result;
 
 impl Engine {
-    pub fn with_context_settings(
-        mut self,
-        max_context_tokens: usize,
-        model: String,
-    ) -> Self {
+    pub fn with_context_settings(mut self, max_context_tokens: usize, model: String) -> Self {
         self.max_context_tokens = max_context_tokens;
         self.context_model = model;
         self
     }
 
-    pub fn with_context_summary_callback(
-        mut self,
-        summary_callback: SummaryCallback,
-    ) -> Self {
+    pub fn with_context_summary_callback(mut self, summary_callback: SummaryCallback) -> Self {
         self.context_summary_callback = Some(summary_callback);
         self
     }

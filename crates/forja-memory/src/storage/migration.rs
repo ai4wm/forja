@@ -1,4 +1,4 @@
-use super::{legacy_archive_path, should_skip_entry, storage_error, Storage};
+use super::{Storage, legacy_archive_path, should_skip_entry, storage_error};
 use chrono::{Datelike, Local, NaiveDate, TimeZone};
 use forja_core::error::{ForjaError, Result};
 use forja_core::types::MemoryEntry;
@@ -62,7 +62,9 @@ impl Storage {
         let archive_path = legacy_archive_path(&self.archive_dir, "legacy-memory", "md").await?;
         fs::rename(&self.legacy_memory_file, archive_path)
             .await
-            .map_err(|error| storage_error(format!("Failed to archive legacy memory.md: {error}")))?;
+            .map_err(|error| {
+                storage_error(format!("Failed to archive legacy memory.md: {error}"))
+            })?;
 
         Ok(())
     }

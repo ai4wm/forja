@@ -7,7 +7,7 @@ use forja_core::{
 use serde_json::Value;
 use std::process::Stdio;
 use tokio::process::Command;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 const TIMEOUT_SECS: u64 = 600; // 10 minutes
 
@@ -81,7 +81,7 @@ impl Tool for GeminiCliTool {
             .map_err(|e| ForjaError::ToolError(format!("Failed to execute gemini: {}", e)))?;
 
         let output_future = child.wait_with_output();
-        
+
         match timeout(Duration::from_secs(TIMEOUT_SECS), output_future).await {
             Ok(Ok(output)) => {
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -94,7 +94,7 @@ impl Tool for GeminiCliTool {
                     }))
                 } else {
                     Ok(serde_json::json!({
-                        "error": format!("Gemini CLI execution failed (exit code {}).\nstdout: {}\nstderr: {}", 
+                        "error": format!("Gemini CLI execution failed (exit code {}).\nstdout: {}\nstderr: {}",
                             output.status.code().unwrap_or(-1),
                             stdout.trim(),
                             stderr.trim()
@@ -102,12 +102,13 @@ impl Tool for GeminiCliTool {
                     }))
                 }
             }
-            Ok(Err(e)) => Err(ForjaError::ToolError(format!("Failed to read gemini output: {}", e))),
-            Err(_) => {
-                Ok(serde_json::json!({
-                    "error": format!("Gemini CLI execution timed out after {} seconds.", TIMEOUT_SECS)
-                }))
-            }
+            Ok(Err(e)) => Err(ForjaError::ToolError(format!(
+                "Failed to read gemini output: {}",
+                e
+            ))),
+            Err(_) => Ok(serde_json::json!({
+                "error": format!("Gemini CLI execution timed out after {} seconds.", TIMEOUT_SECS)
+            })),
         }
     }
 }

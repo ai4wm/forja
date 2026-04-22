@@ -3,8 +3,8 @@ use super::{RalfConfig, RalfState};
 use crate::error::ForjaError;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
 #[test]
@@ -146,9 +146,5 @@ fn noop_raw_waker() -> RawWaker {
     RawWaker::new(std::ptr::null(), &NOOP_WAKER_VTABLE)
 }
 
-static NOOP_WAKER_VTABLE: RawWakerVTable = RawWakerVTable::new(
-    |_data| noop_raw_waker(),
-    |_data| {},
-    |_data| {},
-    |_data| {},
-);
+static NOOP_WAKER_VTABLE: RawWakerVTable =
+    RawWakerVTable::new(|_data| noop_raw_waker(), |_data| {}, |_data| {}, |_data| {});

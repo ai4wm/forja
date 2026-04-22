@@ -52,9 +52,9 @@ pub(super) async fn write_pending_journal(path: &Path, journal: &DreamJournal) -
 
 pub(super) async fn clear_pending_journal(path: &Path) -> Result<()> {
     if path.exists() {
-        fs::remove_file(path)
-            .await
-            .map_err(|error| storage_error(format!("Failed to remove {}: {error}", path.display())))?;
+        fs::remove_file(path).await.map_err(|error| {
+            storage_error(format!("Failed to remove {}: {error}", path.display()))
+        })?;
     }
     Ok(())
 }

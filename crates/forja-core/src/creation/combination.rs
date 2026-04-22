@@ -1,5 +1,5 @@
-use super::types::{DebateMessage, DebatePhase};
 use super::DebateAgent;
+use super::types::{DebateMessage, DebatePhase};
 
 pub(crate) fn build_combination_prompt(
     agent: &DebateAgent,
@@ -9,12 +9,13 @@ pub(crate) fn build_combination_prompt(
     round: usize,
     bounded_context_chars: usize,
 ) -> String {
-    let pattern = if round.is_multiple_of(2) { "SCAMPER" } else { "TRIZ" };
-    let previous = bounded_transcript_for_phase(
-        transcript,
-        DebatePhase::Combination,
-        bounded_context_chars,
-    );
+    let pattern = if round.is_multiple_of(2) {
+        "SCAMPER"
+    } else {
+        "TRIZ"
+    };
+    let previous =
+        bounded_transcript_for_phase(transcript, DebatePhase::Combination, bounded_context_chars);
     format!(
         "You are {role}. Your framework: {framework}\n\
 Phase: COMBINATION.\n\
@@ -48,7 +49,10 @@ fn truncate_chars(value: &str, max_chars: usize) -> String {
         return value.to_string();
     }
 
-    let mut truncated = value.chars().take(max_chars.saturating_sub(1)).collect::<String>();
+    let mut truncated = value
+        .chars()
+        .take(max_chars.saturating_sub(1))
+        .collect::<String>();
     truncated.push('…');
     truncated
 }

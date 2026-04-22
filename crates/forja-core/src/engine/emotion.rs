@@ -4,8 +4,6 @@ use crate::emotion::MoodState;
 use crate::emotion::RelationshipContext;
 use crate::types::{Message, Role};
 
-
-
 impl Engine {
     pub fn with_emotion(mut self, emotion: EmotionEngine) -> Self {
         self.emotion = Some(emotion);
@@ -23,10 +21,7 @@ impl Engine {
         };
 
         let previous = emotion.current.clone();
-        let analyzed = match emotion
-            .analyze(&recent_messages, provider.as_ref())
-            .await
-        {
+        let analyzed = match emotion.analyze(&recent_messages, provider.as_ref()).await {
             Ok(mood) => mood,
             Err(error) => {
                 eprintln!("[Emotion] analyze failed: {error}");
@@ -62,8 +57,8 @@ impl Engine {
     async fn persist_mood_change(&self, mood: &MoodState) {
         #[cfg(feature = "memory")]
         {
-            use std::time::{SystemTime, UNIX_EPOCH};
             use crate::types::MemoryEntry;
+            use std::time::{SystemTime, UNIX_EPOCH};
             use uuid::Uuid;
 
             let Some(memory) = &self.memory else {
@@ -92,6 +87,3 @@ impl Engine {
         let _ = mood;
     }
 }
-
-
-

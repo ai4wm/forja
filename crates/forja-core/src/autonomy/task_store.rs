@@ -73,8 +73,8 @@ impl TaskStore {
     }
 
     pub fn save_queue(&self, queue: &TaskQueueFile) -> Result<()> {
-        let raw =
-            serde_json::to_string_pretty(queue).map_err(|error| ForjaError::Storage(error.to_string()))?;
+        let raw = serde_json::to_string_pretty(queue)
+            .map_err(|error| ForjaError::Storage(error.to_string()))?;
         fs::write(&self.queue_file, raw).map_err(io_error)
     }
 
@@ -93,8 +93,8 @@ impl TaskStore {
             task: task.clone(),
             checkpointed_at: Utc::now().to_rfc3339(),
         };
-        let raw =
-            serde_json::to_string_pretty(&current).map_err(|error| ForjaError::Storage(error.to_string()))?;
+        let raw = serde_json::to_string_pretty(&current)
+            .map_err(|error| ForjaError::Storage(error.to_string()))?;
         fs::write(&self.current_file, raw).map_err(io_error)
     }
 
@@ -121,7 +121,11 @@ impl TaskStore {
         let mut repaired = false;
         if let Some(current) = current {
             repaired = true;
-            if let Some(task) = queue.tasks.iter_mut().find(|task| task.id == current.task.id) {
+            if let Some(task) = queue
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == current.task.id)
+            {
                 if task.status == "running" {
                     task.status = "pending".to_string();
                 }

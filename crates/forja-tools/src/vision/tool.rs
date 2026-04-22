@@ -1,10 +1,10 @@
 use super::analyzer::VisionAnalyzer;
 use super::capture::ScreenCaptureBackend;
 use async_trait::async_trait;
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use forja_core::error::Result;
 use forja_core::traits::Tool;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 pub struct VisionTool {
@@ -103,7 +103,8 @@ async fn execute_analyze_region(action: &str, args: &Value, tool: &VisionTool) -
     };
     simple_action_result(
         action,
-        tool.capture_analyze_region(x, y, width, height, prompt).await,
+        tool.capture_analyze_region(x, y, width, height, prompt)
+            .await,
     )
 }
 

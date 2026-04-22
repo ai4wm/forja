@@ -8,7 +8,9 @@ fn test_log_event_and_query_it_back() {
     let logger = AuditLogger::new(&db_path).expect("logger should initialize");
     let event = AuditEvent::new("tool_call", json!({ "tool_name": "shell" }));
 
-    logger.log_event(event.clone()).expect("event should be logged");
+    logger
+        .log_event(event.clone())
+        .expect("event should be logged");
     let events = logger.query_recent(10).expect("query should succeed");
 
     assert_eq!(events.len(), 1);
@@ -50,10 +52,7 @@ fn test_empty_db_returns_empty_vec() {
 }
 
 fn temp_db_path(label: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "forja-audit-{label}-{}.db",
-        uuid::Uuid::new_v4()
-    ))
+    std::env::temp_dir().join(format!("forja-audit-{label}-{}.db", uuid::Uuid::new_v4()))
 }
 
 fn cleanup(path: &PathBuf) {

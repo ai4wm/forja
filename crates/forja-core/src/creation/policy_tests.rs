@@ -160,7 +160,12 @@ async fn debate_redacts_and_truncates_audit_payloads() {
     };
 
     engine
-        .run_debate_with_context("audit safety", &provider, Some(&audit_logger), Some(context))
+        .run_debate_with_context(
+            "audit safety",
+            &provider,
+            Some(&audit_logger),
+            Some(context),
+        )
         .await
         .unwrap();
 

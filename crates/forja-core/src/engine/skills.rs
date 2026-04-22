@@ -61,11 +61,18 @@ impl Engine {
             .ok_or_else(|| ForjaError::Internal(format!("Unknown skill: {skill_name}")))?;
         let steps = skill_registry.extract_shell_steps(&skill);
         if steps.is_empty() {
-            let error = format!("Skill '{}' does not contain executable shell steps.", skill.name);
+            let error = format!(
+                "Skill '{}' does not contain executable shell steps.",
+                skill.name
+            );
             skill_registry.record_failure(&skill.name, &error)?;
             let _ = self
                 .channel
-                .send_notification_with_level(&error, NotificationTopic::Skill, NotificationLevel::Warning)
+                .send_notification_with_level(
+                    &error,
+                    NotificationTopic::Skill,
+                    NotificationLevel::Warning,
+                )
                 .await;
             return Err(ForjaError::Internal(error));
         }
@@ -75,7 +82,11 @@ impl Engine {
             skill_registry.record_failure(&skill.name, &error)?;
             let _ = self
                 .channel
-                .send_notification_with_level(&error, NotificationTopic::Skill, NotificationLevel::Warning)
+                .send_notification_with_level(
+                    &error,
+                    NotificationTopic::Skill,
+                    NotificationLevel::Warning,
+                )
                 .await;
             return Err(ForjaError::Internal(error));
         };
@@ -96,14 +107,21 @@ impl Engine {
 
             if status == "error" || status == "blocked" || status == "warning" {
                 let error = if output.is_empty() {
-                    format!("Skill '{}' step failed with status '{}'.", skill.name, status)
+                    format!(
+                        "Skill '{}' step failed with status '{}'.",
+                        skill.name, status
+                    )
                 } else {
                     format!("Skill '{}' step failed: {}", skill.name, output)
                 };
                 skill_registry.record_failure(&skill.name, &error)?;
                 let _ = self
                     .channel
-                    .send_notification_with_level(&error, NotificationTopic::Skill, NotificationLevel::Warning)
+                    .send_notification_with_level(
+                        &error,
+                        NotificationTopic::Skill,
+                        NotificationLevel::Warning,
+                    )
                     .await;
                 return Err(ForjaError::Internal(error));
             }

@@ -1,11 +1,11 @@
-use base64::{engine::general_purpose, Engine as _};
-use dialoguer::{theme::ColorfulTheme, Password};
+use base64::{Engine as _, engine::general_purpose};
+use dialoguer::{Password, theme::ColorfulTheme};
 use rand::{Rng, RngCore};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -51,14 +51,14 @@ impl AuthData {
 
     pub async fn refresh_token_if_needed(provider: &str) -> Self {
         let mut auth = Self::load();
-        
+
         let token = match provider {
             "openai" | "openai_oauth" => auth.openai.as_ref(),
             "gemini" | "gemini_oauth" | "gemini_flash" => auth.gemini.as_ref(),
             "anthropic" | "anthropic_sonnet" => auth.anthropic.as_ref(),
             _ => return auth,
         };
-        
+
         if let Some(t) = token {
             // Refresh if the token will expire within 5 minutes
             let now = SystemTime::now()
@@ -66,26 +66,24 @@ impl AuthData {
                 .unwrap()
                 .as_secs() as i64;
             let expires_at = t.expires_at.unwrap_or(0);
-            
+
             if now < expires_at - 300 {
                 // Still valid with 5 minutes of safety margin
                 return auth;
             }
-            
+
             // Try refresh if a refresh_token is available
             if let Some(ref refresh) = t.refresh_token {
                 eprintln!("[AUTH] {} token expired, refreshing...", provider);
-                
+
                 let result = match provider {
-                    "openai" | "openai_oauth" => {
-                        refresh_openai_token(refresh).await
-                    }
+                    "openai" | "openai_oauth" => refresh_openai_token(refresh).await,
                     "gemini" | "gemini_oauth" | "gemini_flash" => {
                         refresh_gemini_token(refresh).await
                     }
                     _ => None,
                 };
-                
+
                 if let Some(new_token) = result {
                     match provider {
                         "openai" | "openai_oauth" => auth.openai = Some(new_token),
@@ -95,11 +93,14 @@ impl AuthData {
                     auth.save();
                     eprintln!("[AUTH] {} token refresh completed.", provider);
                 } else {
-                    eprintln!("[AUTH] {} token refresh failed. Run `forja login {}`.", provider, provider);
+                    eprintln!(
+                        "[AUTH] {} token refresh failed. Run `forja login {}`.",
+                        provider, provider
+                    );
                 }
             }
         }
-        
+
         auth
     }
 }
@@ -132,8 +133,10 @@ fn generate_pkce_challenge() -> (String, String) {
 
 async fn wait_for_callback() -> Option<String> {
     println!("Waiting for callback on http://localhost:1455/auth/callback ...");
-    let listener = TcpListener::bind("127.0.0.1:1455").await.expect("Failed to bind port 1455");
-    
+    let listener = TcpListener::bind("127.0.0.1:1455")
+        .await
+        .expect("Failed to bind port 1455");
+
     let result = tokio::time::timeout(std::time::Duration::from_secs(120), async {
         loop {
             if let Ok((mut socket, _)) = listener.accept().await {
@@ -212,8 +215,7 @@ async fn exchange_code(
         return Err(format!("Token exchange failed ({}): {}", status, body));
     }
 
-    serde_json::from_str(&body)
-        .map_err(|e| format!("JSON parsing failed: {e}"))
+    serde_json::from_str(&body).map_err(|e| format!("JSON parsing failed: {e}"))
 }
 
 async fn login_openai() {
@@ -233,7 +235,10 @@ async fn login_openai() {
 
     println!("Opening browser for OpenAI login...");
     if open::that(&auth_url).is_err() {
-        println!("Could not open the browser. Open this URL manually:\n{}", auth_url);
+        println!(
+            "Could not open the browser. Open this URL manually:\n{}",
+            auth_url
+        );
     }
 
     if let Some(code) = wait_for_callback().await {
@@ -246,23 +251,29 @@ async fn login_openai() {
             redirect_uri,
             &verifier,
             None,
-        ).await {
+        )
+        .await
+        {
             Ok(token_json) => {
-                let access_token = token_json["access_token"].as_str().unwrap_or_default().to_string();
+                let access_token = token_json["access_token"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
                 let refresh_token = token_json["refresh_token"].as_str().map(|s| s.to_string());
                 let expires_in = token_json["expires_in"].as_u64().unwrap_or(3600);
                 let expires_at = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
-                    .as_secs() as i64 + expires_in as i64;
-                
+                    .as_secs() as i64
+                    + expires_in as i64;
+
                 let token = ProviderToken {
                     access_token,
                     refresh_token,
                     expires_at: Some(expires_at),
                     project_id: None,
                 };
-                
+
                 let mut auth = AuthData::load();
                 auth.openai = Some(token);
                 auth.save();
@@ -278,8 +289,9 @@ async fn login_openai() {
 }
 
 async fn login_gemini() {
-    let client_id = std::env::var("FORJA_GOOGLE_CLIENT_ID")
-        .unwrap_or_else(|_| "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com".into());
+    let client_id = std::env::var("FORJA_GOOGLE_CLIENT_ID").unwrap_or_else(|_| {
+        "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com".into()
+    });
     let client_id = client_id.as_str();
     let redirect_uri = "http://localhost:1455/auth/callback";
     let (verifier, challenge) = generate_pkce_challenge();
@@ -291,12 +303,15 @@ async fn login_gemini() {
 
     println!("Opening browser for Gemini login...");
     if open::that(&auth_url).is_err() {
-        println!("Could not open the browser. Open this URL manually:\n{}", auth_url);
+        println!(
+            "Could not open the browser. Open this URL manually:\n{}",
+            auth_url
+        );
     }
 
     if let Some(code) = wait_for_callback().await {
         println!("Received code. Exchanging for token...");
-        
+
         let google_secret = std::env::var("FORJA_GOOGLE_CLIENT_SECRET")
             .unwrap_or_else(|_| "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".into());
 
@@ -307,20 +322,27 @@ async fn login_gemini() {
             redirect_uri,
             &verifier,
             Some(google_secret.as_str()),
-        ).await {
+        )
+        .await
+        {
             Ok(token_json) => {
-                let access_token = token_json["access_token"].as_str().unwrap_or_default().to_string();
+                let access_token = token_json["access_token"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
                 let refresh_token = token_json["refresh_token"].as_str().map(|s| s.to_string());
                 let expires_in = token_json["expires_in"].as_u64().unwrap_or(3600);
                 let expires_at = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
-                    .as_secs() as i64 + expires_in as i64;
-                
+                    .as_secs() as i64
+                    + expires_in as i64;
+
                 // Retrieve cloudaicompanionProject dynamically
                 let mut project_id = None;
                 let client = Client::new();
-                let assist_req = client.post("https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
+                let assist_req = client
+                    .post("https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")
                     .header("Authorization", format!("Bearer {}", access_token))
                     .header("Content-Type", "application/json")
                     .header("user-agent", "GeminiCLI/v22.12.0 (windows; x86_64)")
@@ -340,23 +362,39 @@ async fn login_gemini() {
                             let text = resp.text().await.unwrap_or_default();
                             // Debug output for error tracking
                             // println!("CodeAssist Response: {}", text);
-                            
-                            if let Ok(resp_json) = serde_json::from_str::<serde_json::Value>(&text) {
-                                if let Some(proj) = resp_json.get("cloudaicompanionProject").and_then(|v| v.as_str()) {
+
+                            if let Ok(resp_json) = serde_json::from_str::<serde_json::Value>(&text)
+                            {
+                                if let Some(proj) = resp_json
+                                    .get("cloudaicompanionProject")
+                                    .and_then(|v| v.as_str())
+                                {
                                     project_id = Some(proj.to_string());
                                 } else {
-                                    println!("⚠️ cloudaicompanionProject was missing from the response. Response: {}", text);
+                                    println!(
+                                        "⚠️ cloudaicompanionProject was missing from the response. Response: {}",
+                                        text
+                                    );
                                 }
                             } else {
-                                println!("⚠️ Could not parse the response JSON. Response: {}", text);
+                                println!(
+                                    "⚠️ Could not parse the response JSON. Response: {}",
+                                    text
+                                );
                             }
                         } else {
                             let text = resp.text().await.unwrap_or_default();
-                            println!("⚠️ loadCodeAssist request failed. Status: {}, response: {}", status, text);
+                            println!(
+                                "⚠️ loadCodeAssist request failed. Status: {}, response: {}",
+                                status, text
+                            );
                         }
                     }
                     Err(e) => {
-                        println!("⚠️ loadCodeAssist request failed before completion: {:?}", e);
+                        println!(
+                            "⚠️ loadCodeAssist request failed before completion: {:?}",
+                            e
+                        );
                     }
                 }
 
@@ -366,7 +404,7 @@ async fn login_gemini() {
                     expires_at: Some(expires_at),
                     project_id,
                 };
-                
+
                 let mut auth = AuthData::load();
                 auth.gemini = Some(token);
                 auth.save();
@@ -403,7 +441,8 @@ async fn login_anthropic() {
 
 async fn refresh_openai_token(refresh_token: &str) -> Option<ProviderToken> {
     let client = reqwest::Client::new();
-    let resp = client.post("https://auth.openai.com/oauth/token")
+    let resp = client
+        .post("https://auth.openai.com/oauth/token")
         .form(&[
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
@@ -412,20 +451,24 @@ async fn refresh_openai_token(refresh_token: &str) -> Option<ProviderToken> {
         .send()
         .await
         .ok()?;
-    
-    if !resp.status().is_success() { return None; }
-    
+
+    if !resp.status().is_success() {
+        return None;
+    }
+
     let json: serde_json::Value = resp.json().await.ok()?;
     let access_token = json["access_token"].as_str()?.to_string();
-    let new_refresh = json["refresh_token"].as_str()
+    let new_refresh = json["refresh_token"]
+        .as_str()
         .map(|s| s.to_string())
         .or_else(|| Some(refresh_token.to_string()));
     let expires_in = json["expires_in"].as_u64().unwrap_or(864000);
     let expires_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64 + expires_in as i64;
-    
+        .as_secs() as i64
+        + expires_in as i64;
+
     Some(ProviderToken {
         access_token,
         refresh_token: new_refresh,
@@ -435,13 +478,15 @@ async fn refresh_openai_token(refresh_token: &str) -> Option<ProviderToken> {
 }
 
 async fn refresh_gemini_token(refresh_token: &str) -> Option<ProviderToken> {
-    let client_id = std::env::var("FORJA_GOOGLE_CLIENT_ID")
-        .unwrap_or_else(|_| "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com".into());
+    let client_id = std::env::var("FORJA_GOOGLE_CLIENT_ID").unwrap_or_else(|_| {
+        "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com".into()
+    });
     let client_secret = std::env::var("FORJA_GOOGLE_CLIENT_SECRET")
         .unwrap_or_else(|_| "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".into());
-    
+
     let client = reqwest::Client::new();
-    let resp = client.post("https://oauth2.googleapis.com/token")
+    let resp = client
+        .post("https://oauth2.googleapis.com/token")
         .form(&[
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token),
@@ -451,24 +496,28 @@ async fn refresh_gemini_token(refresh_token: &str) -> Option<ProviderToken> {
         .send()
         .await
         .ok()?;
-    
-    if !resp.status().is_success() { return None; }
-    
+
+    if !resp.status().is_success() {
+        return None;
+    }
+
     let json: serde_json::Value = resp.json().await.ok()?;
     let access_token = json["access_token"].as_str()?.to_string();
-    let new_refresh = json["refresh_token"].as_str()
+    let new_refresh = json["refresh_token"]
+        .as_str()
         .map(|s| s.to_string())
         .or_else(|| Some(refresh_token.to_string()));
     let expires_in = json["expires_in"].as_u64().unwrap_or(3600);
     let expires_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_secs() as i64 + expires_in as i64;
-    
+        .as_secs() as i64
+        + expires_in as i64;
+
     // Preserve the existing project_id
     let auth = AuthData::load();
     let project_id = auth.gemini.and_then(|t| t.project_id);
-    
+
     Some(ProviderToken {
         access_token,
         refresh_token: new_refresh,

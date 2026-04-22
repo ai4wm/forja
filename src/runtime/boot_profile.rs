@@ -25,8 +25,12 @@ pub(crate) fn build_profile_bundle(
         .map_err(|error| ForjaError::Internal(error.to_string()))?;
     let (combined_prompt, loaded_project_file) = build_system_prompt(&bootstrap_paths)
         .map_err(|error| ForjaError::Internal(error.to_string()))?;
-    let tool_prompt =
-        build_tool_prompt(shell_enabled, input_enabled, browser_enabled, vision_enabled);
+    let tool_prompt = build_tool_prompt(
+        shell_enabled,
+        input_enabled,
+        browser_enabled,
+        vision_enabled,
+    );
 
     Ok(ProfileBundle {
         assistant_name: configured_name(
@@ -47,11 +51,7 @@ pub(crate) fn build_profile_bundle(
     })
 }
 
-fn configured_name(
-    configured_value: Option<String>,
-    env_name: &str,
-    fallback: &str,
-) -> String {
+fn configured_name(configured_value: Option<String>, env_name: &str, fallback: &str) -> String {
     configured_value
         .or_else(|| std::env::var(env_name).ok())
         .filter(|value| !value.trim().is_empty())
