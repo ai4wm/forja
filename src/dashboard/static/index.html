@@ -3,507 +3,236 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Forja Dashboard</title>
-  <style>
-    :root {
-      --bg: #0f1117;
-      --panel: #171923;
-      --panel-2: #1f2330;
-      --text: #e6e8ef;
-      --muted: #9aa3b2;
-      --line: #2b3140;
-      --blue: #4da3ff;
-      --red: #ff6b6b;
-      --green: #3ddc97;
-      --yellow: #f7c948;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: "Segoe UI", sans-serif;
-      background: radial-gradient(circle at top, #182033 0%, var(--bg) 55%);
-      color: var(--text);
-    }
-    header {
-      padding: 20px 24px 8px;
-      border-bottom: 1px solid var(--line);
-      background: rgba(15, 17, 23, 0.92);
-      backdrop-filter: blur(12px);
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    h1 { margin: 0 0 6px; font-size: 24px; }
-    .subtitle { color: var(--muted); font-size: 14px; }
-    .tabs {
-      display: flex;
-      gap: 10px;
-      margin-top: 16px;
-      flex-wrap: wrap;
-    }
-    .tab-button {
-      border: 1px solid var(--line);
-      background: var(--panel);
-      color: var(--text);
-      padding: 10px 14px;
-      border-radius: 999px;
-      cursor: pointer;
-    }
-    .tab-button.active {
-      background: var(--blue);
-      border-color: var(--blue);
-      color: #071220;
-      font-weight: 600;
-    }
-    main {
-      padding: 24px;
-      display: grid;
-      gap: 20px;
-    }
-    .panel {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 16px;
-      padding: 18px;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
-    }
-    .hidden { display: none; }
-    .toolbar {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      margin-bottom: 14px;
-      flex-wrap: wrap;
-    }
-    input, select {
-      background: var(--panel-2);
-      color: var(--text);
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 10px 12px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }
-    th, td {
-      text-align: left;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--line);
-      vertical-align: top;
-    }
-    th { color: var(--muted); font-weight: 600; }
-    .muted { color: var(--muted); }
-    .grid {
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      gap: 16px;
-    }
-    .debate-list {
-      display: grid;
-      gap: 10px;
-      max-height: 70vh;
-      overflow: auto;
-    }
-    .debate-item {
-      padding: 12px;
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      background: var(--panel-2);
-      cursor: pointer;
-    }
-    .debate-item.active {
-      border-color: var(--blue);
-      box-shadow: inset 0 0 0 1px var(--blue);
-    }
-    .transcript {
-      display: grid;
-      gap: 12px;
-      max-height: 70vh;
-      overflow: auto;
-    }
-    .bubble {
-      border-radius: 14px;
-      padding: 12px 14px;
-      line-height: 1.5;
-      border: 1px solid var(--line);
-      background: var(--panel-2);
-    }
-    .bubble.diverge { border-left: 4px solid var(--blue); }
-    .bubble.conflict { border-left: 4px solid var(--red); }
-    .bubble.converge { border-left: 4px solid var(--green); }
-    .bubble-header {
-      font-size: 13px;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-    .budget-grid {
-      display: grid;
-      gap: 14px;
-    }
-    .budget-card {
-      padding: 14px;
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: var(--panel-2);
-    }
-    .budget-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 8px;
-    }
-    .bar {
-      width: 100%;
-      height: 14px;
-      border-radius: 999px;
-      background: #0b0d13;
-      overflow: hidden;
-      border: 1px solid var(--line);
-    }
-    .bar-fill {
-      height: 100%;
-      background: linear-gradient(90deg, var(--green), var(--yellow), var(--red));
-    }
-    pre {
-      margin: 0;
-      white-space: pre-wrap;
-      word-break: break-word;
-      color: #d7deea;
-    }
-    @media (max-width: 960px) {
-      .grid { grid-template-columns: 1fr; }
-    }
-  </style>
+  <title>Forja Desktop Dashboard</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
 <body>
-  <header>
-    <h1>Forja 로컬 대시보드</h1>
-    <div class="subtitle">
-      audit.db 기반 실시간 모니터링 · 5초 자동 새로고침 ·
-      <span id="telegram-status">Telegram: Disconnected</span>
-    </div>
-    <div class="tabs">
-      <button class="tab-button active" data-tab="audit">Audit Log</button>
+  <div class="app-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Forja Desktop Surface</p>
+        <h1>Conversation, memory, and tool activity in one local cockpit.</h1>
+        <p class="hero-copy">
+          Axum-backed desktop dashboard for the running Forja runtime.
+        </p>
+      </div>
+      <div class="hero-status">
+        <div class="status-card">
+          <span class="status-label">Telegram</span>
+          <strong id="telegram-status">Disconnected</strong>
+        </div>
+        <div class="status-card">
+          <span class="status-label">Stream</span>
+          <strong id="stream-status">Idle</strong>
+        </div>
+      </div>
+    </header>
+
+    <nav class="tab-strip">
+      <button class="tab-button active" data-tab="chat">Chat</button>
+      <button class="tab-button" data-tab="audit">Audit</button>
       <button class="tab-button" data-tab="debates">Debates</button>
       <button class="tab-button" data-tab="budget">Budget</button>
       <button class="tab-button" data-tab="tasks">Tasks</button>
-      <button class="tab-button" data-tab="history">History</button>
       <button class="tab-button" data-tab="tools">Tools</button>
       <button class="tab-button" data-tab="memory">Memory</button>
-    </div>
-  </header>
+    </nav>
 
-  <main>
-    <section id="tab-audit" class="panel">
-      <div class="toolbar">
-        <label>이벤트 타입
-          <input id="audit-filter" placeholder="예: debate_message">
-        </label>
-        <label>표시 개수
-          <select id="audit-limit">
-            <option value="25">25</option>
-            <option value="50" selected>50</option>
-            <option value="100">100</option>
-          </select>
-        </label>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>시간</th>
-            <th>이벤트</th>
-            <th>에이전트</th>
-            <th>토큰</th>
-            <th>페이로드</th>
-          </tr>
-        </thead>
-        <tbody id="audit-body"></tbody>
-      </table>
-    </section>
+    <main class="workspace">
+      <section id="tab-chat" class="tab-panel active">
+        <div class="chat-layout">
+          <article class="panel chat-panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Live Conversation</p>
+                <h2>Desktop chat</h2>
+              </div>
+            </div>
+            <div id="chat-thread" class="chat-thread"></div>
+            <form id="chat-form" class="composer">
+              <label class="composer-label" for="chat-input">Message</label>
+              <textarea id="chat-input" rows="4" placeholder="Ask Forja anything..."></textarea>
+              <div class="composer-actions">
+                <span id="chat-hint" class="muted">Streaming replies arrive here in real time.</span>
+                <button type="submit" class="primary-button">Send</button>
+              </div>
+            </form>
+          </article>
 
-    <section id="tab-debates" class="panel hidden">
-      <div class="grid">
-        <div>
-          <div class="muted" style="margin-bottom:10px;">토론 목록</div>
-          <div id="debate-list" class="debate-list"></div>
-        </div>
-        <div>
-          <div class="muted" style="margin-bottom:10px;">토론 transcript</div>
-          <div id="transcript" class="transcript"></div>
-        </div>
-      </div>
-    </section>
+          <div class="stack">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <p class="section-kicker">Recent Flow</p>
+                  <h2>Conversation timeline</h2>
+                </div>
+              </div>
+              <div id="conversation-feed" class="event-list"></div>
+            </article>
 
-    <section id="tab-budget" class="panel hidden">
-      <div id="budget-grid" class="budget-grid"></div>
-    </section>
-
-    <section id="tab-tasks" class="panel hidden">
-      <div class="grid">
-        <div>
-          <div class="muted" style="margin-bottom:10px;">태스크 큐</div>
-          <div id="task-list" class="debate-list"></div>
-        </div>
-        <div style="display:grid; gap:16px;">
-          <div>
-            <div class="muted" style="margin-bottom:10px;">스킬 목록</div>
-            <div id="skills-list" class="debate-list"></div>
-          </div>
-          <div>
-            <div class="muted" style="margin-bottom:10px;">미해결 문제</div>
-            <div id="unresolved-list" class="debate-list"></div>
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <p class="section-kicker">Runtime</p>
+                  <h2>Live events</h2>
+                </div>
+              </div>
+              <div id="event-stream" class="event-list compact"></div>
+            </article>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section id="tab-history" class="panel hidden">
-      <div class="muted" style="margin-bottom:10px;">세션 히스토리</div>
-      <div id="history-list" class="debate-list"></div>
-    </section>
-
-    <section id="tab-tools" class="panel hidden">
-      <div class="muted" style="margin-bottom:10px;">도구 실행 로그</div>
-      <div id="tools-list" class="debate-list"></div>
-    </section>
-
-    <section id="tab-memory" class="panel hidden">
-      <div class="muted" style="margin-bottom:10px;">메모리 상태</div>
-      <div id="memory-state" class="debate-list"></div>
-      <div class="muted" style="margin:16px 0 10px;">실시간 이벤트</div>
-      <div id="event-stream" class="debate-list"></div>
-    </section>
-  </main>
-
-  <script>
-    const tabs = document.querySelectorAll(".tab-button");
-    const sections = {
-      audit: document.getElementById("tab-audit"),
-      debates: document.getElementById("tab-debates"),
-      budget: document.getElementById("tab-budget"),
-      tasks: document.getElementById("tab-tasks"),
-      history: document.getElementById("tab-history"),
-      tools: document.getElementById("tab-tools"),
-      memory: document.getElementById("tab-memory")
-    };
-
-    tabs.forEach((button) => {
-      button.addEventListener("click", () => {
-        tabs.forEach((item) => item.classList.remove("active"));
-        button.classList.add("active");
-        Object.values(sections).forEach((section) => section.classList.add("hidden"));
-        sections[button.dataset.tab].classList.remove("hidden");
-      });
-    });
-
-    async function fetchJson(url) {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      return response.json();
-    }
-
-    async function loadAudit() {
-      const filter = document.getElementById("audit-filter").value.trim();
-      const limit = document.getElementById("audit-limit").value;
-      const query = new URLSearchParams({ limit });
-      if (filter) {
-        query.set("event_type", filter);
-      }
-      const rows = await fetchJson(`/api/audit?${query.toString()}`);
-      const body = document.getElementById("audit-body");
-      body.innerHTML = rows.map((row) => `
-        <tr>
-          <td>${row.timestamp}</td>
-          <td>${row.event_type}</td>
-          <td>${row.agent_id}</td>
-          <td>${row.token_count}</td>
-          <td><pre>${JSON.stringify(row.payload, null, 2)}</pre></td>
-        </tr>
-      `).join("");
-    }
-
-    async function loadDebates() {
-      const debates = await fetchJson("/api/debates");
-      const list = document.getElementById("debate-list");
-      list.innerHTML = debates.map((debate, index) => `
-        <div class="debate-item ${index === 0 ? "active" : ""}" data-id="${debate.id}">
-          <div><strong>${debate.started_at}</strong></div>
-          <div class="muted">메시지 ${debate.message_count}개</div>
-          <div>${debate.preview || "(미리보기 없음)"}</div>
-        </div>
-      `).join("");
-
-      document.querySelectorAll(".debate-item").forEach((item) => {
-        item.addEventListener("click", async () => {
-          document.querySelectorAll(".debate-item").forEach((node) => node.classList.remove("active"));
-          item.classList.add("active");
-          await loadDebateTranscript(item.dataset.id);
-        });
-      });
-
-      if (debates.length > 0) {
-        await loadDebateTranscript(debates[0].id);
-      } else {
-        document.getElementById("transcript").innerHTML = '<div class="muted">토론 기록이 없습니다.</div>';
-      }
-    }
-
-    async function loadDebateTranscript(id) {
-      const transcript = await fetchJson(`/api/debate/${id}`);
-      const container = document.getElementById("transcript");
-      container.innerHTML = transcript.map((message) => {
-        const phaseClass = message.phase.toLowerCase();
-        return `
-          <div class="bubble ${phaseClass}">
-            <div class="bubble-header">[${message.phase}][R${message.round}] ${message.role} · ${message.timestamp}</div>
-            <div>${message.content}</div>
+      <section id="tab-audit" class="tab-panel">
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Trace</p>
+              <h2>Audit log</h2>
+            </div>
+            <div class="toolbar">
+              <input id="audit-filter" placeholder="event_type">
+              <select id="audit-limit">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
           </div>
-        `;
-      }).join("");
-    }
-
-    async function loadBudget() {
-      const rows = await fetchJson("/api/budget");
-      const grid = document.getElementById("budget-grid");
-      grid.innerHTML = rows.map((row) => `
-        <div class="budget-card">
-          <div class="budget-row">
-            <strong>${row.agent_id}</strong>
-            <span>${row.used_tokens} / ${row.monthly_limit}</span>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Event</th>
+                  <th>Agent</th>
+                  <th>Tokens</th>
+                  <th>Payload</th>
+                </tr>
+              </thead>
+              <tbody id="audit-body"></tbody>
+            </table>
           </div>
-          <div class="bar">
-            <div class="bar-fill" style="width:${Math.min(row.percent, 100)}%"></div>
+        </article>
+      </section>
+
+      <section id="tab-debates" class="tab-panel">
+        <div class="two-column">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Creation</p>
+                <h2>Debates</h2>
+              </div>
+            </div>
+            <div id="debate-list" class="event-list"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Transcript</p>
+                <h2>Selected debate</h2>
+              </div>
+            </div>
+            <div id="transcript" class="chat-thread"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="tab-budget" class="tab-panel">
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Usage</p>
+              <h2>Agent budgets</h2>
+            </div>
           </div>
-          <div class="budget-row" style="margin-top:8px;">
-            <span class="muted">월 키: ${row.month_key}</span>
-            <span>${row.percent}%</span>
+          <div id="budget-grid" class="budget-grid"></div>
+        </article>
+      </section>
+
+      <section id="tab-tasks" class="tab-panel">
+        <div class="three-column">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Autonomy</p>
+                <h2>Tasks</h2>
+              </div>
+            </div>
+            <div id="task-list" class="event-list"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Skills</p>
+                <h2>Learned tools</h2>
+              </div>
+            </div>
+            <div id="skills-list" class="event-list"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Recovery</p>
+                <h2>Unresolved</h2>
+              </div>
+            </div>
+            <div id="unresolved-list" class="event-list"></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="tab-tools" class="tab-panel">
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <p class="section-kicker">Operations</p>
+              <h2>Tool monitor</h2>
+            </div>
           </div>
+          <div id="tools-list" class="event-list"></div>
+        </article>
+      </section>
+
+      <section id="tab-memory" class="tab-panel">
+        <div class="memory-layout">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">State</p>
+                <h2>Memory overview</h2>
+              </div>
+              <div class="toolbar">
+                <input id="memory-query" placeholder="search memory">
+                <button id="memory-search" class="ghost-button" type="button">Search</button>
+              </div>
+            </div>
+            <div id="memory-state" class="stats-grid"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Entries</p>
+                <h2>Memory browser</h2>
+              </div>
+            </div>
+            <div id="memory-entries" class="event-list"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <p class="section-kicker">Summaries</p>
+                <h2>Condensed memory</h2>
+              </div>
+            </div>
+            <div id="memory-summaries" class="event-list"></div>
+          </article>
         </div>
-      `).join("");
-    }
+      </section>
+    </main>
+  </div>
 
-    async function approveTask(id) {
-      await fetch(`/api/approve/${id}`, { method: "POST" });
-      await loadTasks();
-    }
-
-    async function loadTasks() {
-      const [tasks, skills, unresolved] = await Promise.all([
-        fetchJson("/api/tasks"),
-        fetchJson("/api/skills"),
-        fetchJson("/api/unresolved")
-      ]);
-      const statusColor = (status) => {
-        if (status === "running") return "#4da3ff";
-        if (status === "completed") return "#3ddc97";
-        if (status === "failed") return "#ff6b6b";
-        return "#f7c948";
-      };
-
-      const taskList = document.getElementById("task-list");
-      taskList.innerHTML = tasks.map((task) => `
-        <div class="debate-item">
-          <div><strong>#${task.id}</strong> ${task.description}</div>
-          <div class="muted">source=${task.source} · <span style="color:${statusColor(task.status)}">status=${task.status}</span></div>
-          <div class="muted">created=${task.created_at}</div>
-          ${task.requires_approval ? `<button class="tab-button" onclick="approveTask(${task.id})">승인</button>` : ""}
-        </div>
-      `).join("");
-
-      const skillsList = document.getElementById("skills-list");
-      skillsList.innerHTML = skills.map((skill) => `
-        <div class="debate-item">
-          <div><strong>${skill.tool_name}</strong></div>
-          <div class="muted">success=${skill.success_count}</div>
-          <div class="muted">auto_approved=${skill.auto_approved}</div>
-          <div class="muted">last_used=${skill.last_used || "-"}</div>
-        </div>
-      `).join("");
-
-      const unresolvedList = document.getElementById("unresolved-list");
-      unresolvedList.innerHTML = unresolved.map((item) => `
-        <div class="debate-item">
-          <div><strong>#${item.id}</strong> ${item.task}</div>
-          <div class="muted">retry=${item.retry_count}/${item.max_retries} · status=${item.status}</div>
-          <div>${item.error || ""}</div>
-        </div>
-      `).join("");
-    }
-
-    async function loadHistory() {
-      const rows = await fetchJson("/api/history");
-      const list = document.getElementById("history-list");
-      list.innerHTML = rows.map((row) => `
-        <div class="debate-item">
-          <div><strong>${row.timestamp}</strong></div>
-          <div class="muted">${row.event_type}</div>
-          <pre>${JSON.stringify(row.payload, null, 2)}</pre>
-        </div>
-      `).join("");
-    }
-
-    async function loadTools() {
-      const rows = await fetchJson("/api/tools");
-      const list = document.getElementById("tools-list");
-      list.innerHTML = rows.map((row) => `
-        <div class="debate-item">
-          <div><strong>${row.timestamp}</strong></div>
-          <div class="muted">${row.tool_name}</div>
-          <pre>${JSON.stringify(row.payload, null, 2)}</pre>
-        </div>
-      `).join("");
-    }
-
-    async function loadMemory() {
-      const state = await fetchJson("/api/memory");
-      const container = document.getElementById("memory-state");
-      container.innerHTML = `
-        <div class="debate-item"><strong>memory_entries</strong><div>${state.memory_entries}</div></div>
-        <div class="debate-item"><strong>memory_summaries</strong><div>${state.memory_summaries}</div></div>
-      `;
-    }
-
-    async function loadChannelStatus() {
-      const status = await fetchJson("/api/channel-status");
-      document.getElementById("telegram-status").textContent = `Telegram: ${status.telegram}`;
-    }
-
-    async function refreshAll() {
-      try {
-        await Promise.all([
-          loadAudit(),
-          loadDebates(),
-          loadBudget(),
-          loadTasks(),
-          loadHistory(),
-          loadTools(),
-          loadMemory(),
-          loadChannelStatus()
-        ]);
-      } catch (error) {
-        console.error(error);
-      }
-    }
-
-    document.getElementById("audit-filter").addEventListener("change", loadAudit);
-    document.getElementById("audit-limit").addEventListener("change", loadAudit);
-
-    refreshAll();
-    const eventList = document.getElementById("event-stream");
-    const events = new EventSource("/api/events");
-    events.onmessage = (event) => {
-      const item = document.createElement("div");
-      item.className = "debate-item";
-      item.innerHTML = `<pre>${event.data}</pre>`;
-      eventList.prepend(item);
-      while (eventList.children.length > 20) {
-        eventList.removeChild(eventList.lastChild);
-      }
-    };
-    setInterval(refreshAll, 5000);
-  </script>
+  <script src="/assets/dashboard.js"></script>
 </body>
 </html>

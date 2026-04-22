@@ -7,13 +7,13 @@ use crate::runtime::boot_engine::build_engine_bundle;
 use crate::runtime::boot_memory::build_memory_bundle;
 use crate::runtime::boot_profile::build_profile_bundle;
 use crate::runtime::boot_provider::build_provider_bundle;
-use crate::runtime::slash::{build_slash_handler, SlashHandlerDeps};
-use crate::runtime::tools::{register_tools, ToolRegistrationContext};
+use crate::runtime::slash::{SlashHandlerDeps, build_slash_handler};
+use crate::runtime::tools::{ToolRegistrationContext, register_tools};
+use forja_core::Engine;
 use forja_core::emotion::EmotionEngine;
 use forja_core::error::Result;
 use forja_core::mode::{ExecMode, ThinkLevel};
 use forja_core::traits::Channel;
-use forja_core::Engine;
 use std::sync::{Arc, Mutex};
 
 pub(crate) use crate::runtime::boot_config::RuntimeOptions;
@@ -46,6 +46,7 @@ pub(crate) async fn build_runtime(options: RuntimeOptions) -> Result<AppRuntime>
         &runtime_config.forja_cfg,
         &profile.bootstrap_paths,
         channel_bundle.telegram_status_provider,
+        channel_bundle.dashboard_bridge.clone(),
     );
     let autonomy_runtime = build_autonomy_runtime(&runtime_config.forja_cfg)?;
     let mut engine_bundle = build_engine_bundle(

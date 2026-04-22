@@ -1,6 +1,7 @@
 use crate::dashboard::routes::{
-    build_router_with_status, default_telegram_status_provider, TelegramStatusProvider,
+    TelegramStatusProvider, build_router, default_telegram_status_provider,
 };
+use forja_channel::dashboard_bridge::DashboardBridge;
 use forja_core::error::{ForjaError, Result};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
 use std::path::PathBuf;
@@ -16,6 +17,7 @@ pub struct DashboardServer {
     pub port: u16,
     pub db_path: PathBuf,
     pub telegram_status: TelegramStatusProvider,
+    pub dashboard_bridge: Option<DashboardBridge>,
     pub handle: Option<JoinHandle<()>>,
 }
 
@@ -25,6 +27,7 @@ impl DashboardServer {
             port,
             db_path,
             telegram_status: default_telegram_status_provider(),
+            dashboard_bridge: None,
             handle: None,
         }
     }
@@ -34,14 +37,20 @@ impl DashboardServer {
         self
     }
 
+    pub fn with_dashboard_bridge(mut self, dashboard_bridge: DashboardBridge) -> Self {
+        self.dashboard_bridge = Some(dashboard_bridge);
+        self
+    }
+
     pub fn start(&mut self) -> Result<String> {
         let url = format!("http://localhost:{}", self.port);
 
         if let Some(handle) = &self.handle
-            && !handle.is_finished() {
-                open::that(&url).map_err(|error| ForjaError::Internal(error.to_string()))?;
-                return Ok(url);
-            }
+            && !handle.is_finished()
+        {
+            open::that(&url).map_err(|error| ForjaError::Internal(error.to_string()))?;
+            return Ok(url);
+        }
 
         self.stop();
 
@@ -53,7 +62,11 @@ impl DashboardServer {
             .map_err(|error| ForjaError::Internal(error.to_string()))?;
         let listener = TokioTcpListener::from_std(listener)
             .map_err(|error| ForjaError::Internal(error.to_string()))?;
-        let app = build_router_with_status(self.db_path.clone(), self.telegram_status.clone());
+        let app = build_router(
+            self.db_path.clone(),
+            self.telegram_status.clone(),
+            self.dashboard_bridge.clone(),
+        );
 
         self.handle = Some(tokio::spawn(async move {
             if let Err(error) = axum::serve(listener, app).await {
