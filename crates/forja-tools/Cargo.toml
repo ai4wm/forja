@@ -1,14 +1,19 @@
 [package]
 name = "forja-tools"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
+rust-version = "1.87"
 description = "Tool execution and function calling toolkit for Forja framework"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ai4wm/forja"
+homepage = "https://github.com/ai4wm/forja"
+documentation = "https://docs.rs/forja-tools"
+keywords = ["ai", "agent", "tools", "mcp", "forja"]
+categories = ["development-tools", "asynchronous"]
 
 [dependencies]
-forja-core = { version = "0.1.1", path = "../forja-core" }
-tokio = { version = "1.0", features = ["fs", "io-util", "process"] }
+forja-core = { version = "0.1.2", path = "../forja-core" }
+tokio = { version = "1.0", features = ["fs", "io-util", "macros", "process", "rt-multi-thread"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 reqwest = { version = "0.12", features = ["json"] }
@@ -25,4 +30,7 @@ image = { version = "0.25", optional = true }
 default = ["browser", "vision"]
 browser = ["dep:chromiumoxide"]
 vision = ["dep:xcap", "dep:image"]
+
+[package.metadata.docs.rs]
+all-features = true
 
