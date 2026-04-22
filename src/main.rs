@@ -5,14 +5,14 @@ mod local_models;
 mod oauth;
 mod provider_registry;
 mod runtime;
-mod tui;
 #[cfg(test)]
 mod test_support;
+mod tui;
 
 use forja_core::error::Result;
 use forja_core::mode::Role as ModeRole;
-use runtime::shutdown::ShutdownSignal;
-use runtime::startup::{build_runtime, RuntimeOptions};
+use runtime::shutdown::{ShutdownSignal, ShutdownTriggerState};
+use runtime::startup::{RuntimeOptions, build_runtime};
 use std::io::Write;
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ fn print_banner(provider_info: &str) {
     ║                                       ║
     ║     ⚒️  F O R J A                      ║
     ║     Lightweight AI Agent Engine       ║
-    ║     v0.1.0                            ║
+    ║     v0.1.2                            ║
     ║                                       ║
     ╚═══════════════════════════════════════╝"#;
     println!("{banner}");
@@ -60,6 +60,11 @@ fn parse_runtime_options(args: &[String]) -> RuntimeOptions {
         new_provider,
         new_model,
     }
+}
+
+fn print_shutdown_warning() {
+    eprint!("\r\x1b[K종료하려면 2초 안에 Ctrl+C를 한 번 더 누르세요.\n> ");
+    std::io::stdout().flush().ok();
 }
 
 #[tokio::main]
@@ -107,10 +112,18 @@ async fn main() -> Result<()> {
 
     let shutdown_signal = ShutdownSignal::new();
     let ctrlc_shutdown_signal = shutdown_signal.clone();
-    ctrlc::set_handler(move || {
-        let _ = ctrlc_shutdown_signal.trigger();
-    })
-    .map_err(|error| forja_core::error::ForjaError::Internal(error.to_string()))?;
+    tokio::spawn(async move {
+        loop {
+            if tokio::signal::ctrl_c().await.is_err() {
+                break;
+            }
+
+            match ctrlc_shutdown_signal.trigger() {
+                ShutdownTriggerState::Armed => print_shutdown_warning(),
+                ShutdownTriggerState::Triggered => break,
+            }
+        }
+    });
 
     let mut engine = runtime.engine;
     let dashboard_server = runtime.dashboard_server;
