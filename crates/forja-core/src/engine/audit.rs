@@ -42,7 +42,12 @@ impl Engine {
         );
     }
 
-    pub(super) fn log_compression_event(&self, kind: &str, before_tokens: usize, after_tokens: usize) {
+    pub(super) fn log_compression_event(
+        &self,
+        kind: &str,
+        before_tokens: usize,
+        after_tokens: usize,
+    ) {
         self.log_audit_event(
             "compression",
             serde_json::json!({
@@ -105,10 +110,12 @@ impl Engine {
     }
 
     fn active_channel_name(&self) -> Option<&'static str> {
-        if self.channel.is_cli_source() {
-            Some("cli")
-        } else {
-            Some("telegram")
-        }
+        self.channel.active_channel_name().or_else(|| {
+            if self.channel.is_cli_source() {
+                Some("cli")
+            } else {
+                Some("telegram")
+            }
+        })
     }
 }

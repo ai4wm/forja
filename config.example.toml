@@ -12,6 +12,12 @@ moonshot = "sk-YOUR_MOONSHOT_API_KEY"
 bot_token = "YOUR_TELEGRAM_BOT_TOKEN"
 allowed_chat_ids = [123456789]
 
+[channel.discord]
+bot_token = "YOUR_DISCORD_BOT_TOKEN"
+allowed_user_ids = [123456789012345678]
+# allowed_channel_ids = [123456789012345678]
+# allowed_guild_ids = [123456789012345678]
+
 [tools.search]
 provider = "duckduckgo"
 # xai_api_key = ""

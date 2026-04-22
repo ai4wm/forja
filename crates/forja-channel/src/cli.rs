@@ -39,7 +39,10 @@ impl Channel for CliChannel {
         // Print prompt (using std io::Write + flush instead of async)
         print!("> ");
         if let Err(e) = std::io::stdout().flush() {
-            return Err(ForjaError::ChannelError(format!("Stdout flush failed: {}", e)));
+            return Err(ForjaError::ChannelError(format!(
+                "Stdout flush failed: {}",
+                e
+            )));
         }
 
         let stdin = io::stdin();
@@ -48,7 +51,9 @@ impl Channel for CliChannel {
 
         loop {
             let mut line = String::new();
-            let bytes_read = reader.read_line(&mut line).await
+            let bytes_read = reader
+                .read_line(&mut line)
+                .await
                 .map_err(|e| ForjaError::ChannelError(format!("Failed to read stdin: {}", e)))?;
 
             if bytes_read == 0 {
@@ -60,14 +65,17 @@ impl Channel for CliChannel {
             if process_line(trimmed, &mut buffer) {
                 print!("... ");
                 if let Err(e) = std::io::stdout().flush() {
-                    return Err(ForjaError::ChannelError(format!("Stdout flush failed: {}", e)));
+                    return Err(ForjaError::ChannelError(format!(
+                        "Stdout flush failed: {}",
+                        e
+                    )));
                 }
                 continue;
             }
 
             break;
         }
-        
+
         // Empty input is returned as-is; engine can retry.
         let adapter = CliAdapter;
         let raw = Message::text(Role::User, buffer, None);
@@ -107,7 +115,6 @@ impl Channel for CliChannel {
         true
     }
 
-
     async fn cancel_typing(&self) {
         print!("\r\x1b[K");
         let _ = std::io::stdout().flush();
@@ -119,4 +126,3 @@ impl Channel for CliChannel {
         let _ = std::io::stdout().flush();
     }
 }
-

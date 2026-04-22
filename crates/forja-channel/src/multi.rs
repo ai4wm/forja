@@ -1,40 +1,60 @@
-use async_trait::async_trait;
+use crate::cli::process_line;
+use crate::dashboard_bridge::DashboardBridge;
+#[cfg(feature = "discord")]
+use crate::discord::{DiscordAllowlist, DiscordChannel};
 #[cfg(feature = "notification")]
 use crate::notification::NotificationManager;
 #[cfg(feature = "telegram")]
 use crate::telegram_supervisor::{
-    start_telegram_supervisor, TelegramRuntimeHandle, TelegramStatusHandle, TelegramWorkerCommand,
+    TelegramRuntimeHandle, TelegramStatusHandle, TelegramWorkerCommand, start_telegram_supervisor,
 };
 #[cfg(feature = "voice")]
 use crate::voice::{VoiceChannel, VoiceConfig};
+use async_trait::async_trait;
+#[cfg(feature = "discord")]
+use forja_core::gateway::adapter::DiscordAdapter;
+#[cfg(feature = "telegram")]
+use forja_core::gateway::adapter::TelegramAdapter;
 use forja_core::gateway::adapter::{ChannelAdapter, CliAdapter};
 use forja_core::traits::{
     NotificationLevel, NotificationState, NotificationTopic, TelegramConnectionStatus,
     VoiceChannelStatus,
 };
-use forja_core::{Channel, Content, Role, Message as CoreMessage};
-#[cfg(feature = "telegram")]
-use forja_core::gateway::adapter::TelegramAdapter;
-use crate::cli::process_line;
+use forja_core::{Channel, Content, Message as CoreMessage, Role};
 use std::io::Write;
-#[cfg(feature = "voice")]
+#[cfg(any(feature = "voice", feature = "discord"))]
 use std::sync::Arc;
 #[cfg(feature = "telegram")]
 use std::sync::Mutex as StdMutex;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, broadcast, mpsc};
+
+#[cfg(feature = "discord")]
+#[derive(Clone, Debug)]
+pub struct DiscordRuntimeConfig {
+    pub bot_token: String,
+    pub allowlist: DiscordAllowlist,
+}
 
 #[derive(Clone, Debug)]
 pub enum ChannelSource {
     Cli,
+    Dashboard,
+    #[cfg(feature = "discord")]
+    Discord,
     #[cfg(feature = "voice")]
     Voice,
     #[cfg(feature = "telegram")]
-    Telegram { chat_id: i64 },
+    Telegram {
+        chat_id: i64,
+    },
 }
 
 pub struct MultiChannel {
     receiver: Mutex<mpsc::Receiver<(ChannelSource, CoreMessage)>>,
     last_source: Mutex<Option<ChannelSource>>,
+    dashboard_bridge: DashboardBridge,
+    #[cfg(feature = "discord")]
+    discord_channel: Option<Arc<DiscordChannel>>,
     #[cfg(feature = "telegram")]
     telegram_runtime: StdMutex<Option<TelegramRuntimeHandle>>,
     #[cfg(feature = "voice")]
@@ -51,10 +71,29 @@ impl MultiChannel {
     pub async fn new(
         bot_token: Option<String>,
         allowed_chat_ids: Vec<i64>,
+        #[cfg(feature = "discord")] discord_config: Option<DiscordRuntimeConfig>,
         #[cfg(feature = "voice")] voice_config: Option<VoiceConfig>,
         #[cfg(feature = "notification")] notification_state: NotificationState,
     ) -> Self {
         let (tx, rx) = mpsc::channel::<(ChannelSource, CoreMessage)>(100);
+        let (dashboard_input_tx, mut dashboard_input_rx) = mpsc::channel::<String>(32);
+        let (dashboard_event_tx, _) = broadcast::channel(128);
+        let dashboard_bridge =
+            DashboardBridge::new(dashboard_input_tx.clone(), dashboard_event_tx.clone());
+
+        let tx_dashboard = tx.clone();
+        tokio::spawn(async move {
+            while let Some(text) = dashboard_input_rx.recv().await {
+                let message = CoreMessage::text(Role::User, text, None);
+                if tx_dashboard
+                    .send((ChannelSource::Dashboard, message))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
 
         let tx_cli = tx.clone();
         tokio::spawn(async move {
@@ -75,11 +114,17 @@ impl MultiChannel {
 
                         return buffer;
                     }
-                }).await.unwrap_or_default();
+                })
+                .await
+                .unwrap_or_default();
 
-                if line.is_empty() { continue; }
+                if line.is_empty() {
+                    continue;
+                }
                 let msg = CoreMessage::text(Role::User, line, None);
-                if tx_cli.send((ChannelSource::Cli, msg)).await.is_err() { break; }
+                if tx_cli.send((ChannelSource::Cli, msg)).await.is_err() {
+                    break;
+                }
             }
         });
 
@@ -94,7 +139,44 @@ impl MultiChannel {
                         Ok(message) => message,
                         Err(_) => break,
                     };
-                    if tx_voice.send((ChannelSource::Voice, message)).await.is_err() {
+                    if tx_voice
+                        .send((ChannelSource::Voice, message))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+        }
+
+        #[cfg(feature = "discord")]
+        let discord_channel = if let Some(config) = discord_config {
+            match DiscordChannel::new(config.bot_token, config.allowlist).await {
+                Ok(channel) => Some(Arc::new(channel)),
+                Err(error) => {
+                    eprintln!("[WARN] Discord startup failed: {error}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        #[cfg(feature = "discord")]
+        if let Some(discord_channel) = discord_channel.clone() {
+            let tx_discord = tx.clone();
+            tokio::spawn(async move {
+                loop {
+                    let message = match discord_channel.receive().await {
+                        Ok(message) => message,
+                        Err(_) => break,
+                    };
+                    if tx_discord
+                        .send((ChannelSource::Discord, message))
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -120,6 +202,9 @@ impl MultiChannel {
         Self {
             receiver: Mutex::new(rx),
             last_source: Mutex::new(Some(ChannelSource::Cli)),
+            dashboard_bridge,
+            #[cfg(feature = "discord")]
+            discord_channel,
             #[cfg(feature = "telegram")]
             telegram_runtime: StdMutex::new(telegram_runtime),
             #[cfg(feature = "voice")]
@@ -138,6 +223,8 @@ impl MultiChannel {
         Self::new(
             None,
             Vec::new(),
+            #[cfg(feature = "discord")]
+            None,
             #[cfg(feature = "voice")]
             None,
             #[cfg(feature = "notification")]
@@ -151,6 +238,8 @@ impl MultiChannel {
         Self::new(
             Some(bot_token),
             allowed_chat_ids,
+            #[cfg(feature = "discord")]
+            None,
             #[cfg(feature = "voice")]
             None,
             #[cfg(feature = "notification")]
@@ -174,8 +263,14 @@ impl MultiChannel {
         }
     }
 
+    pub fn dashboard_bridge(&self) -> DashboardBridge {
+        self.dashboard_bridge.clone()
+    }
+
     #[cfg(feature = "telegram")]
-    fn telegram_command_tx(&self) -> Option<tokio::sync::mpsc::UnboundedSender<TelegramWorkerCommand>> {
+    fn telegram_command_tx(
+        &self,
+    ) -> Option<tokio::sync::mpsc::UnboundedSender<TelegramWorkerCommand>> {
         self.telegram_runtime
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -196,13 +291,16 @@ impl MultiChannel {
     }
 
     #[cfg(feature = "telegram")]
-    pub fn telegram_status_handle(
-        &self,
-    ) -> crate::telegram_supervisor::TelegramStatusHandle {
+    pub fn telegram_status_handle(&self) -> crate::telegram_supervisor::TelegramStatusHandle {
         self.telegram_status.clone()
     }
 
     fn shutdown_inner(&self) {
+        #[cfg(feature = "discord")]
+        if let Some(discord_channel) = &self.discord_channel {
+            discord_channel.shutdown();
+        }
+
         #[cfg(feature = "voice")]
         if let Some(voice_channel) = &self.voice_channel {
             voice_channel.shutdown();
@@ -236,6 +334,9 @@ impl MultiChannel {
         Self {
             receiver: Mutex::new(receiver),
             last_source: Mutex::new(None),
+            dashboard_bridge: fallback_dashboard_bridge(),
+            #[cfg(feature = "discord")]
+            discord_channel: None,
             telegram_runtime: StdMutex::new(Some(TelegramRuntimeHandle {
                 command_tx,
                 thread_handle,
@@ -269,6 +370,9 @@ impl MultiChannel {
         Self {
             receiver: Mutex::new(receiver),
             last_source: Mutex::new(last_source),
+            dashboard_bridge: fallback_dashboard_bridge(),
+            #[cfg(feature = "discord")]
+            discord_channel: None,
             telegram_runtime: StdMutex::new(None),
             #[cfg(feature = "voice")]
             voice_channel: None,
@@ -314,6 +418,12 @@ impl Channel for MultiChannel {
                     let adapter = CliAdapter;
                     adapter.from_envelope(adapter.to_envelope(msg))
                 }
+                ChannelSource::Dashboard => msg,
+                #[cfg(feature = "discord")]
+                ChannelSource::Discord => {
+                    let adapter = DiscordAdapter;
+                    adapter.from_envelope(adapter.to_envelope(msg))
+                }
                 #[cfg(feature = "voice")]
                 ChannelSource::Voice => msg,
                 #[cfg(feature = "telegram")]
@@ -342,6 +452,12 @@ impl Channel for MultiChannel {
                     let adapter = CliAdapter;
                     adapter.from_envelope(adapter.to_envelope(message))
                 }
+                ChannelSource::Dashboard => message,
+                #[cfg(feature = "discord")]
+                ChannelSource::Discord => {
+                    let adapter = DiscordAdapter;
+                    adapter.from_envelope(adapter.to_envelope(message))
+                }
                 #[cfg(feature = "voice")]
                 ChannelSource::Voice => message,
                 #[cfg(feature = "telegram")]
@@ -360,7 +476,26 @@ impl Channel for MultiChannel {
                             println!("• {}", t);
                             print!("> ");
                             std::io::stdout().flush().ok();
-                        }).await;
+                        })
+                        .await;
+                    }
+                    ChannelSource::Dashboard => {
+                        self.dashboard_bridge.emit_assistant_message(text.clone());
+                    }
+                    #[cfg(feature = "discord")]
+                    ChannelSource::Discord => {
+                        if let Some(discord_channel) = &self.discord_channel {
+                            discord_channel
+                                .send(CoreMessage::text(Role::Assistant, text.clone(), None))
+                                .await?;
+                        }
+                        let log_text = text.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            println!("• {}", log_text);
+                            print!("> ");
+                            std::io::stdout().flush().ok();
+                        })
+                        .await;
                     }
                     #[cfg(feature = "voice")]
                     ChannelSource::Voice => {
@@ -383,12 +518,15 @@ impl Channel for MultiChannel {
                             self.telegram_status(),
                             Some(TelegramConnectionStatus::Connected)
                         ) {
-                            let warning = "[WARN] Telegram unavailable; dropped outgoing Telegram message.".to_string();
+                            let warning =
+                                "[WARN] Telegram unavailable; dropped outgoing Telegram message."
+                                    .to_string();
                             let _ = tokio::task::spawn_blocking(move || {
                                 println!("{warning}");
                                 print!("> ");
                                 std::io::stdout().flush().ok();
-                            }).await;
+                            })
+                            .await;
                             return Ok(());
                         }
 
@@ -410,7 +548,8 @@ impl Channel for MultiChannel {
                                 println!("• {}", log_text);
                                 print!("> ");
                                 std::io::stdout().flush().ok();
-                            }).await;
+                            })
+                            .await;
                         }
                     }
                 }
@@ -430,7 +569,30 @@ impl Channel for MultiChannel {
         }
     }
 
+    fn active_channel_name(&self) -> Option<&'static str> {
+        if let Ok(source) = self.last_source.try_lock() {
+            match *source {
+                Some(ChannelSource::Cli) => Some("cli"),
+                Some(ChannelSource::Dashboard) => Some("dashboard"),
+                #[cfg(feature = "discord")]
+                Some(ChannelSource::Discord) => Some("discord"),
+                #[cfg(feature = "voice")]
+                Some(ChannelSource::Voice) => Some("voice"),
+                #[cfg(feature = "telegram")]
+                Some(ChannelSource::Telegram { .. }) => Some("telegram"),
+                None => None,
+            }
+        } else {
+            None
+        }
+    }
+
     async fn cancel_typing(&self) {
+        #[cfg(feature = "discord")]
+        if let Some(discord_channel) = &self.discord_channel {
+            discord_channel.cancel_typing().await;
+        }
+
         #[cfg(feature = "voice")]
         if let Some(voice_channel) = &self.voice_channel {
             voice_channel.cancel_typing().await;
@@ -453,6 +615,13 @@ impl Channel for MultiChannel {
                 std::io::stdout().flush().ok();
             })
             .await;
+        }
+    }
+
+    async fn stream_chunk(&self, text: &str) {
+        let last_source = self.last_source.lock().await.clone();
+        if matches!(last_source, Some(ChannelSource::Dashboard)) {
+            self.dashboard_bridge.emit_assistant_chunk(text.to_string());
         }
     }
 
@@ -569,7 +738,10 @@ impl Channel for MultiChannel {
         }
     }
 
-    async fn set_voice_enabled(&self, enabled: bool) -> forja_core::error::Result<VoiceChannelStatus> {
+    async fn set_voice_enabled(
+        &self,
+        enabled: bool,
+    ) -> forja_core::error::Result<VoiceChannelStatus> {
         #[cfg(feature = "voice")]
         {
             if let Some(voice_channel) = &self.voice_channel {
@@ -597,7 +769,10 @@ impl Channel for MultiChannel {
         }
     }
 
-    async fn set_notifications_enabled(&self, enabled: bool) -> forja_core::error::Result<NotificationState> {
+    async fn set_notifications_enabled(
+        &self,
+        enabled: bool,
+    ) -> forja_core::error::Result<NotificationState> {
         #[cfg(feature = "notification")]
         {
             return Ok(self.notification_manager.set_enabled(enabled));
@@ -615,4 +790,11 @@ impl Drop for MultiChannel {
     fn drop(&mut self) {
         self.shutdown_inner();
     }
+}
+
+#[cfg(feature = "telegram")]
+fn fallback_dashboard_bridge() -> DashboardBridge {
+    let (input_tx, _input_rx) = mpsc::channel::<String>(1);
+    let (event_tx, _) = broadcast::channel(1);
+    DashboardBridge::new(input_tx, event_tx)
 }

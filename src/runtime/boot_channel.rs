@@ -1,15 +1,21 @@
 use crate::config::ForjaConfig;
 use crate::dashboard::routes::TelegramStatusProvider;
+use forja_channel::dashboard_bridge::DashboardBridge;
+#[cfg(feature = "discord")]
+use forja_channel::discord::DiscordAllowlist;
+#[cfg(feature = "discord")]
+use forja_channel::multi::DiscordRuntimeConfig;
 use forja_channel::multi::MultiChannel;
-#[cfg(feature = "notification")]
-use forja_core::traits::{NotificationLevel, NotificationState};
 #[cfg(feature = "voice")]
 use forja_channel::voice::VoiceConfig;
 use forja_core::traits::{Channel, TelegramConnectionStatus};
+#[cfg(feature = "notification")]
+use forja_core::traits::{NotificationLevel, NotificationState};
 use std::sync::Arc;
 
 pub(crate) struct ChannelBundle {
     pub(crate) channel: Arc<dyn Channel>,
+    pub(crate) dashboard_bridge: DashboardBridge,
     pub(crate) interactive_identity_supported: bool,
     pub(crate) print_initial_prompt: bool,
     pub(crate) telegram_status_provider: TelegramStatusProvider,
@@ -32,6 +38,22 @@ pub(crate) async fn build_channel_bundle(forja_cfg: &ForjaConfig) -> ChannelBund
     #[cfg(not(feature = "telegram"))]
     let allowed_chat_ids = Vec::new();
 
+    #[cfg(feature = "discord")]
+    let discord_config = forja_cfg
+        .channel
+        .discord
+        .bot_token
+        .clone()
+        .or_else(|| std::env::var("DISCORD_BOT_TOKEN").ok())
+        .map(|bot_token| DiscordRuntimeConfig {
+            bot_token,
+            allowlist: DiscordAllowlist {
+                allowed_user_ids: forja_cfg.channel.discord.allowed_user_ids.clone(),
+                allowed_channel_ids: forja_cfg.channel.discord.allowed_channel_ids.clone(),
+                allowed_guild_ids: forja_cfg.channel.discord.allowed_guild_ids.clone(),
+            },
+        });
+
     let telegram_requested = bot_token.is_some();
     #[cfg(feature = "telegram")]
     if telegram_requested {
@@ -53,6 +75,8 @@ pub(crate) async fn build_channel_bundle(forja_cfg: &ForjaConfig) -> ChannelBund
         MultiChannel::new(
             bot_token,
             allowed_chat_ids,
+            #[cfg(feature = "discord")]
+            discord_config,
             #[cfg(feature = "voice")]
             voice_config,
             #[cfg(feature = "notification")]
@@ -85,7 +109,8 @@ pub(crate) async fn build_channel_bundle(forja_cfg: &ForjaConfig) -> ChannelBund
     let telegram_status_provider = crate::dashboard::routes::default_telegram_status_provider();
 
     ChannelBundle {
-        channel: multi_channel,
+        channel: multi_channel.clone(),
+        dashboard_bridge: multi_channel.dashboard_bridge(),
         interactive_identity_supported: !matches!(
             telegram_status,
             TelegramConnectionStatus::Connected
@@ -130,8 +155,7 @@ fn build_voice_config(forja_cfg: &ForjaConfig) -> Option<VoiceConfig> {
             .unwrap_or_else(|_| "gpt-4o-mini-transcribe".to_string()),
         tts_model: std::env::var("FORJA_VOICE_TTS_MODEL")
             .unwrap_or_else(|_| "gpt-4o-mini-tts".to_string()),
-        tts_voice: std::env::var("FORJA_VOICE_TTS_VOICE")
-            .unwrap_or_else(|_| "alloy".to_string()),
+        tts_voice: std::env::var("FORJA_VOICE_TTS_VOICE").unwrap_or_else(|_| "alloy".to_string()),
         ..VoiceConfig::default()
     })
 }

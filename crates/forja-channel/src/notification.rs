@@ -20,7 +20,10 @@ impl NotificationManager {
     }
 
     pub fn set_enabled(&self, enabled: bool) -> NotificationState {
-        let mut state = self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         state.enabled = enabled;
         *state
     }

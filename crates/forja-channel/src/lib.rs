@@ -1,11 +1,12 @@
 pub mod cli;
+pub mod dashboard_bridge;
 pub mod multi;
 #[cfg(feature = "notification")]
 pub mod notification;
-#[cfg(feature = "voice")]
-pub mod voice;
 #[cfg(feature = "telegram")]
 pub(crate) mod telegram_supervisor;
+#[cfg(feature = "voice")]
+pub mod voice;
 
 // Optional Channels
 #[cfg(feature = "telegram")]

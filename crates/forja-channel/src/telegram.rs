@@ -9,15 +9,15 @@ use reqwest::Client;
 #[cfg(feature = "telegram")]
 use std::sync::Mutex as StdMutex;
 #[cfg(feature = "telegram")]
-use teloxide::dispatching::{Dispatcher, ShutdownToken, UpdateFilterExt};
-#[cfg(feature = "telegram")]
-use teloxide::{prelude::*, RequestError};
-#[cfg(feature = "telegram")]
-use tokio::sync::{mpsc, Mutex};
-#[cfg(feature = "telegram")]
 use std::time::Duration;
 #[cfg(feature = "telegram")]
+use teloxide::dispatching::{Dispatcher, ShutdownToken, UpdateFilterExt};
+#[cfg(feature = "telegram")]
 use teloxide::types::Update;
+#[cfg(feature = "telegram")]
+use teloxide::{RequestError, prelude::*};
+#[cfg(feature = "telegram")]
+use tokio::sync::{Mutex, mpsc};
 
 /// Core interface for the Telegram bot channel.
 #[cfg(feature = "telegram")]
@@ -55,12 +55,12 @@ impl TelegramChannel {
                 return Err(forja_core::error::ForjaError::ChannelError(format!(
                     "Telegram getMe failed: {}",
                     error
-                )))
+                )));
             }
             Err(_) => {
                 return Err(forja_core::error::ForjaError::ChannelError(
                     "Telegram getMe timed out after 60 seconds".to_string(),
-                ))
+                ));
             }
         }
         // Channel buffer size 100 (can be optimized)
@@ -78,10 +78,9 @@ impl TelegramChannel {
 
                     if !allowed.contains(&chat_id) {
                         // Block access outside whitelist: send notice and discard
-                        let _ = bot.send_message(
-                            msg.chat.id, 
-                            "[DENIED] Authorized users only."
-                        ).await;
+                        let _ = bot
+                            .send_message(msg.chat.id, "[DENIED] Authorized users only.")
+                            .await;
                         return Ok::<(), RequestError>(());
                     }
 
@@ -89,7 +88,7 @@ impl TelegramChannel {
                         let adapter = TelegramAdapter;
                         let raw = CoreMessage::text(Role::User, text.to_string(), None);
                         let core_msg = adapter.from_envelope(adapter.to_envelope(raw));
-                        
+
                         // Send failure catch (ignored for now)
                         let _ = tx.send((chat_id, core_msg)).await;
                     }
@@ -185,7 +184,10 @@ impl Channel for TelegramChannel {
             let handle = tokio::spawn(async move {
                 loop {
                     let _ = bot_clone
-                        .send_chat_action(teloxide::types::ChatId(tid), teloxide::types::ChatAction::Typing)
+                        .send_chat_action(
+                            teloxide::types::ChatId(tid),
+                            teloxide::types::ChatAction::Typing,
+                        )
                         .await;
                     tokio::time::sleep(tokio::time::Duration::from_secs(4)).await;
                 }
@@ -203,7 +205,7 @@ impl Channel for TelegramChannel {
             Ok(msg)
         } else {
             Err(forja_core::error::ForjaError::ChannelError(
-                "Telegram receiver channel closed unexpectedly".to_string()
+                "Telegram receiver channel closed unexpectedly".to_string(),
             ))
         }
     }
@@ -225,7 +227,8 @@ impl Channel for TelegramChannel {
 
         if let Some(chat_id) = last_id {
             if let Content::Text { text, .. } = &message.content {
-                let send_res = self.bot
+                let send_res = self
+                    .bot
                     .send_message(teloxide::types::ChatId(chat_id), text.to_string())
                     .parse_mode(teloxide::types::ParseMode::MarkdownV2)
                     .await;
@@ -235,9 +238,12 @@ impl Channel for TelegramChannel {
                     self.bot
                         .send_message(teloxide::types::ChatId(chat_id), text.to_string())
                         .await
-                        .map_err(|e| forja_core::error::ForjaError::ChannelError(format!(
-                            "Failed to send Telegram message: {}", e
-                        )))?;
+                        .map_err(|e| {
+                            forja_core::error::ForjaError::ChannelError(format!(
+                                "Failed to send Telegram message: {}",
+                                e
+                            ))
+                        })?;
                 }
 
                 // Print send log to terminal
@@ -247,7 +253,8 @@ impl Channel for TelegramChannel {
                     println!("• {}", log_text);
                     print!("> ");
                     std::io::stdout().flush().ok();
-                }).await;
+                })
+                .await;
             }
         } else {
             // Skip or log warning if no target chat exists yet
@@ -259,6 +266,10 @@ impl Channel for TelegramChannel {
 
     fn shutdown(&self) {
         self.shutdown_inner();
+    }
+
+    fn active_channel_name(&self) -> Option<&'static str> {
+        Some("telegram")
     }
 }
 

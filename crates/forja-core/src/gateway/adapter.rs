@@ -12,6 +12,8 @@ pub struct CliAdapter;
 
 pub struct TelegramAdapter;
 
+pub struct DiscordAdapter;
+
 impl ChannelAdapter for CliAdapter {
     fn to_envelope(&self, raw: Message) -> Envelope {
         message_to_envelope(raw, ChannelKind::Cli)
@@ -25,6 +27,16 @@ impl ChannelAdapter for CliAdapter {
 impl ChannelAdapter for TelegramAdapter {
     fn to_envelope(&self, raw: Message) -> Envelope {
         message_to_envelope(raw, ChannelKind::Telegram)
+    }
+
+    fn from_envelope(&self, envelope: Envelope) -> Message {
+        envelope_to_message(envelope)
+    }
+}
+
+impl ChannelAdapter for DiscordAdapter {
+    fn to_envelope(&self, raw: Message) -> Envelope {
+        message_to_envelope(raw, ChannelKind::Discord)
     }
 
     fn from_envelope(&self, envelope: Envelope) -> Message {

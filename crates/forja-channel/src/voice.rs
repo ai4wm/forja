@@ -9,7 +9,7 @@ use std::io::Cursor;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 
 const DEFAULT_CAPTURE_SECS: u64 = 4;
 const DEFAULT_SAMPLE_RATE: u32 = 16_000;
@@ -119,9 +119,10 @@ impl VoiceChannel {
 impl Channel for VoiceChannel {
     async fn receive(&self) -> Result<Message> {
         let mut receiver = self.receiver.lock().await;
-        receiver.recv().await.ok_or_else(|| {
-            ForjaError::ChannelError("Voice channel receiver closed".to_string())
-        })
+        receiver
+            .recv()
+            .await
+            .ok_or_else(|| ForjaError::ChannelError("Voice channel receiver closed".to_string()))
     }
 
     async fn send(&self, message: Message) -> Result<()> {
@@ -238,9 +239,9 @@ fn capture_audio_wav(config: &VoiceConfig) -> Result<Vec<u8>> {
     let device = host
         .default_input_device()
         .ok_or_else(|| ForjaError::ChannelError("No microphone input device found".to_string()))?;
-    let supported_config = device
-        .default_input_config()
-        .map_err(|error| ForjaError::ChannelError(format!("Could not query input config: {error}")))?;
+    let supported_config = device.default_input_config().map_err(|error| {
+        ForjaError::ChannelError(format!("Could not query input config: {error}"))
+    })?;
     let sample_format = supported_config.sample_format();
     let stream_config = supported_config.config();
     let channels = stream_config.channels as usize;
@@ -272,14 +273,14 @@ fn capture_audio_wav(config: &VoiceConfig) -> Result<Vec<u8>> {
         _ => {
             return Err(ForjaError::ChannelError(
                 "Unsupported microphone sample format".to_string(),
-            ))
+            ));
         }
     }
     .map_err(|error| ForjaError::ChannelError(format!("Failed to build input stream: {error}")))?;
 
-    stream
-        .play()
-        .map_err(|error| ForjaError::ChannelError(format!("Failed to start input stream: {error}")))?;
+    stream.play().map_err(|error| {
+        ForjaError::ChannelError(format!("Failed to start input stream: {error}"))
+    })?;
     std::thread::sleep(Duration::from_secs(config.capture_secs));
     drop(stream);
 
@@ -301,16 +302,17 @@ fn capture_audio_wav(config: &VoiceConfig) -> Result<Vec<u8>> {
         sample_format: hound::SampleFormat::Int,
     };
     {
-        let mut writer = hound::WavWriter::new(&mut cursor, spec)
-            .map_err(|error| ForjaError::ChannelError(format!("Failed to create WAV writer: {error}")))?;
+        let mut writer = hound::WavWriter::new(&mut cursor, spec).map_err(|error| {
+            ForjaError::ChannelError(format!("Failed to create WAV writer: {error}"))
+        })?;
         for sample in captured {
-            writer
-                .write_sample(sample)
-                .map_err(|error| ForjaError::ChannelError(format!("Failed to encode WAV sample: {error}")))?;
+            writer.write_sample(sample).map_err(|error| {
+                ForjaError::ChannelError(format!("Failed to encode WAV sample: {error}"))
+            })?;
         }
-        writer
-            .finalize()
-            .map_err(|error| ForjaError::ChannelError(format!("Failed to finalize WAV data: {error}")))?;
+        writer.finalize().map_err(|error| {
+            ForjaError::ChannelError(format!("Failed to finalize WAV data: {error}"))
+        })?;
     }
 
     Ok(cursor.into_inner())
@@ -324,14 +326,19 @@ async fn transcribe_audio(config: &VoiceConfig, api_key: &str, audio: Vec<u8>) -
     let form = Form::new()
         .text("model", config.transcription_model.clone())
         .part("file", part);
-    let endpoint = format!("{}/audio/transcriptions", config.api_base.trim_end_matches('/'));
+    let endpoint = format!(
+        "{}/audio/transcriptions",
+        config.api_base.trim_end_matches('/')
+    );
     let response = reqwest::Client::new()
         .post(endpoint)
         .bearer_auth(api_key)
         .multipart(form)
         .send()
         .await
-        .map_err(|error| ForjaError::ChannelError(format!("Voice transcription request failed: {error}")))?;
+        .map_err(|error| {
+            ForjaError::ChannelError(format!("Voice transcription request failed: {error}"))
+        })?;
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -340,11 +347,14 @@ async fn transcribe_audio(config: &VoiceConfig, api_key: &str, audio: Vec<u8>) -
             status, body
         )));
     }
-    let payload: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|error| ForjaError::ChannelError(format!("Invalid transcription response: {error}")))?;
-    Ok(payload["text"].as_str().unwrap_or_default().trim().to_string())
+    let payload: serde_json::Value = response.json().await.map_err(|error| {
+        ForjaError::ChannelError(format!("Invalid transcription response: {error}"))
+    })?;
+    Ok(payload["text"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .to_string())
 }
 
 async fn request_tts_bytes(config: &VoiceConfig, api_key: &str, text: &str) -> Result<Vec<u8>> {
@@ -360,7 +370,9 @@ async fn request_tts_bytes(config: &VoiceConfig, api_key: &str, text: &str) -> R
         }))
         .send()
         .await
-        .map_err(|error| ForjaError::ChannelError(format!("Voice synthesis request failed: {error}")))?;
+        .map_err(|error| {
+            ForjaError::ChannelError(format!("Voice synthesis request failed: {error}"))
+        })?;
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -378,14 +390,15 @@ async fn request_tts_bytes(config: &VoiceConfig, api_key: &str, text: &str) -> R
 
 fn play_audio_bytes(runtime: Arc<VoiceRuntime>, bytes: Vec<u8>) -> Result<()> {
     let cursor = Cursor::new(bytes);
-    let (_stream, handle) = OutputStream::try_default()
-        .map_err(|error| ForjaError::ChannelError(format!("No speaker output device found: {error}")))?;
-    let sink = Arc::new(
-        Sink::try_new(&handle)
-            .map_err(|error| ForjaError::ChannelError(format!("Could not create audio sink: {error}")))?,
-    );
-    let source = Decoder::new(cursor)
-        .map_err(|error| ForjaError::ChannelError(format!("Could not decode TTS audio: {error}")))?;
+    let (_stream, handle) = OutputStream::try_default().map_err(|error| {
+        ForjaError::ChannelError(format!("No speaker output device found: {error}"))
+    })?;
+    let sink = Arc::new(Sink::try_new(&handle).map_err(|error| {
+        ForjaError::ChannelError(format!("Could not create audio sink: {error}"))
+    })?);
+    let source = Decoder::new(cursor).map_err(|error| {
+        ForjaError::ChannelError(format!("Could not decode TTS audio: {error}"))
+    })?;
     sink.append(source);
     {
         let mut playback = runtime
