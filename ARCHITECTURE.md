@@ -11,8 +11,8 @@ The root binary assembles five internal crates:
 - `forja-core`: engine traits, runtime orchestration, prompt assembly, context, audit, budget, heartbeat, autonomy, dream maintenance orchestration, staged debate creation, and domain types
 - `forja-llm`: multi-provider LLM client and provider presets
 - `forja-memory`: markdown-backed structured memory storage and dream-maintenance persistence
-- `forja-tools`: shell, file, web, search, browser, input, vision, and external CLI bridge tools
-- `forja-channel`: CLI and Telegram channel adapters
+- `forja-tools`: shell, file, web, search, browser, input, vision, MCP server, and external CLI bridge tools
+- `forja-channel`: CLI, Telegram, and Discord channel adapters
 
 The dominant architectural pattern is a single process with trait-based boundaries.
 `forja-core` defines the contracts (`Channel`, `LlmProvider`, `MemoryStore`, `Tool`) and the root binary wires concrete adapters at startup.
@@ -73,19 +73,26 @@ This crate is the main domain boundary for all assistant behavior.
 
 - `forja-llm`: provider-specific HTTP client logic and preset configuration
 - `forja-memory`: structured markdown storage implementation for the `MemoryStore` trait, including `dreams/` logs and pending-journal recovery
-- `forja-tools`: concrete tool adapters for shell, browser, input, vision, file, web, search, and external CLIs
-- `forja-channel`: CLI and Telegram channel implementations
+- `forja-tools`: concrete tool adapters for shell, browser, input, vision, file, web, search, MCP, and external CLIs
+- `forja-channel`: CLI, Telegram, and Discord channel implementations
 
 The root binary depends on these adapters and injects them into the engine at runtime.
 
 ### 4. Local Dashboard
 
 - `src/dashboard/mod.rs`: local Axum server lifecycle and browser opening
-- `src/dashboard/routes.rs`: read-only routes over `audit.db` plus task approval mutation
-- `src/dashboard/static/index.html`: single-file dashboard UI
+- `src/dashboard/routes/`: modular Axum route handlers for audit, autonomy, budget, debates, memory, assets, and chat
+- `src/dashboard/static/`: embedded desktop dashboard assets (`index.html`, `dashboard.css`, `dashboard.js`)
 
 The dashboard is not a separate deployable service.
 It is a local companion surface for the running CLI process.
+
+### 5. MCP Tool Server
+
+- `crates/forja-tools/src/mcp/`: stdio MCP transport, protocol handling, tool registry, and request dispatch
+- `crates/forja-tools/src/bin/forja-mcp.rs`: lightweight MCP server entrypoint for external agents
+
+The MCP server is an auxiliary surface for exposing Forja tools to other agent runtimes without booting the full Forja CLI.
 
 ## Data and Persistence
 
@@ -135,7 +142,7 @@ README coverage is incomplete relative to the implemented slash surface, so the 
 
 - CLI is the primary interaction surface.
 - Telegram can run in parallel through `MultiChannel` when configured.
-- Discord is feature-gated in `forja-channel` but is not part of the active runtime described by the workspace today.
+- Discord is feature-gated in `forja-channel` and can run through `MultiChannel` with allowlist-based access control.
 
 ### Browser UI
 
@@ -143,11 +150,22 @@ The only browser-facing surface is the local dashboard.
 It serves:
 
 - `/`
+- `/assets/dashboard.css`
+- `/assets/dashboard.js`
 - `/api/audit`
+- `/api/conversation`
 - `/api/debates`
 - `/api/debate/:id`
 - `/api/budget`
 - `/api/skills`
+- `/api/history`
+- `/api/tools`
+- `/api/memory`
+- `/api/memory/entries`
+- `/api/memory/summaries`
+- `/api/events`
+- `/api/chat`
+- `/api/chat/stream`
 - `/api/unresolved`
 - `/api/tasks`
 - `/api/approve/:id`
@@ -178,7 +196,7 @@ CI currently builds and tests primarily with `--no-default-features`, which mean
 
 ## Observed Risks
 
-- `src/main.rs`, `crates/forja-core/src/engine.rs`, and `src/dashboard/routes.rs` are large and exceed the project’s preferred file-size guidance.
+- `src/main.rs` and `crates/forja-core/src/engine.rs` are still large and exceed the project’s preferred file-size guidance.
 - `README.md` and `docs/STATUS.md` are not fully aligned with the code that exists today.
 - There is no dedicated `/health` or `/status` endpoint.
 - There are no container or PaaS deployment manifests in the repository root.

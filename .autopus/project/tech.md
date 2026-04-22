@@ -21,7 +21,7 @@
 
 - HTTP server: Axum
 - HTTP middleware: tower-http
-- Dashboard UI: static HTML embedded with `include_str!`
+- Dashboard UI: embedded HTML, CSS, and JavaScript assets served by Axum
 
 ## Storage
 
@@ -36,6 +36,7 @@
 - Desktop input automation: input tool backends
 - Vision and OCR: vision tool with optional screen capture backend
 - Web and search access: web and search tools
+- MCP transport: stdio server in `forja-tools`
 - External bridge tools: Claude Code, Codex, and Gemini CLI wrappers when installed
 
 ## AI and Model Layer
@@ -59,7 +60,7 @@
 - Single-binary runtime composition
 - Trait-based port and adapter boundaries
 - Local-first persistence
-- Feature-gated optional capabilities such as Telegram and vision
+- Feature-gated optional capabilities such as Telegram, Discord, and vision
 - Streaming-first assistant responses with fallback paths
 - SQLite-backed observability for audit, budgets, and autonomy state
 - Background dream maintenance using deterministic local rules over the structured memory layout
@@ -80,6 +81,7 @@
   - `cargo test -p forja-llm -- --ignored`
 - CI workflow: `.github/workflows/ci.yml`
 - Release workflow: `.github/workflows/release.yml`
+- Publish workflow: `.github/workflows/publish.yml`
 
 ## Constraints Observed in Code
 

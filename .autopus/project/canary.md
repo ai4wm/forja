@@ -4,8 +4,9 @@
 
 - CI workflow: `.github/workflows/ci.yml`
 - Release workflow: `.github/workflows/release.yml`
+- Publish workflow: `.github/workflows/publish.yml`
 - Local dashboard server: `src/dashboard/mod.rs`
-- Dashboard routes: `src/dashboard/routes.rs`
+- Dashboard routes: `src/dashboard/routes/`
 - Dashboard UI: `src/dashboard/static/index.html`
 - Binary entrypoint and slash wiring: `src/main.rs`
 

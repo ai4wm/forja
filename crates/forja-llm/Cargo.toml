@@ -1,13 +1,18 @@
 [package]
 name = "forja-llm"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
+rust-version = "1.87"
 description = "Multi-provider LLM connector for Forja framework"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ai4wm/forja"
+homepage = "https://github.com/ai4wm/forja"
+documentation = "https://docs.rs/forja-llm"
+keywords = ["ai", "agent", "llm", "openai", "forja"]
+categories = ["api-bindings", "asynchronous"]
 
 [dependencies]
-forja-core = { version = "0.1.1", path = "../forja-core" }
+forja-core = { version = "0.1.2", path = "../forja-core" }
 tokio-stream = "0.1"
 tokio = { version = "1.0", features = ["sync"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -25,4 +30,7 @@ anthropic = ["dep:reqwest-eventsource"]
 
 [dev-dependencies]
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
+
+[package.metadata.docs.rs]
+all-features = true
 

@@ -41,6 +41,12 @@ Automatically switches between coder, writer, assistant, and analyst prompts bas
 **Configurable Identity**
 Set assistant name and user title during onboarding. No hardcoded language responds in whatever language you use.
 
+**Local Desktop Dashboard**
+`/dashboard` opens an Axum-backed local desktop surface with live conversation streaming, memory browsing, tool monitoring, and audit/task views.
+
+**MCP Tool Server**
+`forja-tools` now includes a stdio MCP server so external agents can list and call Forja tools through `tools/list` and `tools/call`.
+
 ## Quick Start
 
 ### Install (recommended)
@@ -59,6 +65,14 @@ git clone https://github.com/ai4wm/forja.git
 cd forja
 cargo run
 ```
+
+### MCP server
+
+```bash
+cargo run -p forja-tools --bin forja-mcp
+```
+
+The MCP server uses stdio transport and exposes a pragmatic default tool set from `forja-tools`.
 
 ### Pre-built binaries
 
@@ -93,6 +107,12 @@ anthropic = "sk-ant-..."
 [channel.telegram]
 bot_token = "123456:token"
 allowed_chat_ids = [123456789]
+
+[channel.discord]
+bot_token = "discord-bot-token"
+allowed_user_ids = [123456789012345678]
+# allowed_channel_ids = [123456789012345678]
+# allowed_guild_ids = [123456789012345678]
 ```
 
 ### Environment Variables
@@ -179,6 +199,14 @@ Use `/models` at runtime to see all available models.
 
 - **CLI**: Always available, with streaming output
 - **Telegram**: Supervised sidecar with whitelist-based access control, typing indicators, bounded auto-reconnect, and dashboard-visible connection status.
+- **Discord**: Optional channel adapter with allowlist-based access control, typing indicators, and reconnecting gateway runtime.
+
+## MCP Integration
+
+- Launch the MCP server with `cargo run -p forja-tools --bin forja-mcp`
+- Transport: stdio
+- Supported methods: `initialize`, `tools/list`, `tools/call`, `ping`
+- Default tool registry: `file_tool`, `web_tool`, `search_tool`, `shell`
 
 ## License
 

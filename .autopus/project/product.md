@@ -31,8 +31,11 @@ The repository and runtime behavior indicate a developer-oriented primary user:
 - Visual analysis through `/ss` and `/image`
 - Debate and task capture through `/debate` and `/task`
 - Local dashboard through `/dashboard`
+- Desktop-style dashboard chat, memory browser, tool monitor, and live streaming through the local Axum UI
 - Tool-backed actions through shell, browser, input, vision, file, web, and search integrations
+- MCP exposure of Forja tools for external agent runtimes through stdio
 - Telegram side-channel support when configured
+- Discord side-channel support behind the optional `discord` feature
 
 ## Product Modes
 
@@ -60,6 +63,7 @@ The repository and runtime behavior indicate a developer-oriented primary user:
 
 - CLI-only
 - CLI plus Telegram when a bot token and allowlist are configured
+- CLI plus Discord when the `discord` feature is enabled and allowlists are configured
 
 ## Main User Flows
 
@@ -82,6 +86,7 @@ The user opens `/dashboard` to inspect audit logs, debates, budgets, tasks, skil
 ## Boundaries
 
 - The product is local-first, not a hosted SaaS application.
-- The dashboard is a companion view, not a separate web product.
+- The dashboard is a companion view, not a separate web product, even though it now includes live chat and memory browsing.
+- The MCP server is a local stdio integration surface, not a hosted remote control plane.
 - The current repository does not define container or platform deployment artifacts.
 - The code exposes Telegram support, but CLI remains the primary and best-covered interaction path.

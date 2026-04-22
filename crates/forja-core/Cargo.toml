@@ -1,10 +1,15 @@
 [package]
 name = "forja-core"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
+rust-version = "1.87"
 description = "Core engine traits and types for Forja"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ai4wm/forja"
+homepage = "https://github.com/ai4wm/forja"
+documentation = "https://docs.rs/forja-core"
+keywords = ["ai", "agent", "llm", "runtime", "forja"]
+categories = ["asynchronous", "development-tools"]
 
 [features]
 default = []
@@ -26,4 +31,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 serde_yaml = "0.9"
 
 tokio = { version = "1.0", features = ["macros", "rt", "sync", "time", "test-util"] }
+
+[package.metadata.docs.rs]
+all-features = true
 

@@ -11,7 +11,7 @@ The repository is a Rust workspace with one root binary package and five interna
 - `crates/forja-llm/`: LLM client and model/provider preset logic
 - `crates/forja-memory/`: markdown memory store
 - `crates/forja-tools/`: shell, browser, input, vision, search, file, web, and CLI bridge tools
-- `crates/forja-channel/`: CLI and Telegram channel implementations
+- `crates/forja-channel/`: CLI, Telegram, and Discord channel implementations
 - `tests/`: phase and integration-style runtime tests
 - `docs/`: roadmap and architecture/status documentation
 - `.github/workflows/`: CI and release automation
@@ -30,8 +30,8 @@ The repository is a Rust workspace with one root binary package and five interna
 ## Dashboard Files
 
 - `src/dashboard/mod.rs`: local Axum server lifecycle
-- `src/dashboard/routes.rs`: dashboard API routes
-- `src/dashboard/static/index.html`: single-file dashboard UI
+- `src/dashboard/routes/`: modular dashboard API routes and asset handlers
+- `src/dashboard/static/`: dashboard HTML, CSS, and JavaScript assets
 - `src/dashboard/tests.rs`: dashboard route tests
 
 ## Crate Responsibilities
@@ -97,17 +97,20 @@ Key files:
 - `src/search.rs`
 - `src/file.rs`
 - `src/web.rs`
+- `src/mcp/`
+- `src/bin/forja-mcp.rs`
 - `src/claude_code.rs`
 - `src/codex.rs`
 - `src/gemini_cli.rs`
 
-This crate contains the execution surface used by the agent runtime.
+This crate contains the execution surface used by the agent runtime and an MCP server surface for external agents.
 
 ### `forja-channel`
 
 Key files:
 
 - `src/cli.rs`
+- `src/discord.rs`
 - `src/multi.rs`
 - `src/telegram.rs`
 
@@ -130,4 +133,4 @@ This crate owns channel input/output and multi-channel coordination.
 
 - The active codebase is CLI-first.
 - The dashboard is embedded in the root binary instead of being split into a separate service.
-- Some large files currently concentrate too much responsibility, especially `src/main.rs`, `crates/forja-core/src/engine.rs`, and `src/dashboard/routes.rs`.
+- Some large files still concentrate too much responsibility, especially `src/main.rs` and `crates/forja-core/src/engine.rs`.

@@ -2,34 +2,117 @@ name: CI
 
 on:
   push:
-    branches: [ "*" ]
+    branches: ["*"]
   pull_request:
-    branches: [ "*" ]
+    branches: ["*"]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  baseline:
+    name: baseline (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install system dependencies
-      run: sudo apt-get update && sudo apt-get install -y libxdo-dev libssl-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-shape0-dev libxcb-composite0-dev libwayland-dev libwayland-client0 pkg-config libpipewire-0.3-dev libspa-0.2-dev libclang-dev
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxdo-dev \
+            libssl-dev \
+            libxcb-randr0-dev \
+            libxcb-shm0-dev \
+            libxcb-xfixes0-dev \
+            libxcb-shape0-dev \
+            libxcb-composite0-dev \
+            libwayland-dev \
+            libwayland-client0 \
+            pkg-config \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev \
+            libclang-dev
 
-    - name: Install Rust stable
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
-    - name: Build workspace
-      run: cargo build --workspace --no-default-features
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
 
-    - name: Run clippy
-      run: cargo clippy --workspace --no-default-features
+      - name: Build workspace
+        run: cargo build --workspace --no-default-features
 
-    - name: Run tests
-      run: cargo test --workspace --exclude forja-llm --no-default-features
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
 
+      - name: Run workspace tests
+        run: cargo test --workspace --exclude forja-llm --no-default-features
+
+      - name: Run dashboard route tests
+        run: cargo test --no-default-features dashboard:: -- --nocapture
+
+  forja-llm-smoke:
+    name: forja-llm smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run deterministic auth smoke test
+        run: cargo test -p forja-llm --test auth_test test_missing_project_id -- --exact
+
+  package-dry-run:
+    name: package dry-run
+    runs-on: ubuntu-latest
+    needs: [baseline, forja-llm-smoke]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxdo-dev \
+            libssl-dev \
+            libxcb-randr0-dev \
+            libxcb-shm0-dev \
+            libxcb-xfixes0-dev \
+            libxcb-shape0-dev \
+            libxcb-composite0-dev \
+            libwayland-dev \
+            libwayland-client0 \
+            pkg-config \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev \
+            libclang-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Dry-run package manifests
+        run: cargo package --workspace --allow-dirty --no-verify
+
+      - name: Validate root CLI publish prerequisites
+        run: cargo build -p forja --no-default-features

@@ -1,10 +1,15 @@
 [package]
 name = "forja-channel"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
+rust-version = "1.87"
 description = "Multi-platform asynchronous I/O channels for Forja"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ai4wm/forja"
+homepage = "https://github.com/ai4wm/forja"
+documentation = "https://docs.rs/forja-channel"
+keywords = ["ai", "agent", "telegram", "discord", "forja"]
+categories = ["asynchronous", "command-line-utilities"]
 
 [features]
 default = []
@@ -14,10 +19,11 @@ voice = ["dep:cpal", "dep:rodio", "dep:hound"]
 notification = ["dep:notify-rust"]
 
 [dependencies]
-forja-core = { version = "0.1.1", path = "../forja-core" }
+forja-core = { version = "0.1.2", path = "../forja-core" }
 tokio = { version = "1.0", features = ["rt", "io-std", "io-util", "macros", "sync"] }
 async-trait = "0.1"
 reqwest = "0.11"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 notify-rust = { version = "4.11", optional = true }
 
@@ -27,5 +33,8 @@ serenity = { version = "0.12", default-features = false, features = ["client", "
 cpal = { version = "0.15", optional = true }
 rodio = { version = "0.19", optional = true }
 hound = { version = "3.5", optional = true }
+
+[package.metadata.docs.rs]
+all-features = true
 
 

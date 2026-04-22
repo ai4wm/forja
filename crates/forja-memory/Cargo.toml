@@ -1,17 +1,25 @@
 [package]
 name = "forja-memory"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
+rust-version = "1.87"
 description = "Memory and context storage provider for Forja framework"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ai4wm/forja"
+homepage = "https://github.com/ai4wm/forja"
+documentation = "https://docs.rs/forja-memory"
+keywords = ["ai", "agent", "memory", "sqlite", "forja"]
+categories = ["database", "asynchronous"]
 
 [dependencies]
-forja-core = { version = "0.1.1", path = "../forja-core" }
+forja-core = { version = "0.1.2", path = "../forja-core" }
 tokio = { version = "1.0", features = ["fs", "io-util"] }
 chrono = "0.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9" # YAML frontmatter parsing
 async-trait = "0.1"
 rusqlite = { version = "0.32", features = ["bundled"] }
+
+[package.metadata.docs.rs]
+all-features = true
 
